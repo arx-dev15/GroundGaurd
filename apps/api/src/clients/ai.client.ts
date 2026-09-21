@@ -20,9 +20,10 @@ export class AIClient {
     this.timeoutMs = timeoutMs;
   }
 
-  private async fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  private async fetchWithTimeout(url: string, options: RequestInit = {}, customTimeoutMs?: number): Promise<Response> {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeout = customTimeoutMs || this.timeoutMs;
+    const id = setTimeout(() => controller.abort(), timeout);
     try {
       const response = await fetch(url, {
         ...options,
@@ -49,15 +50,31 @@ export class AIClient {
     }
   }
 
-  public async ingest(payload: IngestRequest, requestId?: string): Promise<IngestResponse> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  public async ingest(
+    documentId: string,
+    projectId: string,
+    fileBuffer: Buffer,
+    filename: string,
+    requestId?: string
+  ): Promise<IngestResponse> {
+    const formData = new FormData();
+    const blob = new Blob([new Uint8Array(fileBuffer)], { type: 'application/pdf' });
+    formData.append('file', blob, filename);
+    formData.append('documentId', documentId);
+    formData.append('projectId', projectId);
+
+    const headers: Record<string, string> = {};
     if (requestId) headers['x-request-id'] = requestId;
 
-    const res = await this.fetchWithTimeout(`${this.baseUrl}/ingest`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    });
+    const res = await this.fetchWithTimeout(
+      `${this.baseUrl}/ingest`,
+      {
+        method: 'POST',
+        headers,
+        body: formData,
+      },
+      60000 // 60s timeout for real PDF parsing and embedding
+    );
 
     if (!res.ok) {
       throw new ServiceUnavailableError('AI Service (/ingest)');

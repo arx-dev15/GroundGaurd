@@ -1,0 +1,101 @@
+import { documentRepository, DBDocument } from '../repositories/document.repository';
+import { aiClient } from '../clients/ai.client';
+import { saveUploadedFile, deleteStoredFile } from '../utils/storage';
+import { BadRequestError, NotFoundError } from '../utils/errors';
+import { Document } from '@groundguard/contracts';
+
+function toPublicDocument(dbDoc: DBDocument): Document {
+  return {
+    id: dbDoc.id,
+    projectId: dbDoc.projectId,
+    filename: dbDoc.filename,
+    fileSize: dbDoc.fileSize,
+    mimeType: dbDoc.mimeType,
+    status: dbDoc.status,
+    errorMessage: dbDoc.errorMessage || undefined,
+    chunksCount: dbDoc.chunksCount,
+    createdAt: dbDoc.createdAt.toISOString(),
+    updatedAt: dbDoc.updatedAt.toISOString(),
+  };
+}
+
+export class DocumentOrchestrator {
+  public async processDocumentUpload(data: {
+    projectId: string;
+    filename: string;
+    fileSize: number;
+    mimeType: string;
+    fileBuffer: Buffer;
+    requestId?: string;
+  }): Promise<Document> {
+    // 1. PDF Content Validation (MIME & PDF Header Magic Bytes)
+    if (data.fileBuffer.length === 0) {
+      throw new BadRequestError('Uploaded file is empty');
+    }
+    const magicBytes = data.fileBuffer.subarray(0, 4).toString('utf-8');
+    if (!magicBytes.startsWith('%PDF')) {
+      throw new BadRequestError('Uploaded file is not a valid PDF document');
+    }
+
+    // 2. Insert initial document record in PostgreSQL ('uploaded')
+    // Generate placeholder ID before file save
+    const tempDoc = await documentRepository.createDocument({
+      projectId: data.projectId,
+      filename: data.filename,
+      fileSize: data.fileSize,
+      mimeType: data.mimeType,
+      filePath: '', // filled below
+    });
+
+    const filePath = await saveUploadedFile(data.projectId, tempDoc.id, data.fileBuffer);
+
+    // Update with file_path & status 'processing'
+    await documentRepository.updateStatus(tempDoc.id, 'processing');
+
+    // 3. Invoke M2 AI Service HTTP Ingestion
+    try {
+      const ingestRes = await aiClient.ingest(
+        tempDoc.id,
+        data.projectId,
+        data.fileBuffer,
+        data.filename,
+        data.requestId
+      );
+
+      if (ingestRes.status === 'failed') {
+        const sanitizedMsg = ingestRes.errorMessage || 'Document processing failed';
+        const failedDoc = await documentRepository.updateStatus(tempDoc.id, 'failed', 0, sanitizedMsg);
+        return toPublicDocument(failedDoc!);
+      }
+
+      // 4. M3 performs the final status transition to 'ready'
+      const readyDoc = await documentRepository.updateStatus(
+        tempDoc.id,
+        'ready',
+        ingestRes.chunksCreated || 0,
+        undefined
+      );
+      return toPublicDocument(readyDoc!);
+    } catch (err: any) {
+      // On exception/timeout, M3 marks the document status 'failed' with sanitized message
+      const sanitizedMsg = 'Document processing service unavailable or timed out';
+      const failedDoc = await documentRepository.updateStatus(tempDoc.id, 'failed', 0, sanitizedMsg);
+      return toPublicDocument(failedDoc!);
+    }
+  }
+
+  public async deleteDocument(documentId: string, projectId: string): Promise<void> {
+    // Atomic SQL ON DELETE CASCADE removes document row & all associated vector chunks from PostgreSQL
+    const deleted = await documentRepository.deleteDocument(documentId, projectId);
+    if (!deleted) {
+      throw new NotFoundError('Document not found');
+    }
+
+    // Unlink physical file from disk
+    if (deleted.filePath) {
+      await deleteStoredFile(deleted.filePath);
+    }
+  }
+}
+
+export const documentOrchestrator = new DocumentOrchestrator();

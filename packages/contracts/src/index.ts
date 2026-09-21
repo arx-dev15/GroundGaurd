@@ -73,6 +73,31 @@ export interface ProjectListResponse {
   projects: Project[];
 }
 
+// Document Domain Entity & Payloads
+export interface Document {
+  id: string;
+  projectId: string;
+  filename: string;
+  fileSize: number;
+  mimeType: string;
+  status: DocumentStatus;
+  errorMessage?: string;
+  chunksCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentListResponse {
+  documents: Document[];
+}
+
+export interface DocumentStatusResponse {
+  documentId: string;
+  status: DocumentStatus;
+  chunksCount: number;
+  errorMessage?: string;
+}
+
 // Common Objects
 export interface Evidence {
   evidenceId?: string;
@@ -133,8 +158,9 @@ export interface IngestRequest {
 
 export interface IngestResponse {
   documentId: string;
-  status: DocumentStatus;
+  status: 'ready' | 'failed' | 'completed';
   chunksCreated: number;
+  errorMessage?: string;
 }
 
 export interface RetrieveRequest {

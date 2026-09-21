@@ -21,6 +21,12 @@ describe('GroundGuard Phase 2 Auth & Project Isolation Test Suite', () => {
     const liveHealth = await dbManager.checkHealth();
     if (!liveHealth.ok) {
       const memDb = newDb();
+      memDb.registerExtension('vector', (schema: any) => {
+        schema.registerEquivalentType({
+          name: 'vector',
+          equivalentTo: schema.getType('text'),
+        });
+      });
       const memPool = memDb.adapters.createPg().Pool;
       const testPool = new memPool();
       (dbManager as any).pool = testPool;

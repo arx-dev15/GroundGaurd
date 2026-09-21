@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash text,
     name varchar(255),
     created_at timestamptz,
-    updated_at timestamptz
+    updated_at timestamptz,
+    PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -16,7 +17,8 @@ CREATE TABLE IF NOT EXISTS projects (
     name varchar(255),
     description text,
     created_at timestamptz,
-    updated_at timestamptz
+    updated_at timestamptz,
+    PRIMARY KEY (id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
