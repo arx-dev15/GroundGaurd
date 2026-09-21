@@ -28,6 +28,93 @@ Full Stack
 
 Deployment
 
+---
+
+## Phase 1 Quickstart & Service Reference
+
+### Service Ports & Roles
+
+| Service | Port | Directory | Tech Stack | Status |
+|---|---|---|---|---|
+| **M3 Backend API** | `4000` | `apps/api` | Node.js + TypeScript (Fastify) | Foundation Ready |
+| **M2 AI Service** | `8000` | `services/ai` | Python (FastAPI) | Skeleton Ready |
+| **Mock M1 ML Service** | `8001` | `services/ml` | Python (FastAPI) | Mock Verification Ready |
+| **PostgreSQL** | `5432` | Infrastructure | PostgreSQL 16 | Ready |
+| **Redis** | `6379` | Infrastructure | Redis 7 | Ready |
+
+### Prerequisites
+- Node.js >= 20.x
+- Python >= 3.10
+- Docker & Docker Compose (optional for containerized setup)
+
+### Environment Setup
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+2. Key environment variables:
+   ```env
+   NODE_ENV=development
+   PORT=4000
+   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/groundguard
+   REDIS_URL=redis://localhost:6379
+   AI_SERVICE_URL=http://localhost:8000
+   ML_SERVICE_URL=http://localhost:8001
+   ```
+
+### Running Locally
+
+#### 1. Start Shared Contracts & M3 Backend API (:4000)
+```bash
+# Build contracts
+npm --prefix packages/contracts run build
+npm --prefix packages/types run build
+
+# Install API dependencies & start M3 API
+npm --prefix apps/api install
+npm --prefix apps/api run dev
+```
+
+#### 2. Start M2 AI Service Skeleton (:8000)
+```bash
+cd services/ai
+pip install -r requirements.txt
+python src/main.py
+```
+
+#### 3. Start Mock M1 ML Service (:8001)
+```bash
+cd services/ml
+pip install -r requirements.txt
+python src/main.py
+```
+
+#### 4. Run via Docker Compose
+```bash
+docker compose up --build
+```
+
+### Running Phase 1 Tests & Verification
+
+#### Integration Tests
+```bash
+npm --prefix apps/api install
+npx ts-node tests/integration/phase1.test.ts
+```
+
+#### Live Services Verification Script
+```bash
+npx ts-node tests/integration/e2e_phase1_check.ts
+```
+
+### Health & Readiness Endpoints
+- **M3 Liveness**: `GET http://localhost:4000/health` -> `{"service":"api","status":"ok"}`
+- **M3 Readiness**: `GET http://localhost:4000/health/readiness` -> Checks Postgres, Redis, M2, and Mock M1
+- **M2 Health**: `GET http://localhost:8000/health` -> `{"service":"ai","status":"ok"}`
+- **Mock M1 Health**: `GET http://localhost:8001/health` -> `{"service":"ml","status":"ok"}`
+
+---
+
 ## 1. What exactly are we building?
 
 A user uploads documents, asks questions, and receives an AI-generated answer.

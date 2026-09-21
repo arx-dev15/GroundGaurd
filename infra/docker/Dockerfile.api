@@ -1,2 +1,13 @@
-# M3 - Node.js public API
-# TODO: configure Docker image
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+COPY packages ./packages
+COPY apps/api ./apps/api
+
+RUN npm install
+
+EXPOSE 4000
+
+CMD ["npm", "--prefix", "apps/api", "run", "dev"]

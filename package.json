@@ -3,10 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "description": "Evidence-grounded AI reliability platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "echo Development commands will be configured",
-    "build": "echo Build commands will be configured",
-    "test": "echo Tests will be configured",
-    "lint": "echo Lint commands will be configured"
+    "dev:api": "npm --prefix apps/api run dev",
+    "build": "npm --prefix packages/contracts run build && npm --prefix packages/types run build && npm --prefix apps/api run build",
+    "test": "npx ts-node tests/integration/phase1.test.ts"
   }
 }

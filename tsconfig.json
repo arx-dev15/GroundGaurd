@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@groundguard/contracts": ["packages/contracts/src"],
+      "@groundguard/types": ["packages/types/src"]
+    }
+  },
+  "include": ["tests/**/*", "apps/**/*", "packages/**/*"]
+}

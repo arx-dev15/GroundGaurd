@@ -1,2 +1,12 @@
-# M2 - Python RAG + Generation + Recovery
-# TODO: configure Docker image
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY services/ai/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY services/ai ./
+
+EXPOSE 8000
+
+CMD ["python", "src/main.py"]
