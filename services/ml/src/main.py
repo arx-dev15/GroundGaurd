@@ -1,7 +1,13 @@
 import os
+import sys
 import uuid
 import logging
+from pathlib import Path
 from typing import Optional
+
+# Ensure the service root directory (services/ml) is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from fastapi import FastAPI, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
