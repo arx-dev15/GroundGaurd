@@ -117,15 +117,20 @@ Chunk
 Fields:
 
 ```text
-id
-documentId
-text
-chunkIndex
-metadata
-createdAt
+id (UUID, PK)
+document_id (UUID, FK -> documents.id)
+text (TEXT, NOT NULL)
+chunk_index (INTEGER, NOT NULL)
+section (TEXT, NULLABLE) -- Added in migration 003 (e.g. "SECTION 4.2")
+heading (TEXT, NULLABLE) -- Added in migration 003 (e.g. "PUMP SPECIFICATIONS")
+identifiers (JSONB, DEFAULT '[]') -- Added in migration 003 ([{"value": "V-204", "normalized": "V-204", "type": "vessel"}])
+metadata (JSONB, DEFAULT '{}') -- page, source file, etc.
+created_at (TIMESTAMPTZ, DEFAULT NOW())
 ```
 
-Metadata may contain:
+*Note on Migration History:* Historical migration 002 initially defined an `embedding vector(384)` column. Migration 004 explicitly retired pgvector (`ALTER TABLE chunks DROP COLUMN IF EXISTS embedding; DROP EXTENSION IF EXISTS vector;`), transferring all dense embedding indexing to Qdrant.
+
+Metadata example:
 
 ```json
 {
@@ -373,20 +378,28 @@ This structured claim/evidence approach is part of the original project design.
 
 ---
 
-# 17. Vector Storage
+# 17. Knowledge & Vector Storage
 
-Vector storage is M2-owned.
+PostgreSQL is the single canonical source of truth for all persistent application state and canonical chunk text (owned by M3).
 
-Possible implementations:
+M2 owns the derived retrieval and search indexes:
 
-```text
-pgvector
-```
+1. **Qdrant (Dense Semantic Vector Store)**
+   * Single production dense vector engine (`http://localhost:6333`).
+   * 384-dimensional embeddings (`sentence-transformers/all-MiniLM-L6-v2`) with Cosine distance.
+   * UUIDv5 point IDs deterministically generated from `(projectId, documentId, chunkIndex)`.
+   * Payload keyword indexes for project isolation, document filtering, and technical identifier matching.
 
-or:
+2. **Tantivy (Lexical BM25 Search Store)**
+   * Production BM25 text index on disk (`uploads/indexes/tantivy`).
+   * Project-scoped Boolean query filtering.
 
-```text
-Qdrant
-```
+3. **NetworkX (Entity Relationship Graph Store)**
+   * Production topological relationship graph (`uploads/graphs/:projectId/topology.json`).
+   * Connects normalized technical identifiers (`V-204`, `P-101A`) with directed edges (`upstream_of`, `downstream_of`, `connected_to`) and chunk-level provenance.
 
-If pgvector is used inside the same PostgreSQL deployment, M2 and M3 must coordinate migrations and ownership carefully.
+4. **LanceDB (Offline Research Sandbox)**
+   * Standalone embedded vector store for offline evaluation and experimental benchmarking only. Not on the online request path.
+
+5. **pgvector (Retired)**
+   * Fully retired from production in Migration 004. Retained solely in historical migration 002 for audit trails.

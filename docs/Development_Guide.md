@@ -40,12 +40,13 @@ grounding-guard/
 # 3. Local Services
 
 ```text
-web       : 3000
-api       : 4000
-ai        : 8000
-ml        : 8001
-postgres  : 5432
-redis     : 6379
+web       : 3000 (Next.js)
+api       : 4000 (Fastify / Node.js)
+ai        : 8000 (FastAPI / Python)
+ml        : 8001 (FastAPI / Python)
+postgres  : 5432 (PostgreSQL 16)
+redis     : 6379 (Redis 7)
+qdrant    : 6333 (Qdrant Vector DB)
 ```
 
 ---
@@ -78,106 +79,43 @@ docker compose up --build
 
 # 6. Development Order
 
-## Phase 1
+GroundGuard follows a structured 12-phase delivery lifecycle (see `docs/MVP_ROADMAP_STATUS.md` for real-time status):
 
-Foundation:
+### Phase 1 — Repository Foundation & Mock Contracts (COMPLETED)
+* Monorepo setup, shared `@groundguard/contracts` & `@groundguard/types`, Fastify M3 skeleton, Mock AI/ML services, PostgreSQL migrations, and health checks.
 
-```text
-Repository
-Contracts
-Database
-Docker
-Mock AI
-Mock ML
-```
+### Phase 2 — First End-to-End Vertical Slice (COMPLETED)
+* Complete synchronous pipeline: Document upload → Ingestion → Retrieval → Generation → Verification → Claim persistence → Frontend payload contract.
 
----
+### Phase 3 — Secure Ingestion & Multi-Store Knowledge Indexing (COMPLETED)
+* PDF validation, lineage chunking (`section`, `heading`, `identifiers`), `sentence-transformers` 384-dim embeddings, Qdrant dense vector store, Tantivy BM25 store, NetworkX entity topology graph, pgvector retirement (migration 004), M3 canonical chunk persistence.
 
-## Phase 2
+### Phase 4 — Production Grounding ML Engine (NEXT)
+* Real NLI cross-encoder model training/loading (`DeBERTa-v3`), 3-way classification (`entailment`, `contradiction`, `neutral`), calibrated grounding confidence thresholds, batch verification endpoints.
 
-First vertical slice:
+### Phase 5 — Production Agentic Recovery Loop
+* Claim-level hallucination detection, LangGraph recovery agent, targeted re-retrieval, constraint-guided regeneration, reverification loop with bounded attempts.
 
-```text
-Upload
- ↓
-Retrieve
- ↓
-Generate
- ↓
-Verify
- ↓
-Display
-```
+### Phase 6 — Real-Time Verification Streaming (SSE)
+* Server-Sent Events from M3 to M4 for progressive token streaming, real-time sentence-level verification badges, and recovery notifications.
 
----
+### Phase 7 — Evidence-Grounded Frontend UI
+* Next.js 14 web application: Document management, interactive chat workspace, inline claim verification badges, evidence inspector drawer, latency metrics.
 
-## Phase 3
+### Phase 8 — Reliability, Evaluation & Benchmarking
+* Automated grounding accuracy evaluations, hallucination benchmark datasets, precision/recall/F1 metrics dashboard, regression testing harness.
 
-Real M2:
+### Phase 9 — Security, Developer APIs & Key Management
+* Public developer API keys (hash-based authentication), rate limiting, project-scoped data protection, input sanitization.
 
-```text
-Parser
-Chunking
-Embeddings
-Vector DB
-Retrieval
-LLM
-```
+### Phase 10 — Production Docker & Deployment Infrastructure
+* Multi-stage Dockerfiles, production docker-compose, CI/CD automated test workflows, environment configuration validation.
 
----
+### Phase 11 — Evaluation + Calibration + Research + Developer Layer
+* Formal retrieval and grounding accuracy benchmarks (MRR/NDCG), hallucination detection evaluations, developer API keys, and LanceDB offline research/comparison sandbox (isolated from online production path).
 
-## Phase 4
-
-Real M1:
-
-```text
-NLI model
-Inference
-Thresholds
-Evaluation
-```
-
----
-
-## Phase 5
-
-Recovery:
-
-```text
-Failed claim
- ↓
-Retrieve
- ↓
-Regenerate
- ↓
-Verify
-```
-
----
-
-## Phase 6
-
-Streaming:
-
-```text
-SSE
-```
-
----
-
-## Phase 7
-
-Production:
-
-```text
-Docker
-CI/CD
-Health checks
-Monitoring
-Deployment
-```
-
-This follows the project's recommended development progression.
+### Phase 12 — Production Security + Hardening + Deployment
+* Enterprise security, production secrets enforcement, rate limiting, production containerization manifests, structured monitoring, and full system end-to-end release verification.
 
 ---
 

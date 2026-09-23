@@ -288,9 +288,10 @@ POST /ingest
 POST /retrieve
 POST /generate
 POST /recover
+DELETE /documents/:documentId
 ```
 
-### Ingest
+### Ingest Request
 
 ```json
 {
@@ -300,7 +301,48 @@ POST /recover
 }
 ```
 
-### Retrieve
+### Ingest Response
+
+```json
+{
+  "documentId": "doc_123",
+  "status": "ready",
+  "chunksCreated": 5,
+  "indexStatus": {
+    "qdrant": true,
+    "tantivy": true,
+    "networkx": true,
+    "graphEdgesCount": 4
+  },
+  "chunks": [
+    {
+      "chunkId": "chunk_1",
+      "documentId": "doc_123",
+      "projectId": "project_123",
+      "chunkIndex": 0,
+      "pageNumber": 1,
+      "section": "SECTION 4.2",
+      "heading": "PUMP SPECIFICATIONS",
+      "identifiers": [
+        {
+          "value": "V-204",
+          "normalized": "V-204",
+          "type": "vessel"
+        }
+      ],
+      "text": "Vessel V-204 connects to pump P-101A...",
+      "metadata": {
+        "source": "manual.pdf",
+        "page": 1
+      }
+    }
+  ]
+}
+```
+
+*Note on Ingestion Lifecycle:* M2 indexes the derived stores (Qdrant, Tantivy, NetworkX) and returns the extracted `chunks` list to M3. M3 is exclusively responsible for persisting these canonical chunks into PostgreSQL and updating the document status to `ready`.
+
+### Retrieve Request
 
 ```json
 {
@@ -310,7 +352,7 @@ POST /recover
 }
 ```
 
-### Recover
+### Recover Request
 
 ```json
 {

@@ -85,8 +85,10 @@ Supporting infrastructure:
                     M2
                      │
                      ▼
-              Vector Database
-              pgvector/Qdrant
+          Derived Knowledge Stores
+        Qdrant (Dense) + Tantivy (BM25)
+        + NetworkX (Topology Graph)
+        [LanceDB = Offline Sandbox]
 
                     M4
                      │

@@ -458,7 +458,7 @@ Do not expose:
 ```text id="6gc30c"
 FastAPI
 LangGraph
-pgvector
+Qdrant / Tantivy
 DeBERTa
 Docker
 Redis

@@ -35,17 +35,20 @@ GroundGuard is a four-module system.
 
 # 2. Services
 
-| Service    | Owner | Technology           |     Port |
-| ---------- | ----- | -------------------- | -------: |
-| Web        | M4    | Next.js + TypeScript |     3000 |
-| API        | M3    | Node.js + TypeScript |     4000 |
-| AI         | M2    | Python + FastAPI     |     8000 |
-| ML         | M1    | Python + FastAPI     |     8001 |
-| PostgreSQL | M3    | PostgreSQL           |     5432 |
-| Redis      | M3    | Redis                |     6379 |
-| Vector DB  | M2    | pgvector/Qdrant      | internal |
+| Service    | Owner | Technology                      |       Port |
+| ---------- | ----- | ------------------------------- | ---------: |
+| Web        | M4    | Next.js + TypeScript            |       3000 |
+| API        | M3    | Node.js + TypeScript (Fastify)  |       4000 |
+| AI         | M2    | Python + FastAPI                |       8000 |
+| ML         | M1    | Python + FastAPI                |       8001 |
+| PostgreSQL | M3    | PostgreSQL 16                   |       5432 |
+| Redis      | M3    | Redis 7                         |       6379 |
+| Qdrant     | M2    | Qdrant (Dense Vector Index)     |       6333 |
+| Tantivy    | M2    | Tantivy (BM25 Lexical Index)    | File-based |
+| NetworkX   | M2    | NetworkX (Entity Graph Index)   | File-based |
+| LanceDB    | M2    | LanceDB (Offline Research Only) | File-based |
 
-The overall source architecture uses Next.js → Node → Python services, with PostgreSQL/Redis supporting the backend.
+The overall source architecture uses Next.js → Node → Python services, with PostgreSQL/Redis supporting the backend and Qdrant/Tantivy/NetworkX supporting knowledge retrieval. LanceDB is isolated for offline research/evaluation.
 
 ---
 
@@ -152,7 +155,9 @@ M3 → Redis
 AI:
 
 ```text
-M2 → Vector DB
+M2 → Qdrant (Dense Vector)
+M2 → Tantivy (Lexical BM25)
+M2 → NetworkX (Entity Graph)
 M2 → LLM
 M2 → M1
 ```
@@ -163,7 +168,7 @@ The browser must never directly access:
 M1
 M2
 PostgreSQL
-Vector DB
+Qdrant / Knowledge Indexes
 Redis
 ```
 
@@ -206,21 +211,28 @@ PASS           FAIL
 # 6. Document Architecture
 
 ```text
-Upload
- ↓
-M3 Document
- ↓
-M2 Ingestion
- ↓
-Parser
- ↓
-Cleaner
- ↓
-Chunker
- ↓
-Embedding
- ↓
-Vector Store
+Public M3 PDF Upload
+        ↓
+Authentication + Project Ownership (M3)
+        ↓
+M2 Ingestion (/ingest)
+        ↓
+Parser (Magic byte check + PDF text)
+        ↓
+Cleaner & Lineage Chunker (Section/Heading/Identifiers)
+        ↓
+Embedding (sentence-transformers/all-MiniLM-L6-v2)
+        ↓
+Derived Knowledge Indexing:
+  ├── Qdrant (Dense Vectors + Metadata)
+  ├── Tantivy (BM25 Lexical Index)
+  └── NetworkX (Topological Graph)
+        ↓
+M2 returns Chunks + Lineage to M3
+        ↓
+M3 Persists Chunks to PostgreSQL (Canonical Truth)
+        ↓
+M3 marks Document READY
 ```
 
 ---
@@ -281,15 +293,24 @@ ML logs
 
 # 9. Data Ownership
 
-M3 owns the application database.
+M3 owns the canonical application database (PostgreSQL):
+* Users, Projects, Documents metadata, Document Chunks (canonical truth), Conversations, Messages, Generations, Claims, Evidence, API Keys.
+* M3 exclusively persists canonical chunk text and lineage metadata into PostgreSQL.
 
-M2 owns the retrieval/vector layer.
+M2 owns the derived retrieval and knowledge indexing layer:
+* Qdrant: Production dense vector index (UUIDv5 IDs, project/document/identifier payload filtering).
+* Tantivy: Production BM25 lexical search index on disk.
+* NetworkX: Production entity-relationship topology graph on disk.
+* LanceDB: Offline research and evaluation sandbox only (not on the online request path).
 
 M1 owns model artifacts and ML evaluation artifacts.
 
 M4 owns deployment configuration and UI.
 
-If pgvector is used inside PostgreSQL, M2 and M3 must coordinate because the storage infrastructure is shared.
+Storage Rebuildability & Migration Policy:
+* `pgvector` was fully retired from production in Migration 004 (`ALTER TABLE chunks DROP COLUMN IF EXISTS embedding`). It is retained solely in historical migration 002 for audit trails.
+* Qdrant and Tantivy can be deterministically rebuilt from PostgreSQL canonical chunk records via `migrate_to_qdrant_and_tantivy.py`.
+* NetworkX graph can be reconstructed by re-extracting technical entity relationships from document text.
 
 ---
 

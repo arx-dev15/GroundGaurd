@@ -1,7 +1,6 @@
 import os
-import datetime
 import logging
-from typing import List, Dict, Any
+from typing import List, Set
 
 logger = logging.getLogger("m2-ai-service")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/groundguard")
@@ -9,83 +8,50 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localho
 def get_connection():
     try:
         import psycopg
-        return psycopg.connect(DATABASE_URL)
+        return psycopg.connect(DATABASE_URL, connect_timeout=2)
     except Exception as e:
-        logger.warning(f"psycopg direct connection error: {e}. Falling back to standard psycopg2 / raw pool.")
-        import psycopg2
-        return psycopg2.connect(DATABASE_URL)
+        logger.debug(f"psycopg direct connection failed ({e}). Trying fallback.")
+        try:
+            import psycopg2
+            return psycopg2.connect(DATABASE_URL, connect_timeout=2)
+        except Exception:
+            return None
 
-def save_chunks_to_db(document_id: str, chunks: List[Dict[str, Any]], embeddings: List[List[float]]) -> int:
-    if not chunks:
-        return 0
+def validate_ready_documents(project_id: str, document_ids: List[str]) -> Set[str]:
+    """
+    Validates candidate documentIds against PostgreSQL canonical lifecycle truth.
+    Returns only documentIds that are currently in status = 'ready' for the authorized project.
+    Fails closed in production if canonical PostgreSQL database is unreachable.
+    """
+    if not document_ids:
+        return set()
 
     conn = get_connection()
+    if conn is None:
+        env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
+        if env == "production":
+            raise RuntimeError(
+                f"Canonical PostgreSQL lifecycle verification failed: database unavailable at {DATABASE_URL}"
+            )
+        logger.warning("PostgreSQL unreachable in dev/test environment. Allowing candidates for offline testing.")
+        return set(document_ids)
+
     try:
         with conn.cursor() as cur:
-            # 1. Atomic Idempotency: delete old chunks for document_id
-            cur.execute("DELETE FROM chunks WHERE document_id = %s;", (document_id,))
-
-            # 2. Insert new chunks in transaction
-            now = datetime.datetime.now(datetime.timezone.utc)
-            for chunk, vector in zip(chunks, embeddings):
-                vector_str = "[" + ",".join(str(f) for f in vector) + "]"
-                cur.execute(
-                    """
-                    INSERT INTO chunks (id, document_id, chunk_index, page_number, text, embedding, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s::vector, %s);
-                    """,
-                    (
-                        chunk["id"],
-                        document_id,
-                        chunk["chunk_index"],
-                        chunk["page_number"],
-                        chunk["text"],
-                        vector_str,
-                        now
-                    )
-                )
-        conn.commit()
-        logger.info(f"Successfully persisted {len(chunks)} chunks for document_id={document_id}")
-        return len(chunks)
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"Failed to persist chunks for document_id={document_id}: {e}")
-        raise e
-    finally:
-        conn.close()
-
-def retrieve_ready_chunks(project_id: str, query_vector: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
-    if not query_vector:
-        return []
-
-    conn = get_connection()
-    try:
-        vector_str = "[" + ",".join(str(f) for f in query_vector) + "]"
-        query = """
-            SELECT c.id, c.document_id, c.chunk_index, c.page_number, c.text
-            FROM chunks c
-            JOIN documents d ON c.document_id = d.id
-            WHERE d.project_id = %s
-              AND d.status = 'ready'
-            ORDER BY c.embedding <=> %s::vector
-            LIMIT %s;
-        """
-        with conn.cursor() as cur:
-            cur.execute(query, (project_id, vector_str, top_k))
+            cur.execute(
+                """
+                SELECT id FROM documents
+                WHERE id = ANY(%s) AND project_id = %s AND status = 'ready';
+                """,
+                (document_ids, project_id)
+            )
             rows = cur.fetchall()
-
-        results = []
-        for r in rows:
-            results.append({
-                "chunkId": r[0],
-                "documentId": r[1],
-                "chunkIndex": r[2],
-                "pageNumber": r[3],
-                "text": r[4]
-            })
-        return results
+            return {r[0] for r in rows}
     except Exception as e:
-        logger.error(f"Error querying ready chunks for project_id={project_id}: {e}")
-        return []
+        logger.error(f"Error validating ready documents in PostgreSQL: {e}")
+        env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
+        if env == "production":
+            raise RuntimeError(f"PostgreSQL lifecycle validation failed: {e}")
+        return set(document_ids)
     finally:
         conn.close()
