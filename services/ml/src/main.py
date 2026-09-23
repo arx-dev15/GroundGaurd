@@ -70,11 +70,24 @@ async def request_id_middleware(request: Request, call_next):
     response.headers["x-request-id"] = req_id
     return response
 
+@app.get("/")
+async def root():
+    """Root endpoint providing service overview and documentation links."""
+    return {
+        "service": SERVICE_NAME,
+        "status": "running",
+        "version": MODEL_VERSION,
+        "docs": "/docs",
+        "health": "/health",
+        "modelInfo": "/model/info"
+    }
+
 def get_active_engine():
     """Returns the neural predictor if loaded, otherwise falls back to mock engine."""
     if USE_NEURAL_ENGINE and neural_predictor.is_loaded:
         return neural_predictor
     return mock_engine
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
