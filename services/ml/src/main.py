@@ -54,6 +54,18 @@ async def request_id_middleware(request: Request, call_next):
     response.headers["x-request-id"] = req_id
     return response
 
+@app.get("/")
+async def root():
+    """Root endpoint providing service overview and documentation links."""
+    return {
+        "service": SERVICE_NAME,
+        "status": "running",
+        "version": MODEL_VERSION,
+        "docs": "/docs",
+        "health": "/health",
+        "modelInfo": "/model/info"
+    }
+
 @app.get("/health", response_model=HealthResponse)
 async def health():
     """Liveness & Readiness health probe for Member 3 and Docker."""
