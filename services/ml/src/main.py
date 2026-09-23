@@ -4,6 +4,7 @@ import uuid
 import logging
 from pathlib import Path
 from typing import Optional
+from contextlib import asynccontextmanager
 
 # Ensure the service root directory (services/ml) is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -11,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi import FastAPI, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.config import PORT, HOST, SERVICE_NAME, MODEL_VERSION
+from src.config import PORT, HOST, SERVICE_NAME, MODEL_VERSION, MODEL_NAME, USE_NEURAL_ENGINE
 from src.contracts import (
     VerifyRequest,
     VerifyResponse,
@@ -21,6 +22,7 @@ from src.contracts import (
     ModelInfoResponse,
 )
 from src.inference.mock_engine import mock_engine
+from src.inference.predictor import neural_predictor
 
 # Configure logging
 logging.basicConfig(
@@ -29,11 +31,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger("groundguard-ml-service")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Pre-warms the neural cross-encoder at server startup."""
+    if USE_NEURAL_ENGINE:
+        logger.info(f"Pre-warming DeBERTa Cross-Encoder ({MODEL_NAME})...")
+        try:
+            neural_predictor.load_model()
+            logger.info("DeBERTa Cross-Encoder loaded and ready!")
+        except Exception as e:
+            logger.warning(f"Could not load neural model ({e}). Gracefully falling back to mock engine.")
+    yield
+    logger.info("Shutting down GroundGuard ML Service...")
+
 # Initialize FastAPI
 app = FastAPI(
     title="GroundGuard ML Verification Service",
-    description="Evidence-grounded claim verification service",
-    version="0.1.0",
+    description="Evidence-grounded claim verification service powered by DeBERTa-v3 Cross-Encoder",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
 # Enable CORS for cross-service development
@@ -54,25 +70,35 @@ async def request_id_middleware(request: Request, call_next):
     response.headers["x-request-id"] = req_id
     return response
 
+def get_active_engine():
+    """Returns the neural predictor if loaded, otherwise falls back to mock engine."""
+    if USE_NEURAL_ENGINE and neural_predictor.is_loaded:
+        return neural_predictor
+    return mock_engine
+
 @app.get("/health", response_model=HealthResponse)
 async def health():
     """Liveness & Readiness health probe for Member 3 and Docker."""
+    engine = get_active_engine()
+    is_neural = (engine == neural_predictor)
     return HealthResponse(
         service=SERVICE_NAME,
         status="ok",
         modelLoaded=True,
         modelVersion=MODEL_VERSION,
-        device="cpu"
+        device=str(neural_predictor.device) if is_neural else "cpu"
     )
 
 @app.get("/model/info", response_model=ModelInfoResponse)
 async def model_info():
     """Returns active model metadata for the frontend evaluation dashboard."""
+    engine = get_active_engine()
+    is_neural = (engine == neural_predictor)
     return ModelInfoResponse(
         modelVersion=MODEL_VERSION,
-        engineType="mock-heuristic",
-        baseModel="rule-based-mock",
-        labels=["entailment", "contradiction", "neutral"],
+        engineType="deberta-cross-encoder" if is_neural else "mock-heuristic",
+        baseModel=MODEL_NAME if is_neural else "rule-based-mock",
+        labels=["contradiction", "entailment", "neutral"],
         status="ready"
     )
 
@@ -84,7 +110,8 @@ async def verify(payload: VerifyRequest, x_request_id: Optional[str] = Header(No
     
     logger.info(f"[/verify] req_id={req_id} claim_id={claim_id} claim='{payload.claim}'")
     
-    label, scores, grounding_score = mock_engine.verify_single(
+    engine = get_active_engine()
+    label, scores, grounding_score = engine.verify_single(
         claim=payload.claim,
         evidence=payload.evidence,
         claim_id=claim_id
@@ -105,7 +132,8 @@ async def verify_batch(payload: BatchVerifyRequest, x_request_id: Optional[str] 
     req_id = payload.requestId or x_request_id or f"req_{uuid.uuid4().hex[:12]}"
     logger.info(f"[/verify/batch] req_id={req_id} total_claims={len(payload.items)}")
 
-    results = mock_engine.verify_batch(payload.items)
+    engine = get_active_engine()
+    results = engine.verify_batch(payload.items)
 
     return BatchVerifyResponse(
         requestId=req_id,
