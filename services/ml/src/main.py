@@ -1,71 +1,113 @@
 import os
 import uuid
 import logging
-from typing import List, Optional, Dict
+from typing import Optional
 from fastapi import FastAPI, Header, Request, Response
-from pydantic import BaseModel, Field
+from fastapi.middleware.cors import CORSMiddleware
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("m1-mock-ml-service")
+from src.config import PORT, HOST, SERVICE_NAME, MODEL_VERSION
+from src.contracts import (
+    VerifyRequest,
+    VerifyResponse,
+    BatchVerifyRequest,
+    BatchVerifyResponse,
+    HealthResponse,
+    ModelInfoResponse,
+)
+from src.inference.mock_engine import mock_engine
 
-app = FastAPI(title="GroundGuard Mock M1 ML Service", version="0.1.0")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
+)
+logger = logging.getLogger("groundguard-ml-service")
 
-class EvidenceItem(BaseModel):
-    chunkId: str
-    text: str
+# Initialize FastAPI
+app = FastAPI(
+    title="GroundGuard ML Verification Service",
+    description="Evidence-grounded claim verification service",
+    version="0.1.0",
+)
 
-class VerifyRequest(BaseModel):
-    requestId: Optional[str] = None
-    claimId: str
-    claim: str
-    evidence: List[EvidenceItem] = []
-
-class VerifyResponse(BaseModel):
-    requestId: str
-    claimId: str
-    label: str
-    scores: Dict[str, float]
-    groundingScore: float
-    modelVersion: str
+# Enable CORS for cross-service development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    request_id = request.headers.get("x-request-id", f"req_{uuid.uuid4().hex[:12]}")
-    request.state.request_id = request_id
+    """Ensures every incoming request has an x-request-id header attached."""
+    req_id = request.headers.get("x-request-id", f"req_{uuid.uuid4().hex[:12]}")
+    request.state.request_id = req_id
     response: Response = await call_next(request)
-    response.headers["x-request-id"] = request_id
+    response.headers["x-request-id"] = req_id
     return response
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health():
-    return {"service": "ml", "status": "ok"}
+    """Liveness & Readiness health probe for Member 3 and Docker."""
+    return HealthResponse(
+        service=SERVICE_NAME,
+        status="ok",
+        modelLoaded=True,
+        modelVersion=MODEL_VERSION,
+        device="cpu"
+    )
+
+@app.get("/model/info", response_model=ModelInfoResponse)
+async def model_info():
+    """Returns active model metadata for the frontend evaluation dashboard."""
+    return ModelInfoResponse(
+        modelVersion=MODEL_VERSION,
+        engineType="mock-heuristic",
+        baseModel="rule-based-mock",
+        labels=["entailment", "contradiction", "neutral"],
+        status="ready"
+    )
 
 @app.post("/verify", response_model=VerifyResponse)
 async def verify(payload: VerifyRequest, x_request_id: Optional[str] = Header(None)):
+    """Verifies a single factual claim against evidence chunks."""
     req_id = payload.requestId or x_request_id or f"req_{uuid.uuid4().hex[:12]}"
-    logger.info(f"[/verify] claim_id={payload.claimId} req_id={req_id} claim='{payload.claim}'")
+    claim_id = payload.claimId or "claim_1"
     
-    # Simple deterministic logic for mock testing if claim mentions specific numbers or text
-    # Default is mock contradiction as per spec example
-    label = "contradiction"
-    scores = {"entailment": 0.01, "contradiction": 0.96, "neutral": 0.03}
-    grounding_score = 0.01
-
-    if "entail" in payload.claim.lower() or (payload.evidence and payload.evidence[0].text == payload.claim):
-        label = "entailment"
-        scores = {"entailment": 0.97, "contradiction": 0.01, "neutral": 0.02}
-        grounding_score = 0.97
+    logger.info(f"[/verify] req_id={req_id} claim_id={claim_id} claim='{payload.claim}'")
+    
+    label, scores, grounding_score = mock_engine.verify_single(
+        claim=payload.claim,
+        evidence=payload.evidence,
+        claim_id=claim_id
+    )
 
     return VerifyResponse(
         requestId=req_id,
-        claimId=payload.claimId,
+        claimId=claim_id,
         label=label,
         scores=scores,
         groundingScore=grounding_score,
-        modelVersion="mock-grounding-v1"
+        modelVersion=MODEL_VERSION,
+    )
+
+@app.post("/verify/batch", response_model=BatchVerifyResponse)
+async def verify_batch(payload: BatchVerifyRequest, x_request_id: Optional[str] = Header(None)):
+    """Verifies a batch of claims concurrently."""
+    req_id = payload.requestId or x_request_id or f"req_{uuid.uuid4().hex[:12]}"
+    logger.info(f"[/verify/batch] req_id={req_id} total_claims={len(payload.items)}")
+
+    results = mock_engine.verify_batch(payload.items)
+
+    return BatchVerifyResponse(
+        requestId=req_id,
+        results=results,
+        modelVersion=MODEL_VERSION,
     )
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8001))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    logger.info(f"Starting ML Verification Service on {HOST}:{PORT} (Version: {MODEL_VERSION})")
+    uvicorn.run("src.main:app", host=HOST, port=PORT, reload=True)
