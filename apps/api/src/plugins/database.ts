@@ -1,7 +1,5 @@
 import { Pool } from 'pg';
-import { newDb } from 'pg-mem';
 import { config } from '../config/env';
-import { runMigrations } from './migrate';
 
 export class DatabaseManager {
   private static instance: DatabaseManager;
@@ -17,6 +15,12 @@ export class DatabaseManager {
     return DatabaseManager.instance;
   }
 
+  public setTestPool(testPool: Pool): void {
+    this.pool = testPool;
+    this.isMemDb = true;
+    (this.pool as any).__isPgMem = true;
+  }
+
   public getPool(): Pool {
     if (!this.pool) {
       this.pool = new Pool({
@@ -25,6 +29,7 @@ export class DatabaseManager {
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 2000,
       });
+      this.isMemDb = false;
     }
     return this.pool;
   }
@@ -38,19 +43,6 @@ export class DatabaseManager {
       }
       return { ok: false, error: 'Query returned unexpected result' };
     } catch (err: any) {
-      // If live Postgres is offline and we are in dev/test, fallback to in-memory PG
-      if (!this.isMemDb && config.env !== 'production') {
-        try {
-          const memDb = newDb();
-          const memPool = memDb.adapters.createPg().Pool;
-          this.pool = new memPool();
-          this.isMemDb = true;
-          await runMigrations(this.pool!);
-          return { ok: true };
-        } catch (memErr: any) {
-          return { ok: false, error: memErr.message };
-        }
-      }
       return { ok: false, error: err.message || 'PostgreSQL connection failed' };
     }
   }

@@ -27,6 +27,10 @@ describe('GroundGuard Phase 3 Document Ingestion & RAG Foundation Test Suite', (
     const liveHealth = await dbManager.checkHealth();
     if (!liveHealth.ok) {
       const memDb = newDb();
+      memDb.public.interceptQueries((q: string) => {
+        if (q.includes('CREATE EXTENSION')) return [];
+        return null;
+      });
       memDb.registerExtension('vector', (schema: any) => {
         schema.registerEquivalentType({
           name: 'vector',
@@ -35,7 +39,7 @@ describe('GroundGuard Phase 3 Document Ingestion & RAG Foundation Test Suite', (
       });
       const memPool = memDb.adapters.createPg().Pool;
       const testPool = new memPool();
-      (dbManager as any).pool = testPool;
+      dbManager.setTestPool(testPool);
     }
 
     // 1. Run migrations to establish schema

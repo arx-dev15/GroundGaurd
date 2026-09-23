@@ -462,29 +462,34 @@ Do not make M3 responsible for embedding implementation.
 
 ---
 
-# 13. Vector store
+# 13. Knowledge & Vector Storage Architecture
 
-M2 owns the vector database/search implementation.
-
-The blueprint allows:
+M2 owns the derived retrieval and search indexes:
 
 ```text
-pgvector
-Qdrant
+Qdrant (Dense Semantic Vector Store - Production)
+Tantivy (BM25 Lexical Keyword Search - Production)
+NetworkX (Topological Entity-Relationship Graph - Production)
+LanceDB (Offline Research & Evaluation Sandbox Only)
 ```
 
-Choose one for the MVP and freeze it.
+**Production Vector Engine:**
+* Qdrant (`http://localhost:6333`) is the single chosen production dense vector store.
+* 384-dimensional embeddings (`sentence-transformers/all-MiniLM-L6-v2`) with Cosine distance.
+* UUIDv5 point IDs deterministically generated from `(projectId, documentId, chunkIndex)`.
+* Payload keyword filtering on `projectId`, `documentId`, and `identifierKeys`.
 
-Do not build both unless there is an explicit reason.
+*Note on pgvector:* `pgvector` was retired from active production runtime in Migration 004. PostgreSQL is maintained by M3 solely as the canonical application database and source of truth for canonical chunk text.
 
-Your vector store needs to support:
+Your retrieval stack supports:
 
 ```text
 project isolation
 document filtering
-top-K retrieval
-metadata filtering
-vector similarity
+top-K dense semantic retrieval (Qdrant)
+exact BM25 keyword matching (Tantivy)
+graph relationship traversal (NetworkX)
+metadata & identifier payload filtering
 ```
 
 ---
@@ -1329,9 +1334,9 @@ evaluations
 API keys
 ```
 
-If using pgvector, the actual database infrastructure may technically be shared, but **M2 owns the retrieval/indexing logic while M3 owns application persistence and migrations**.
+PostgreSQL is the single canonical source of truth: **M3 owns canonical chunk text persistence and database migrations, while M2 indexes the derived search stores (Qdrant, Tantivy, NetworkX)**.
 
-Coordinate before changing shared schema.
+`pgvector` was retired in Migration 004, cleanly decoupling M2's search infrastructure from M3's relational database. Coordinate before requesting any shared contract or schema changes.
 
 ---
 
@@ -1706,7 +1711,7 @@ M4 should never need to know:
 
 ```text
 LangGraph
-FAISS/Qdrant/pgvector internals
+Qdrant / Tantivy / NetworkX internals
 embedding implementation
 LLM provider internals
 ```

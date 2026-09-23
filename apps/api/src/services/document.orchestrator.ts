@@ -1,7 +1,8 @@
 import { documentRepository, DBDocument } from '../repositories/document.repository';
+import { chunkRepository } from '../repositories/chunk.repository';
 import { aiClient } from '../clients/ai.client';
 import { saveUploadedFile, deleteStoredFile } from '../utils/storage';
-import { BadRequestError, NotFoundError } from '../utils/errors';
+import { BadRequestError, NotFoundError, ServiceUnavailableError } from '../utils/errors';
 import { Document } from '@groundguard/contracts';
 
 function toPublicDocument(dbDoc: DBDocument): Document {
@@ -53,6 +54,7 @@ export class DocumentOrchestrator {
     await documentRepository.updateStatus(tempDoc.id, 'processing');
 
     // 3. Invoke M2 AI Service HTTP Ingestion
+    let m2IndexingSucceeded = false;
     try {
       const ingestRes = await aiClient.ingest(
         tempDoc.id,
@@ -68,30 +70,67 @@ export class DocumentOrchestrator {
         return toPublicDocument(failedDoc!);
       }
 
+      m2IndexingSucceeded = true;
+
+      // Persist canonical chunks and lineage metadata in PostgreSQL
+      if (ingestRes.chunks && ingestRes.chunks.length > 0) {
+        await chunkRepository.saveChunks(tempDoc.id, ingestRes.chunks);
+      }
+
       // 4. M3 performs the final status transition to 'ready'
       const readyDoc = await documentRepository.updateStatus(
         tempDoc.id,
         'ready',
-        ingestRes.chunksCreated || 0,
+        ingestRes.chunksCreated || (ingestRes.chunks ? ingestRes.chunks.length : 0),
         undefined
       );
       return toPublicDocument(readyDoc!);
     } catch (err: any) {
+      // Compensating cleanup: If M2 indexing succeeded but M3 canonical persistence failed, purge M2 derived stores
+      if (m2IndexingSucceeded) {
+        try {
+          await aiClient.deleteDocument(tempDoc.id, data.projectId);
+        } catch (_) {
+          // Compensating cleanup attempt completed
+        }
+      }
+
       // On exception/timeout, M3 marks the document status 'failed' with sanitized message
-      const sanitizedMsg = 'Document processing service unavailable or timed out';
+      const sanitizedMsg = 'Document processing service unavailable or persistence failed';
       const failedDoc = await documentRepository.updateStatus(tempDoc.id, 'failed', 0, sanitizedMsg);
       return toPublicDocument(failedDoc!);
     }
   }
 
   public async deleteDocument(documentId: string, projectId: string): Promise<void> {
-    // Atomic SQL ON DELETE CASCADE removes document row & all associated vector chunks from PostgreSQL
+    const existing = await documentRepository.findDocumentByIdAndProjectId(documentId, projectId);
+    if (!existing) {
+      throw new NotFoundError('Document not found');
+    }
+
+    // Step 1: If document was ready or processing, purge derived stores (Qdrant, Tantivy, NetworkX) via M2
+    if (existing.status === 'ready' || existing.status === 'processing') {
+      try {
+        await aiClient.deleteDocument(documentId, projectId);
+      } catch (err: any) {
+        throw new ServiceUnavailableError('AI Service derived index purge failed');
+      }
+    } else {
+      // If failed or uploaded, attempt cleanup in M2 if reachable
+      try {
+        await aiClient.deleteDocument(documentId, projectId);
+      } catch (_) {
+        // Safe to proceed since unready documents never indexed derived data
+      }
+    }
+
+    // Step 2: Atomic SQL ON DELETE CASCADE removes document row & all associated vector chunks from PostgreSQL
     const deleted = await documentRepository.deleteDocument(documentId, projectId);
     if (!deleted) {
       throw new NotFoundError('Document not found');
     }
 
-    // Unlink physical file from disk
+    // Step 3: Unlink physical file from disk
     if (deleted.filePath) {
       await deleteStoredFile(deleted.filePath);
     }

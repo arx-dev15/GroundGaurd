@@ -30,8 +30,14 @@ services:
       PORT: 8000
       ML_SERVICE_URL: http://ml:8001
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/groundguard
+      QDRANT_URL: http://qdrant:6333
+      TANTIVY_PATH: /app/uploads/indexes/tantivy
+      GRAPHS_PATH: /app/uploads/graphs
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       - postgres
+      - qdrant
 
   ml:
     build:
@@ -42,8 +48,16 @@ services:
     environment:
       PORT: 8001
 
+  qdrant:
+    image: qdrant/qdrant:v1.13.4
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
   postgres:
-    image: pgvector/pgvector:pg16
+    image: postgres:16-alpine
     environment:
       POSTGRES_DB: groundguard
       POSTGRES_USER: postgres
@@ -64,3 +78,4 @@ volumes:
   postgres_data:
   redis_data:
   uploads_data:
+  qdrant_data:

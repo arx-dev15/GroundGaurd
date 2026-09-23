@@ -22,3 +22,8 @@ datasets/evaluation/*
 !datasets/raw/.gitkeep
 !datasets/processed/.gitkeep
 !datasets/evaluation/.gitkeep
+uploads/
+storage/
+*.exe
+*.zip
+.qdrant-initialized

@@ -217,3 +217,53 @@ KV-cache optimization
 complex multi-agent systems
 adaptive retrieval
 ```
+
+---
+
+# Decision 013 — Dedicated Vector Engine (Qdrant) & pgvector Retirement
+
+**Status:** Accepted
+
+### Decision
+
+Use Qdrant as the single production dense vector engine (`http://localhost:6333`) and retire `pgvector` from active production runtime and database schema (executed in Migration 004).
+
+### Reason
+
+* Separation of concerns: PostgreSQL serves as the ACID transactional store for application truth and canonical chunk persistence; Qdrant provides optimized, isolated vector search with payload filtering.
+* Deterministic rebuildability: Qdrant vectors can be rebuilt directly from PostgreSQL canonical chunk records.
+* Avoids PostgreSQL extension and memory overhead in high-throughput vector indexing.
+
+---
+
+# Decision 014 — Multi-Store Knowledge Indexing Architecture
+
+**Status:** Accepted
+
+### Decision
+
+Adopt a specialized 4-store knowledge indexing foundation for RAG:
+
+1. **PostgreSQL (M3)**: Canonical application truth, lifecycle status, and canonical chunk text/lineage.
+2. **Qdrant (M2)**: Production dense semantic vector index (Cosine, 384-dim, UUIDv5 IDs).
+3. **Tantivy (M2)**: Production lexical BM25 search index on disk.
+4. **NetworkX (M2)**: Production topological entity-relationship graph on disk.
+5. **LanceDB (M2)**: Offline research and evaluation sandbox only (not on the online request path).
+
+### Reason
+
+Each storage engine fulfills a specialized retrieval requirement (dense semantics, exact BM25 keyword matching, structured entity graph traversal) while PostgreSQL maintains single canonical truth.
+
+---
+
+# Decision 015 — Authentication and Simple Project Ownership Authorization
+
+**Status:** Accepted
+
+### Decision
+
+Implement authentication via `bcryptjs` (salt rounds=10) and standard JWT (HS256, 24h expiry). Enforce authorization via simple project ownership (`WHERE user_id = $1` in `ProjectRepository`) rather than complex multi-tenant RBAC.
+
+### Reason
+
+Simple project ownership satisfies all MVP security and project-isolation requirements with minimal complexity and maximum auditability.

@@ -150,6 +150,51 @@ export interface GenerationResult {
   };
 }
 
+export interface Identifier {
+  value: string;
+  normalized: string;
+  type: string;
+}
+
+export interface ChunkLineage {
+  chunkId: string;
+  documentId: string;
+  projectId: string;
+  chunkIndex: number;
+  pageNumber: number;
+  section?: string;
+  heading?: string;
+  identifiers: Identifier[];
+}
+
+export interface IndexStatus {
+  qdrant: boolean;
+  tantivy: boolean;
+  networkx: boolean;
+  graphEdgesCount: number;
+}
+
+export interface DeleteDocumentResponse {
+  success: boolean;
+  documentId: string;
+  projectId: string;
+  error?: string;
+}
+
+export interface ChunkDTO {
+  id: string;
+  chunk_index?: number;
+  chunkIndex?: number;
+  page_number?: number;
+  pageNumber?: number;
+  text: string;
+  section?: string;
+  heading?: string;
+  identifiers?: Identifier[];
+  identifierKeys?: string[];
+  metadata?: Record<string, unknown>;
+}
+
 export interface IngestRequest {
   documentId: string;
   projectId: string;
@@ -161,6 +206,8 @@ export interface IngestResponse {
   status: 'ready' | 'failed' | 'completed';
   chunksCreated: number;
   errorMessage?: string;
+  indexStatus?: IndexStatus;
+  chunks?: ChunkDTO[];
 }
 
 export interface RetrieveRequest {

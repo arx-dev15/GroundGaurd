@@ -37,10 +37,11 @@ Deployment
 | Service | Port | Directory | Tech Stack | Status |
 |---|---|---|---|---|
 | **M3 Backend API** | `4000` | `apps/api` | Node.js + TypeScript (Fastify) | Foundation Ready |
-| **M2 AI Service** | `8000` | `services/ai` | Python (FastAPI) | Skeleton Ready |
+| **M2 AI Service** | `8000` | `services/ai` | Python (FastAPI) | Ingestion & Search Ready |
 | **Mock M1 ML Service** | `8001` | `services/ml` | Python (FastAPI) | Mock Verification Ready |
-| **PostgreSQL** | `5432` | Infrastructure | PostgreSQL 16 | Ready |
-| **Redis** | `6379` | Infrastructure | Redis 7 | Ready |
+| **PostgreSQL** | `5432` | Infrastructure | PostgreSQL 16 (Canonical Truth) | Ready |
+| **Redis** | `6379` | Infrastructure | Redis 7 (Cache / Queues) | Ready |
+| **Qdrant Vector DB** | `6333` | Infrastructure | Qdrant v1.13.4 (Dense Vector Store) | Ready |
 
 ### Prerequisites
 - Node.js >= 20.x
@@ -153,7 +154,7 @@ Node.js + TypeScript + Fastify/Express + PostgreSQL + Redis
 
 RAG + Agentic AI
 
-Python + FastAPI + LangGraph + LLM + pgvector/Qdrant
+Python + FastAPI + LangGraph + LLM + Qdrant (Dense) + Tantivy (BM25) + NetworkX (Graph) [LanceDB = Offline Sandbox; pgvector retired in migration 004]
 
 ML
 

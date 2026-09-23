@@ -117,13 +117,13 @@ Fastify
 Development:
 
 ```text
-http://localhost:3000
+http://localhost:4000
 ```
 
 Docker:
 
 ```text
-http://api:3000
+http://api:4000
 ```
 
 M2:
@@ -186,6 +186,7 @@ apps/api/
 │   │   ├── user.repository.ts
 │   │   ├── project.repository.ts
 │   │   ├── document.repository.ts
+│   │   ├── chunk.repository.ts
 │   │   ├── generation.repository.ts
 │   │   └── claim.repository.ts
 │   │
@@ -408,14 +409,13 @@ M3 tracks the document's application-level lifecycle.
 
 # 14. Document lifecycle
 
-Possible status values:
+Frozen status values:
 
 ```text
 uploaded
 processing
-completed
+ready
 failed
-deleted
 ```
 
 Freeze these values as a shared contract.
@@ -424,25 +424,32 @@ Do not let different services invent different status names.
 
 ---
 
-# 15. Chunk
+# 15. Chunk (Canonical Persistence)
 
-The actual chunk/search representation is primarily M2's responsibility.
+M3 is the **exclusive canonical writer of document chunks to PostgreSQL** (`chunkRepository.saveChunks`).
 
-M3 may persist chunk metadata if required by the final architecture.
-
-Conceptually:
+PostgreSQL Schema:
 
 ```text
 Chunk
 -----
-id
-documentId
-externalChunkId
-text
-metadata
+id (UUID, PK)
+document_id (UUID, FK -> documents.id)
+text (TEXT, NOT NULL)
+chunk_index (INTEGER, NOT NULL)
+section (TEXT, NULLABLE) -- Lineage
+heading (TEXT, NULLABLE) -- Lineage
+identifiers (JSONB)      -- Technical normalized entities
+metadata (JSONB)         -- Page, source file, etc.
+created_at (TIMESTAMPTZ)
 ```
 
-But coordinate with M2 before duplicating the vector-store representation.
+**Ingestion Workflow:**
+1. Public upload via M3 `POST /projects/:projectId/documents`.
+2. M3 sets document status to `processing` and calls M2 `/ingest`.
+3. M2 handles PDF text extraction, lineage chunking, embeddings, and derived store indexing (Qdrant, Tantivy, NetworkX).
+4. M2 returns the extracted `chunks` list to M3.
+5. M3 persists the canonical chunk records into PostgreSQL and updates document status to `ready`.
 
 ---
 

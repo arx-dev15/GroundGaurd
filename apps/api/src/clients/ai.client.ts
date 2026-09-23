@@ -8,6 +8,7 @@ import {
   GenerationResult,
   RecoverRequest,
   RecoverResponse,
+  DeleteDocumentResponse,
 } from '@groundguard/contracts';
 import { ServiceUnavailableError } from '../utils/errors';
 
@@ -128,6 +129,26 @@ export class AIClient {
 
     if (!res.ok) {
       throw new ServiceUnavailableError('AI Service (/recover)');
+    }
+    return res.json();
+  }
+
+  public async deleteDocument(
+    documentId: string,
+    projectId: string,
+    requestId?: string
+  ): Promise<DeleteDocumentResponse> {
+    const headers: Record<string, string> = {};
+    if (requestId) headers['x-request-id'] = requestId;
+
+    const query = new URLSearchParams({ projectId }).toString();
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/documents/${documentId}?${query}`, {
+      method: 'DELETE',
+      headers,
+    });
+
+    if (!res.ok) {
+      throw new ServiceUnavailableError('AI Service (/documents/delete)');
     }
     return res.json();
   }
