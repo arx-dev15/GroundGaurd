@@ -41,6 +41,37 @@ export interface Project {
   updatedAt: string;
 }
 
+export type MessageRole = 'user' | 'assistant' | 'system';
+
+export interface Conversation {
+  id: string;
+  projectId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  role: MessageRole;
+  content: string;
+  generationId?: string;
+  createdAt: string;
+}
+
+export interface CreateConversationRequest {
+  title?: string;
+}
+
+export interface ConversationListResponse {
+  conversations: Conversation[];
+}
+
+export interface MessageListResponse {
+  messages: Message[];
+}
+
 // Authentication Payloads
 export interface RegisterRequest {
   email: string;
