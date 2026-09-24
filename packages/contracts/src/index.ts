@@ -181,6 +181,20 @@ export interface GenerationResult {
   };
 }
 
+export interface CreateGenerationResponse {
+  requestId: string;
+  generationId: string;
+  status: GenerationStatus;
+}
+
+export interface ClaimListResponse {
+  claims: Claim[];
+}
+
+export interface EvidenceListResponse {
+  evidence: Evidence[];
+}
+
 export interface Identifier {
   value: string;
   normalized: string;
