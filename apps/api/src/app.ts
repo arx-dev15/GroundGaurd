@@ -26,14 +26,12 @@ export function buildApp(): FastifyInstance {
   registerRequestId(app);
   registerErrorHandler(app);
 
-  // Routes
+   // Routes
   app.register(healthRoutes);
   app.register(authRoutes);
   app.register(projectRoutes);
   app.register(documentRoutes);
-  app.register(documentRoutes);
-  app.register(conversationRoutes)
+  app.register(conversationRoutes);
 
   return app;
 }
-
