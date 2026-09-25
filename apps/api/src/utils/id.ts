@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 
-export type IDPrefix = 'usr' | 'proj' | 'doc' | 'chunk' | 'conv' | 'msg' | 'gen' | 'claim' | 'ev' | 'eval' | 'key';
+export type IDPrefix = 'usr' | 'proj' | 'doc' | 'chunk' | 'conv' | 'msg' | 'gen' | 'claim' | 'ev' | 'eval' | 'key' | 'req';;
 
 /**
  * Generates a standardized prefixed UUID string.

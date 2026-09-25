@@ -7,6 +7,8 @@ import { healthRoutes } from './routes/health';
 import { authRoutes } from './routes/auth';
 import { projectRoutes } from './routes/projects';
 import { documentRoutes } from './routes/documents';
+import { conversationRoutes } from './routes/conversations';
+import { generationRoutes } from './routes/generations';
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
@@ -18,19 +20,19 @@ export function buildApp(): FastifyInstance {
   // Middleware / Plugins
   app.register(cors, { origin: true });
   app.register(multipart, {
-    limits: {
+    limits: { 
       fileSize: 10 * 1024 * 1024, // 10MB limit
     },
   });
   registerRequestId(app);
   registerErrorHandler(app);
 
-  // Routes
+   // Routes
   app.register(healthRoutes);
   app.register(authRoutes);
   app.register(projectRoutes);
   app.register(documentRoutes);
-
+  app.register(conversationRoutes);
+  app.register(generationRoutes);
   return app;
 }
-
