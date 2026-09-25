@@ -99,16 +99,25 @@ export class AIClient {
     return res.json();
   }
 
-  public async generate(payload: GenerationRequest & { projectId: string; requestId?: string; generationId?: string }, requestId?: string): Promise<GenerationResult> {
+   public async generate(
+    payload: GenerationRequest & { projectId: string; requestId?: string; generationId?: string },
+    requestId?: string
+  ): Promise<GenerationResult> {
     const reqId = payload.requestId || requestId;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (reqId) headers['x-request-id'] = reqId;
 
-    const res = await this.fetchWithTimeout(`${this.baseUrl}/generate`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ ...payload, requestId: reqId }),
-    });
+    const GENERATE_TIMEOUT_MS = 90_000; // real LLM calls run far longer than ingest
+
+    const res = await this.fetchWithTimeout(
+      `${this.baseUrl}/generate`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ...payload, requestId: reqId }),
+      },
+      GENERATE_TIMEOUT_MS
+    );
 
     if (!res.ok) {
       throw new ServiceUnavailableError('AI Service (/generate)');
