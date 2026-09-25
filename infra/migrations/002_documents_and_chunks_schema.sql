@@ -1,7 +1,7 @@
 -- 002_documents_and_chunks_schema.sql
 -- GroundGuard Phase 3: Documents and Vector Chunks Schema
 
-CREATE EXTENSION IF NOT EXISTS vector;
+
 
 CREATE TABLE IF NOT EXISTS documents (
     id varchar(64) PRIMARY KEY,
@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_index integer NOT NULL,
     page_number integer NOT NULL,
     text text NOT NULL,
-    embedding vector(384) NOT NULL,
     created_at timestamptz NOT NULL
 );
 
