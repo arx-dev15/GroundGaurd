@@ -1,0 +1,162 @@
+import { FastifyInstance } from 'fastify';
+import { authenticate } from '../middleware/auth';
+import { projectRepository } from '../repositories/project.repository';
+import { conversationRepository } from '../repositories/conversation.repository';
+import {
+  generationRepository,
+  DBGeneration,
+  DBClaim,
+  DBEvidence,
+} from '../repositories/generation.repository';
+import { generationOrchestrator } from '../services/generation.orchestrator';
+import { BadRequestError, NotFoundError } from '../utils/errors';
+import { Claim, Evidence } from '@groundguard/contracts';
+
+const MAX_QUERY_LENGTH = 2000;
+const MAX_RECOVERY_ATTEMPTS_LIMIT = 5;
+
+function toGenerationResult(g: DBGeneration) {
+  return {
+    requestId: g.requestId,
+    generationId: g.id,
+    status: g.status,
+    answer: g.answer ?? undefined,
+    error: g.errorCode ? { code: g.errorCode, message: g.errorMessage ?? '' } : undefined,
+  };
+}
+
+function toPublicClaim(c: DBClaim, evidence: DBEvidence[] = []): Claim {
+  const claim: Claim = {
+    claimId: c.externalClaimId ?? c.id,
+    text: c.text,
+    status: c.status,
+    evidence: evidence.map(toPublicEvidence),
+  };
+  if (c.label) {
+    claim.verification = {
+      label: c.label,
+      scores: {
+        entailment: c.entailmentScore ?? 0,
+        contradiction: c.contradictionScore ?? 0,
+        neutral: c.neutralScore ?? 0,
+      },
+      groundingScore: c.groundingScore ?? 0,
+      modelVersion: c.modelVersion ?? '',
+    };
+  }
+  return claim;
+}
+
+function toPublicEvidence(e: DBEvidence): Evidence {
+  return {
+    evidenceId: e.id,
+    chunkId: e.chunkId,
+    documentId: e.documentId ?? undefined,
+    text: e.text,
+    metadata: e.metadata,
+  };
+}
+
+export async function generationRoutes(fastify: FastifyInstance) {
+  fastify.addHook('preHandler', authenticate);
+
+  // POST /v1/projects/:projectId/generations
+  fastify.post('/v1/projects/:projectId/generations', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const userId = request.user!.id;
+
+    const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
+    if (!project) throw new NotFoundError('Project not found');
+
+    const body = request.body as {
+      query?: unknown;
+      conversationId?: unknown;
+      options?: { stream?: unknown; maxRecoveryAttempts?: unknown };
+    };
+
+    if (!body || typeof body !== 'object') throw new BadRequestError('Request body must be a JSON object');
+    if (typeof body.query !== 'string' || body.query.trim().length === 0) {
+      throw new BadRequestError('query is required and must be a non-empty string');
+    }
+    if (body.query.length > MAX_QUERY_LENGTH) {
+      throw new BadRequestError(`query must be at most ${MAX_QUERY_LENGTH} characters`);
+    }
+
+    let conversationId: string | undefined;
+    if (body.conversationId !== undefined) {
+      if (typeof body.conversationId !== 'string') throw new BadRequestError('conversationId must be a string');
+      const conv = await conversationRepository.findConversationByIdAndUserId(body.conversationId, userId);
+      if (!conv || conv.projectId !== projectId) throw new NotFoundError('Conversation not found');
+      conversationId = conv.id;
+    }
+
+    let maxRecoveryAttempts = 2;
+    if (body.options?.maxRecoveryAttempts !== undefined) {
+      const v = body.options.maxRecoveryAttempts;
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > MAX_RECOVERY_ATTEMPTS_LIMIT) {
+        throw new BadRequestError(`options.maxRecoveryAttempts must be an integer between 0 and ${MAX_RECOVERY_ATTEMPTS_LIMIT}`);
+      }
+      maxRecoveryAttempts = v;
+    }
+
+    const generation = await generationOrchestrator.createGeneration({
+      projectId,
+      conversationId,
+      query: body.query.trim(),
+      maxRecoveryAttempts,
+    });
+
+    return reply.status(202).send(toGenerationResult(generation));
+  });
+
+  // GET /v1/generations/:generationId
+  fastify.get('/v1/generations/:generationId', async (request, reply) => {
+    const { generationId } = request.params as { generationId: string };
+    const userId = request.user!.id;
+
+    const generation = await generationRepository.findGenerationByIdAndUserId(generationId, userId);
+    if (!generation) throw new NotFoundError('Generation not found');
+
+    return reply.status(200).send(toGenerationResult(generation));
+  });
+
+  // GET /v1/generations/:generationId/claims
+  fastify.get('/v1/generations/:generationId/claims', async (request, reply) => {
+    const { generationId } = request.params as { generationId: string };
+    const userId = request.user!.id;
+
+    const generation = await generationRepository.findGenerationByIdAndUserId(generationId, userId);
+    if (!generation) throw new NotFoundError('Generation not found');
+
+    const claims = await generationRepository.listClaimsByGenerationId(generationId);
+    const withEvidence = await Promise.all(
+      claims.map(async (c) => toPublicClaim(c, await generationRepository.listEvidenceByClaimId(c.id)))
+    );
+
+    return reply.status(200).send({ claims: withEvidence });
+  });
+
+  // GET /v1/claims/:claimId
+  fastify.get('/v1/claims/:claimId', async (request, reply) => {
+    const { claimId } = request.params as { claimId: string };
+    const userId = request.user!.id;
+
+    const claim = await generationRepository.findClaimByIdAndUserId(claimId, userId);
+    if (!claim) throw new NotFoundError('Claim not found');
+
+    const evidence = await generationRepository.listEvidenceByClaimId(claim.id);
+    return reply.status(200).send({ claim: toPublicClaim(claim, evidence) });
+  });
+
+  // GET /v1/claims/:claimId/evidence
+  fastify.get('/v1/claims/:claimId/evidence', async (request, reply) => {
+    const { claimId } = request.params as { claimId: string };
+    const userId = request.user!.id;
+
+    const claim = await generationRepository.findClaimByIdAndUserId(claimId, userId);
+    if (!claim) throw new NotFoundError('Claim not found');
+
+    const evidence = await generationRepository.listEvidenceByClaimId(claim.id);
+    return reply.status(200).send({ evidence: evidence.map(toPublicEvidence) });
+  });
+}
