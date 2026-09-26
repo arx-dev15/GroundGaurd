@@ -19,6 +19,8 @@ models/*
 services/ml/models/*
 !services/ml/models/.gitkeep
 !services/ml/models/*.py
+!services/ml/models/groundguard-deberta-v1/
+!services/ml/models/groundguard-deberta-v1/*.json
 *.safetensors
 *.bin
 *.pt
@@ -29,6 +31,8 @@ datasets/evaluation/*
 !datasets/raw/.gitkeep
 !datasets/processed/.gitkeep
 !datasets/evaluation/.gitkeep
+!datasets/processed/*.jsonl
+!datasets/evaluation/*.jsonl
 uploads/
 storage/
 *.exe
