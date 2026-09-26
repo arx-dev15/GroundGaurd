@@ -18,6 +18,7 @@ models/*
 !models/.gitkeep
 services/ml/models/*
 !services/ml/models/.gitkeep
+!services/ml/models/*.py
 *.safetensors
 *.bin
 *.pt

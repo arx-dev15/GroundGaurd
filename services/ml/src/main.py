@@ -1,6 +1,7 @@
 import os
 import sys
 import uuid
+import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -79,7 +80,8 @@ async def root():
         "version": MODEL_VERSION,
         "docs": "/docs",
         "health": "/health",
-        "modelInfo": "/model/info"
+        "modelInfo": "/model/info",
+        "evaluate": "/evaluate"
     }
 
 def get_active_engine():
@@ -153,6 +155,24 @@ async def verify_batch(payload: BatchVerifyRequest, x_request_id: Optional[str] 
         results=results,
         modelVersion=MODEL_VERSION,
     )
+
+@app.api_route("/evaluate", methods=["GET", "POST"])
+async def evaluate():
+    """Returns golden benchmark and multi-baseline comparative metrics."""
+    report_path = Path(__file__).resolve().parent.parent / "evaluation" / "reports" / "baseline_comparison.json"
+    if report_path.exists():
+        with open(report_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {
+            "modelVersion": MODEL_VERSION,
+            "status": "evaluated",
+            "baselines": data
+        }
+    return {
+        "modelVersion": MODEL_VERSION,
+        "status": "pending_benchmark",
+        "message": "Run evaluation/baselines.py to generate comparative metrics"
+    }
 
 if __name__ == "__main__":
     import uvicorn

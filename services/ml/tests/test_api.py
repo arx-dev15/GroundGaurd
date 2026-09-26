@@ -133,3 +133,14 @@ def test_verify_batch(client):
     assert len(data["results"]) == 2
     assert data["results"][0]["label"] == "contradiction"
     assert data["results"][1]["label"] == "entailment"
+
+def test_evaluate_endpoint(client):
+    """Verify that /evaluate serves benchmark metrics for Member 4 dashboard."""
+    response = client.get("/evaluate")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] in ["evaluated", "pending_benchmark"]
+    assert "modelVersion" in data
+    if data["status"] == "evaluated":
+        assert "baselines" in data
+        assert "groundguard-deberta-v1-finetuned" in data["baselines"]
