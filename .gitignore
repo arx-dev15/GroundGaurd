@@ -16,6 +16,12 @@ coverage/
 .pytest_cache/
 models/*
 !models/.gitkeep
+services/ml/models/*
+!services/ml/models/.gitkeep
+*.safetensors
+*.bin
+*.pt
+*.onnx
 datasets/raw/*
 datasets/processed/*
 datasets/evaluation/*

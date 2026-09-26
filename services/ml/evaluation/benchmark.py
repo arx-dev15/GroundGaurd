@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.contracts.requests import EvidenceChunk
 from src.inference.predictor import neural_predictor
+from src.config import MODEL_VERSION
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("groundguard-benchmark")
@@ -19,7 +20,7 @@ TEST_DATASET_PATH = REPO_ROOT / "datasets" / "evaluation" / "test.jsonl"
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
 
 
-def run_benchmark(dataset_path: Path = TEST_DATASET_PATH, model_name: str = "deberta-v3-small-zero-shot") -> Dict:
+def run_benchmark(dataset_path: Path = TEST_DATASET_PATH, model_name: str = MODEL_VERSION) -> Dict:
     """Evaluates the active neural predictor on the golden test benchmark."""
     logger.info(f"Loading test benchmark from: {dataset_path}")
     

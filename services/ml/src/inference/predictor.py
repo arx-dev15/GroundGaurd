@@ -7,11 +7,12 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from src.contracts.requests import EvidenceChunk, VerifyItem
 from src.contracts.responses import Scores, VerifyResultItem
 from src.preprocessing.pairer import text_pairer
-from src.config import MODEL_VERSION
+from src.inference.calibrator import calibrator
+from src.config import MODEL_VERSION, MODEL_NAME
 
 logger = logging.getLogger("groundguard-predictor")
 
-DEFAULT_MODEL_NAME = "cross-encoder/nli-deberta-v3-small"
+DEFAULT_MODEL_NAME = MODEL_NAME
 
 class DebertaGroundingPredictor:
     """
@@ -66,13 +67,7 @@ class DebertaGroundingPredictor:
         with torch.no_grad():
             outputs = self.model(**inputs)
             logits = outputs.logits  # Shape: [1, 3]
-            probabilities = F.softmax(logits, dim=-1).squeeze(0).tolist()
-
-        # Map probabilities using model's verified id2label config
-        prob_dict = {"contradiction": 0.0, "entailment": 0.0, "neutral": 0.0}
-        for idx, prob in enumerate(probabilities):
-            label_name = self.id2label.get(idx, "neutral")
-            prob_dict[label_name] = float(prob)
+            prob_dict = calibrator.calibrate_logits(logits, self.id2label)
 
         return prob_dict
 
@@ -118,16 +113,11 @@ class DebertaGroundingPredictor:
         p_entail = round(final_entailment / total, 4)
         p_neutral = round(final_neutral / total, 4)
 
-        # Calculate calibrated Grounding Score: P(Entailment) * (1 - P(Contradiction))
-        grounding_score = round(p_entail * (1.0 - p_contra), 4)
+        # Calculate calibrated Grounding Score via Calibrator
+        grounding_score = calibrator.compute_grounding_score(p_entail, p_contra)
 
-        # Decision Boundary
-        if p_contra >= 0.40:
-            label = "contradiction"
-        elif p_entail >= 0.60:
-            label = "entailment"
-        else:
-            label = "neutral"
+        # Decision Boundary via Calibrator Policy
+        label = calibrator.apply_decision_policy(p_contra, p_entail, grounding_score)
 
         scores = Scores(
             entailment=p_entail,
