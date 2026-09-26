@@ -5,6 +5,12 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_linear_schedule_with_warmup
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Ensure service root (services/ml) is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -24,7 +30,7 @@ MAX_LENGTH = 512
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"🚀 Training GroundGuard DeBERTa-v1 on device: {device}")
+    print(f"[TRAIN] Training GroundGuard DeBERTa-v1 on device: {device}")
 
     # 1. Load Tokenizer & Base Model
     print(f"Loading base weights from: {BASE_MODEL_NAME}...")
@@ -111,9 +117,9 @@ def train():
             OUTPUT_MODEL_DIR.mkdir(parents=True, exist_ok=True)
             model.save_pretrained(OUTPUT_MODEL_DIR)
             tokenizer.save_pretrained(OUTPUT_MODEL_DIR)
-            print(f"  ⭐ Checkpoint saved to: {OUTPUT_MODEL_DIR}")
+            print(f"  [*] Checkpoint saved to: {OUTPUT_MODEL_DIR}")
 
-    print("\n🎉 Fine-Tuning Completed Successfully!")
+    print("\n[SUCCESS] Fine-Tuning Completed Successfully!")
     print(f"Fine-tuned model weights saved at: {OUTPUT_MODEL_DIR}")
 
 if __name__ == "__main__":
