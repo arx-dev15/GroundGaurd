@@ -31,6 +31,7 @@ from src.pipeline.retrieval import (
 from src.pipeline.context import context_builder
 from src.pipeline.prompts import build_grounded_user_prompt
 from src.pipeline.llm import llm_runtime, LLMUnavailableError
+from src.pipeline.claim_extractor import extract_and_validate_claims, ProvenanceValidationError
 
 # Backwards compatibility alias
 RetrieveResult = RetrieveResponse
@@ -78,7 +79,9 @@ class GenerateRequest(BaseModel):
 class ClaimItem(BaseModel):
     claimId: str
     text: str
-    status: str
+    status: str = "pending"
+    ordinal: Optional[int] = 0
+    sourceText: Optional[str] = None
     verification: Optional[Dict[str, Any]] = None
     evidence: List[EvidenceItem] = []
 
@@ -385,6 +388,26 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             f"[/generate completed] project_id={payload.projectId} req_id={req_id} "
             f"model={llm_res.modelVersion} latency={llm_res.latencyMs}ms"
         )
+        # Step 5: Phase 6 Claim Extraction & Evidence Provenance Association
+        claims = []
+        claim_extraction_meta = {"status": "skipped"}
+        try:
+            raw_claims = await extract_and_validate_claims(
+                answer=llm_res.answer,
+                evidence=included_items
+            )
+            claims = [ClaimItem(**c) for c in raw_claims]
+            claim_extraction_meta = {
+                "status": "completed",
+                "claimCount": len(claims)
+            }
+        except Exception as claim_err:
+            logger.error(f"[/generate claim extraction error] project_id={payload.projectId} req_id={req_id}: {claim_err}")
+            claim_extraction_meta = {
+                "status": "failed",
+                "error": str(claim_err)
+            }
+
         return GenerateResult(
             requestId=req_id,
             generationId=gen_id,
@@ -398,9 +421,10 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "evidenceCount": len(included_items),
                 "omittedCount": len(omitted_items),
                 "llmLatencyMs": llm_res.latencyMs,
-                "provider": llm_res.provider
+                "provider": llm_res.provider,
+                "claimExtraction": claim_extraction_meta
             },
-            claims=[]
+            claims=claims
         )
     except LLMUnavailableError as unavail_err:
         logger.error(f"[/generate LLM unavailable] project_id={payload.projectId} req_id={req_id}: {unavail_err}")

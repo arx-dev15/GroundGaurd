@@ -1,6 +1,6 @@
 import { dbManager } from '../plugins/database';
 import { generateId } from '../utils/id';
-import { GenerationStatus, ClaimStatus, VerificationLabel } from '@groundguard/contracts';
+import { GenerationStatus, ClaimStatus, VerificationLabel, Claim, Message } from '@groundguard/contracts';
 
 export interface DBGeneration {
   id: string;
@@ -225,6 +225,33 @@ export class GenerationRepository {
     return res.rows;
   }
 
+  public async findClaimsByGenerationId(generationId: string): Promise<Claim[]> {
+    const dbClaims = await this.listClaimsByGenerationId(generationId);
+    return Promise.all(
+      dbClaims.map(async (c) => {
+        const dbEv = await this.listEvidenceByClaimId(c.id);
+        return {
+          claimId: c.id,
+          ordinal: c.claimIndex,
+          text: c.text,
+          status: c.status,
+          evidence: dbEv.map((e) => {
+            const meta = typeof e.metadata === 'string' ? JSON.parse(e.metadata) : (e.metadata ?? {});
+            return {
+              chunkId: e.chunkId,
+              documentId: e.documentId ?? undefined,
+              text: e.text,
+              metadata: meta,
+              pageNumber: (meta?.pageNumber as number) ?? undefined,
+              section: (meta?.section as string) ?? undefined,
+              heading: (meta?.heading as string) ?? undefined,
+            };
+          }),
+        };
+      })
+    );
+  }
+
   public async findClaimByIdAndUserId(id: string, userId: string): Promise<DBClaim | null> {
     const pool = dbManager.getPool();
     const res = await pool.query(
@@ -274,6 +301,145 @@ export class GenerationRepository {
   public async findClaimOwnerCheck(claimId: string, userId: string): Promise<boolean> {
     const claim = await this.findClaimByIdAndUserId(claimId, userId);
     return claim !== null;
+  }
+
+  /**
+   * Phase 6 Atomic Transactional Persistence:
+   * Atomically commits generation update, optional assistant message, extracted claims,
+   * and claim evidence provenance in a single database transaction.
+   */
+  public async persistCompletedGeneration(data: {
+    generationId: string;
+    projectId: string;
+    answer?: string | null;
+    modelVersion?: string | null;
+    metadata?: Record<string, unknown> | null;
+    totalLatencyMs?: number | null;
+    claims?: Claim[];
+    conversationId?: string | null;
+  }): Promise<{
+    generation: DBGeneration;
+    claims: Array<{ claim: DBClaim; evidence: DBEvidence[] }>;
+    assistantMessage?: Message;
+  }> {
+    const pool = dbManager.getPool();
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // 1. Update generation to completed
+      const genRes = await client.query(
+        `UPDATE generations
+         SET status = 'completed',
+             answer = $1,
+             model_version = $2,
+             metadata = $3,
+             total_latency_ms = $4,
+             generation_latency_ms = $4,
+             completed_at = $5,
+             updated_at = $5
+         WHERE id = $6
+         RETURNING ${GEN_COLS};`,
+        [
+          data.answer ?? null,
+          data.modelVersion ?? null,
+          JSON.stringify(data.metadata ?? {}),
+          data.totalLatencyMs ?? null,
+          new Date(),
+          data.generationId,
+        ]
+      );
+      const generation: DBGeneration = genRes.rows[0];
+
+      // 2. Persist assistant message if conversationId and answer provided
+      let assistantMessage: Message | undefined;
+      if (data.conversationId && data.answer) {
+        const msgId = generateId('msg');
+        const now = new Date();
+        const msgRes = await client.query(
+          `INSERT INTO messages (id, conversation_id, role, content, generation_id, created_at)
+           VALUES ($1, $2, 'assistant', $3, $4, $5)
+           RETURNING id, conversation_id AS "conversationId", role, content, generation_id AS "generationId", created_at AS "createdAt";`,
+          [msgId, data.conversationId, data.answer, data.generationId, now]
+        );
+        const r = msgRes.rows[0];
+        assistantMessage = {
+          id: r.id,
+          conversationId: r.conversationId,
+          role: r.role,
+          content: r.content,
+          generationId: r.generationId || undefined,
+          createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
+        };
+      }
+
+      // 3. Persist claims and candidate evidence provenance
+      const persistedClaims: Array<{ claim: DBClaim; evidence: DBEvidence[] }> = [];
+      const claimsList = data.claims ?? [];
+
+      for (let idx = 0; idx < claimsList.length; idx++) {
+        const c = claimsList[idx];
+        const claimId = generateId('claim');
+        const now = new Date();
+
+        const claimRes = await client.query(
+          `INSERT INTO claims
+            (id, generation_id, external_claim_id, claim_index, text, status, label,
+             entailment_score, contradiction_score, neutral_score, grounding_score, model_version,
+             created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, $6, $6)
+           RETURNING ${CLAIM_COLS};`,
+          [
+            claimId,
+            data.generationId,
+            c.claimId ?? `claim_${idx}`,
+            c.ordinal ?? idx,
+            c.text,
+            now,
+          ]
+        );
+        const dbClaim: DBClaim = claimRes.rows[0];
+
+        const dbEvidenceList: DBEvidence[] = [];
+        for (const ev of c.evidence ?? []) {
+          const evId = generateId('ev');
+          const evMetadata = {
+            ...(typeof ev.metadata === 'object' && ev.metadata !== null ? ev.metadata : {}),
+            pageNumber: ev.pageNumber,
+            section: ev.section,
+            heading: ev.heading,
+          };
+          const evRes = await client.query(
+            `INSERT INTO claim_evidence
+              (id, claim_id, chunk_id, document_id, text, retrieval_score, metadata, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING ${EVIDENCE_COLS};`,
+            [
+              evId,
+              dbClaim.id,
+              ev.chunkId,
+              ev.documentId ?? null,
+              ev.text,
+              ev.score ?? ev.rerankScore ?? null,
+              JSON.stringify(evMetadata),
+              now,
+            ]
+          );
+          dbEvidenceList.push(evRes.rows[0]);
+        }
+
+        persistedClaims.push({ claim: dbClaim, evidence: dbEvidenceList });
+      }
+
+      await client.query('COMMIT');
+      return { generation, claims: persistedClaims, assistantMessage };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 }
 

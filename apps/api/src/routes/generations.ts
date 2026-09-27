@@ -27,9 +27,11 @@ function toGenerationResult(g: DBGeneration) {
 
 function toPublicClaim(c: DBClaim, evidence: DBEvidence[] = []): Claim {
   const claim: Claim = {
-    claimId: c.externalClaimId ?? c.id,
+    claimId: c.id,
+    externalClaimId: c.externalClaimId ?? undefined,
     text: c.text,
     status: c.status,
+    ordinal: c.claimIndex,
     evidence: evidence.map(toPublicEvidence),
   };
   if (c.label) {
@@ -48,12 +50,16 @@ function toPublicClaim(c: DBClaim, evidence: DBEvidence[] = []): Claim {
 }
 
 function toPublicEvidence(e: DBEvidence): Evidence {
+  const meta = typeof e.metadata === 'string' ? JSON.parse(e.metadata) : (e.metadata ?? {});
   return {
     evidenceId: e.id,
     chunkId: e.chunkId,
     documentId: e.documentId ?? undefined,
     text: e.text,
-    metadata: e.metadata,
+    metadata: meta,
+    pageNumber: (meta?.pageNumber as number) ?? undefined,
+    section: (meta?.section as string) ?? undefined,
+    heading: (meta?.heading as string) ?? undefined,
   };
 }
 

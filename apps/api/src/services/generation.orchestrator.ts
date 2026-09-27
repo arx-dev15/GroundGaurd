@@ -66,54 +66,17 @@ export class GenerationOrchestrator {
         return;
       }
 
-      // Persist whatever claims/evidence M2 returned. Currently always [] (placeholder),
-      // but this loop needs no changes when M2's real Phase 5 generation ships.
-      const claims = result.claims ?? [];
-      for (let idx = 0; idx < claims.length; idx++) {
-        const c = claims[idx];
-        const dbClaim = await generationRepository.createClaim({
-          generationId,
-          externalClaimId: c.claimId,
-          claimIndex: idx,
-          text: c.text,
-          status: c.status ?? 'pending',
-          label: c.verification?.label ?? null,
-          entailmentScore: c.verification?.scores.entailment ?? null,
-          contradictionScore: c.verification?.scores.contradiction ?? null,
-          neutralScore: c.verification?.scores.neutral ?? null,
-          groundingScore: c.verification?.groundingScore ?? null,
-          modelVersion: c.verification?.modelVersion ?? null,
-        });
-
-        for (const ev of c.evidence ?? []) {
-          await generationRepository.createEvidence({
-            claimId: dbClaim.id,
-            chunkId: ev.chunkId,
-            documentId: ev.documentId ?? null,
-            text: ev.text,
-            metadata: ev.metadata ?? {},
-          });
-        }
-      }
-
-      await generationRepository.updateGeneration(generationId, {
-        status: 'completed',
+      // Atomic Phase 6 persistence: generation update, claims, and claim evidence provenance
+      await generationRepository.persistCompletedGeneration({
+        generationId,
+        projectId: generation.projectId,
         answer: result.answer ?? null,
         modelVersion: result.modelVersion ?? null,
         metadata: (result.metadata as Record<string, unknown>) ?? null,
         totalLatencyMs,
-        generationLatencyMs: totalLatencyMs,
-        completedAt: new Date(),
+        claims: result.claims ?? [],
+        conversationId: generation.conversationId,
       });
-
-      if (generation.conversationId && result.answer) {
-        await conversationRepository.createMessage({
-          conversationId: generation.conversationId,
-          role: 'assistant',
-          content: result.answer,
-          generationId,
-        });
-      }
     } catch (err: any) {
       const totalLatencyMs = Date.now() - startedAt;
       await generationRepository
@@ -210,27 +173,17 @@ export class GenerationOrchestrator {
         };
       }
 
-      // 4. Successful generation / abstention: update generation record
-      await generationRepository.updateGeneration(generation.id, {
-        status: 'completed',
+      // 4. Successful generation / abstention: atomically persist generation, assistant message, claims, evidence
+      const persisted = await generationRepository.persistCompletedGeneration({
+        generationId: generation.id,
+        projectId: data.projectId,
         answer: result.answer ?? null,
         modelVersion: result.modelVersion ?? null,
         metadata: (result.metadata as Record<string, unknown>) ?? null,
         totalLatencyMs,
-        generationLatencyMs: totalLatencyMs,
-        completedAt: new Date(),
+        claims: result.claims ?? [],
+        conversationId: data.conversationId,
       });
-
-      // 5. Persist assistant message if answer provided
-      let assistantMsg;
-      if (result.answer) {
-        assistantMsg = await conversationRepository.createMessage({
-          conversationId: data.conversationId,
-          role: 'assistant',
-          content: result.answer,
-          generationId: generation.id,
-        });
-      }
 
       return {
         requestId,
@@ -240,6 +193,7 @@ export class GenerationOrchestrator {
         answer: result.answer,
         evidence: result.evidence ?? [],
         sufficiency: result.sufficiency,
+        claims: result.claims ?? [],
         modelVersion: result.modelVersion,
         metadata: result.metadata,
         userMessage: {
@@ -249,16 +203,7 @@ export class GenerationOrchestrator {
           content: userMsg.content,
           createdAt: userMsg.createdAt.toISOString(),
         },
-        message: assistantMsg
-          ? {
-              id: assistantMsg.id,
-              conversationId: assistantMsg.conversationId,
-              role: assistantMsg.role,
-              content: assistantMsg.content,
-              generationId: assistantMsg.generationId || undefined,
-              createdAt: assistantMsg.createdAt.toISOString(),
-            }
-          : undefined,
+        message: persisted.assistantMessage,
       };
     } catch (err: any) {
       const totalLatencyMs = Date.now() - startedAt;

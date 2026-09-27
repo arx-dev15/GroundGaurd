@@ -6,16 +6,18 @@ Enforces zero mock generation, greedy temperature=0.0 decoding, and explicit una
 
 import os
 import time
+import asyncio
 import logging
 from typing import Optional, Dict, Any
 from pydantic import BaseModel
 import httpx
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), ".env"))
 
-from src.pipeline.prompts import GROUNDGUARD_SYSTEM_PROMPT
+from src.pipeline.prompts import GROUNDGUARD_SYSTEM_PROMPT, CLAIM_EXTRACTION_SYSTEM_PROMPT
 
 logger = logging.getLogger("m2-llm-runtime")
 
@@ -123,45 +125,83 @@ class RealLLMRuntime:
             latencyMs=latency_ms
         )
 
-    async def _call_gemini(self, system_prompt: str, user_prompt: str) -> str:
+    async def extract_claims(self, user_prompt: str, system_prompt: str = CLAIM_EXTRACTION_SYSTEM_PROMPT) -> str:
+        """
+        Executes real LLM structured claim extraction with temperature=0.0 and JSON response mode.
+        """
+        if not self.is_configured():
+            raise LLMUnavailableError(
+                "PHASE 6 BLOCKED — REAL LLM RUNTIME NOT CONFIGURED: "
+                "No valid LLM_PROVIDER or LLM_API_KEY configured in environment."
+            )
+
+        if self.provider == "gemini":
+            return await self._call_gemini(system_prompt, user_prompt, response_json=True)
+        elif self.provider == "groq":
+            return await self._call_groq(system_prompt, user_prompt, response_json=True)
+        elif self.provider == "openai":
+            return await self._call_openai(system_prompt, user_prompt, response_json=True)
+        elif self.provider == "ollama":
+            return await self._call_ollama(system_prompt, user_prompt, response_json=True)
+        else:
+            raise LLMUnavailableError(f"Unsupported LLM provider: '{self.provider}'")
+
+    async def _call_gemini(self, system_prompt: str, user_prompt: str, response_json: bool = False) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
         headers = {
             "x-goog-api-key": self.api_key,
             "Content-Type": "application/json"
         }
+        generation_config: Dict[str, Any] = {
+            "temperature": 0.0,
+            "maxOutputTokens": 2048 if response_json else 1024
+        }
+        if response_json:
+            generation_config["responseMimeType"] = "application/json"
+
         payload = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"parts": [{"text": user_prompt}]}],
-            "generationConfig": {
-                "temperature": 0.0,
-                "maxOutputTokens": 1024
-            }
+            "generationConfig": generation_config
         }
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            res = await client.post(url, headers=headers, json=payload)
-            if res.status_code != 200:
-                raise LLMUnavailableError(f"Gemini API error (HTTP {res.status_code})")
-            data = res.json()
-            try:
-                return data["candidates"][0]["content"]["parts"][0]["text"]
-            except (KeyError, IndexError) as err:
-                raise LLMUnavailableError("Malformed Gemini API response")
+        def _sync_post():
+            last_err = None
+            for attempt in range(2):
+                try:
+                    res = requests.post(url, headers=headers, json=payload, timeout=40.0)
+                    if res.status_code != 200:
+                        raise LLMUnavailableError(f"Gemini API error (HTTP {res.status_code}): {res.text}")
+                    data = res.json()
+                    try:
+                        return data["candidates"][0]["content"]["parts"][0]["text"]
+                    except (KeyError, IndexError):
+                        raise LLMUnavailableError("Malformed Gemini API response")
+                except Exception as e:
+                    last_err = e
+                    if attempt < 1:
+                        time.sleep(1.0)
+            raise LLMUnavailableError(f"Gemini API connection error: {last_err}")
 
-    async def _call_groq(self, system_prompt: str, user_prompt: str) -> str:
+        return await asyncio.to_thread(_sync_post)
+
+    async def _call_groq(self, system_prompt: str, user_prompt: str, response_json: bool = False) -> str:
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        payload = {
+        payload: Dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.0,
-            "max_tokens": 1024
+            "max_tokens": 2048 if response_json else 1024
         }
+        if response_json:
+            payload["response_format"] = {"type": "json_object"}
+
         async with httpx.AsyncClient(timeout=45.0) as client:
             res = await client.post(url, headers=headers, json=payload)
             if res.status_code != 200:
@@ -172,22 +212,25 @@ class RealLLMRuntime:
             except (KeyError, IndexError) as err:
                 raise LLMUnavailableError(f"Malformed Groq API response: {data}")
 
-    async def _call_openai(self, system_prompt: str, user_prompt: str) -> str:
+    async def _call_openai(self, system_prompt: str, user_prompt: str, response_json: bool = False) -> str:
         base = self.base_url or "https://api.openai.com/v1"
         url = f"{base.rstrip('/')}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        payload = {
+        payload: Dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.0,
-            "max_tokens": 1024
+            "max_tokens": 2048 if response_json else 1024
         }
+        if response_json:
+            payload["response_format"] = {"type": "json_object"}
+
         async with httpx.AsyncClient(timeout=45.0) as client:
             res = await client.post(url, headers=headers, json=payload)
             if res.status_code != 200:
@@ -198,16 +241,20 @@ class RealLLMRuntime:
             except (KeyError, IndexError) as err:
                 raise LLMUnavailableError(f"Malformed OpenAI API response: {data}")
 
-    async def _call_ollama(self, system_prompt: str, user_prompt: str) -> str:
+    async def _call_ollama(self, system_prompt: str, user_prompt: str, response_json: bool = False) -> str:
         base = self.base_url or os.getenv("OLLAMA_HOST", "http://localhost:11434")
         url = f"{base.rstrip('/')}/api/generate"
-        payload = {
+        options: Dict[str, Any] = {"temperature": 0.0}
+        payload: Dict[str, Any] = {
             "model": self.model,
             "system": system_prompt,
             "prompt": user_prompt,
             "stream": False,
-            "options": {"temperature": 0.0}
+            "options": options
         }
+        if response_json:
+            payload["format"] = "json"
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             res = await client.post(url, json=payload)
             if res.status_code != 200:

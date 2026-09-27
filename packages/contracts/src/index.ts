@@ -162,11 +162,16 @@ export interface VerificationResult {
 
 export interface Claim {
   claimId: string;
+  externalClaimId?: string;
   text: string;
   status: ClaimStatus;
+  ordinal?: number;
+  sourceText?: string;
   verification?: VerificationResult;
-  evidence?: Evidence[];
+  evidence?: EvidenceItem[];
 }
+
+export type ClaimItem = Claim;
 
 // Request & Response Payload Contracts
 export interface GenerationRequestOptions {
@@ -188,6 +193,11 @@ export interface GenerationMetadata {
   omittedCount?: number;
   llmLatencyMs?: number;
   provider?: string;
+  claimExtraction?: {
+    status: string;
+    claimCount?: number;
+    error?: string;
+  };
   [key: string]: unknown;
 }
 
