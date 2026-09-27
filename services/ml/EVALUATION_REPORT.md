@@ -46,7 +46,7 @@ The test suite tests the 9 error categories specified in the GroundGuard ML Spec
 | **partial_support** | Multi-attribute claim with missing evidence | 0.0% | 33.3% | 100.0% | **100.0%** |
 
 > [!NOTE]
-> ⭐ **Causal Modification Resolution**: Sample `test_0017` demonstrated the zero-shot baseline's vulnerability—mistaking temporal succession (*'Sales increased after the product launch'*) for causal agency (*'The product launch caused the increase'*). Custom fine-tuning with weighted cross-entropy successfully eradicated this failure mode, boosting causal accuracy from **66.7% to 100.0%**.
+> ⭐ **Causal Modification Analysis**: Sample `test_0017` demonstrates a persistent vulnerability of transformer cross-encoders—mistaking temporal succession (*'Grid curtailment fell by 15% after batteries were installed'*) for causal agency (*'Installing batteries caused grid curtailment to fall'*). Under pure neural inference without symbolic gating, the cross-encoder predicts Entailment ($P = 0.9974$), maintaining causal accuracy at **66.7% (2/3)**. In production, this failure mode is intercepted and neutralized by the Stage 1 Symbolic Domain Gate.
 
 ---
 
@@ -154,14 +154,17 @@ To stress-test GroundGuard against rigorous industrial engineering and Piping & 
 
 ### Progressive Evolution Benchmark
 
-| Verification Architecture | Overall Accuracy | False Entailment Rate (Safety Risk) | Contradiction Recall | Neutral F1 | Status |
+| Verification Architecture | Overall Accuracy | False Entailment Rate (Safety Risk) | Contradiction Recall | Neutral F1 | Architectural Nature |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Phase 1 Mock Engine** (`groundguard-v1-phase1-mock`) | 54.55% (60/110) | 41.54% (27 errors) | 43.59% | 61.2% | Baseline (Old) |
-| **Raw Fine-Tuned DeBERTa-v3** (`groundguard-deberta-v1`) | 68.18% (75/110) | 10.77% (7 errors) | 82.05% | 71.0% | Neural Only |
-| **Dual-Stage Production Engine** (`groundguard-deberta-dualstage-v2`) | **100.00% (110/110)** | **0.00% (0 errors)** | **100.00%** | **100.0%** | **Production Deployed** |
+| **Phase 1 Mock Engine** (`groundguard-v1-phase1-mock`) | 54.55% (60/110) | 41.54% (27 errors) | 43.59% | 61.2% | Synthetic Heuristic Baseline |
+| **Raw Fine-Tuned DeBERTa-v3** (`groundguard-deberta-v1`) | 73.64% (81/110) | 13.85% (9 errors) | 84.62% | 57.9% | Pure Neural Cross-Encoder (Zero Rules) |
+| **GroundGuard Production Engine** (`groundguard-deberta-dualstage-v2`) | **100.00% (110/110)** | **0.00% (0 errors)** | **100.00%** | **100.0%** | **Neuro-Symbolic Hybrid Architecture** |
 
-### Key Innovations in Dual-Stage Grounding Gate:
-1. **P&ID Equipment Tag Integrity Gate**: Deterministic regex verification (`\b[A-Z]{1,4}-\d{2,4}[A-Z]?\b`) prevents subword tokenizers from hallucinating support when an unmentioned asset tag is queried, immediately mapping hallucinated assets to `neutral`.
+### The Neuro-Symbolic Paradigm in Production RAG
+Enterprise verification of industrial diagrams (P&ID) and technical specifications requires both **semantic language comprehension** and **deterministic physical rigor**. Pure neural transformers are fundamentally probabilistic and struggle with exact metric unit arithmetic ($1\text{ MPa} \iff 10\text{ bar}$), decimal truncation ($42 \neq 42.5$), and exact subword tag tokenization (`P-101A` vs `P-101B`). 
+
+GroundGuard explicitly solves this through a **Neuro-Symbolic Hybrid Architecture**:
+1. **P&ID Equipment Tag Integrity Gate**: Deterministic regex extraction (`\b[A-Z]{1,4}-\d{2,4}[A-Z]?\b`) prevents subword tokenizers from hallucinating support when an unmentioned asset tag is queried, immediately mapping ungrounded assets to `neutral`.
 2. **Joint Evidence Fusion**: When aggregating across multiple retrieved documentation chunks, relevant chunks indicating entailment ($>0.60$) suppress false contradiction penalties introduced by irrelevant distractor chunks.
 3. **Deterministic Symbolic Engineering Rule Gate**: Evaluates drawing revisions, operating ranges, unit equivalencies ($1\text{ MPa} \iff 10\text{ bar}$), and modal requirements (*should* vs *must*) deterministically prior to neural forward pass.
 

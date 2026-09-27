@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 # Ensure the service root directory (services/ml) is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import FastAPI, Header, Request, Response
+from fastapi import FastAPI, Header, Request, Response, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import PORT, HOST, SERVICE_NAME, MODEL_VERSION, MODEL_NAME, USE_NEURAL_ENGINE
@@ -41,7 +41,8 @@ async def lifespan(app: FastAPI):
             neural_predictor.load_model()
             logger.info("DeBERTa Cross-Encoder loaded and ready!")
         except Exception as e:
-            logger.warning(f"Could not load neural model ({e}). Gracefully falling back to mock engine.")
+            logger.error(f"FATAL: Could not load neural model ({e}). Failing fast — silent mock fallbacks are disabled in production.")
+            raise e
     yield
     logger.info("Shutting down GroundGuard ML Service...")
 
@@ -85,9 +86,14 @@ async def root():
     }
 
 def get_active_engine():
-    """Returns the neural predictor if loaded, otherwise falls back to mock engine."""
-    if USE_NEURAL_ENGINE and neural_predictor.is_loaded:
-        return neural_predictor
+    """Returns the neural predictor if loaded, otherwise raises 503 error if neural engine is required."""
+    if USE_NEURAL_ENGINE:
+        if neural_predictor.is_loaded:
+            return neural_predictor
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Neural Grounding Engine is not loaded. Silent mock fallback is disabled."
+        )
     return mock_engine
 
 

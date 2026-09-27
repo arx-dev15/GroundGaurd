@@ -5,6 +5,8 @@ from typing import List, Dict
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
+from src.preprocessing.pairer import text_pairer
+
 LABEL_MAP = {
     "contradiction": 0,
     "entailment": 1,
@@ -31,8 +33,8 @@ class GroundingDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         sample = self.samples[idx]
-        evidence = sample["evidence"]
-        claim = sample["claim"]
+        evidence = text_pairer.clean_text(sample["evidence"])
+        claim = text_pairer.clean_text(sample["claim"])
         label_str = sample["label"].lower()
         label_idx = LABEL_MAP[label_str]
 
