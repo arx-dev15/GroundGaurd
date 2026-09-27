@@ -88,7 +88,7 @@ GroundGuard follows a structured 12-phase delivery lifecycle (see `docs/MVP_ROAD
 * Complete synchronous pipeline: Document upload → Ingestion → Retrieval → Generation → Verification → Claim persistence → Frontend payload contract.
 
 ### Phase 3 — Secure Ingestion & Multi-Store Knowledge Indexing (COMPLETED)
-* PDF validation, lineage chunking (`section`, `heading`, `identifiers`), `sentence-transformers` 384-dim embeddings, Qdrant dense vector store, Tantivy BM25 store, NetworkX entity topology graph, pgvector retirement (migration 004), M3 canonical chunk persistence.
+* PDF validation, lineage chunking (`section`, `heading`, `identifiers`), `sentence-transformers` 384-dim embeddings, Qdrant dense vector store, Tantivy BM25 store, NetworkX entity topology graph (`uploads/graphs/:projectId/topology.json`), pgvector retirement (migration 004), M3 canonical chunk persistence.
 
 ### Phase 4 — Production Grounding ML Engine (NEXT)
 * Real NLI cross-encoder model training/loading (`DeBERTa-v3`), 3-way classification (`entailment`, `contradiction`, `neutral`), calibrated grounding confidence thresholds, batch verification endpoints.

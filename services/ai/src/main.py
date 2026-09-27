@@ -2,6 +2,10 @@ import os
 import sys
 import uuid
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), ".env"))
 
 # Ensure services/ai directory is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,6 +21,19 @@ from src.pipeline.db import validate_ready_documents
 from src.pipeline.qdrant_store import qdrant_store
 from src.pipeline.tantivy_store import tantivy_store
 from src.pipeline.graph_store import graph_store
+from src.pipeline.retrieval import (
+    retrieve_evidence,
+    RetrieveResponse,
+    EvidenceItem,
+    EvidenceSufficiency,
+    RetrieveMetadata
+)
+from src.pipeline.context import context_builder
+from src.pipeline.prompts import build_grounded_user_prompt
+from src.pipeline.llm import llm_runtime, LLMUnavailableError
+
+# Backwards compatibility alias
+RetrieveResult = RetrieveResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("m2-ai-service")
@@ -45,17 +62,6 @@ class RetrieveRequest(BaseModel):
     query: str
     topK: Optional[int] = 5
 
-class EvidenceItem(BaseModel):
-    evidenceId: Optional[str] = None
-    chunkId: str
-    documentId: Optional[str] = None
-    text: str
-    score: Optional[float] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-class RetrieveResult(BaseModel):
-    results: List[EvidenceItem] = []
-
 class DeleteDocumentResult(BaseModel):
     success: bool
     documentId: str
@@ -81,8 +87,12 @@ class GenerateResult(BaseModel):
     generationId: str
     status: str = "completed"
     answer: str
+    evidence: List[EvidenceItem] = []
+    sufficiency: Optional[EvidenceSufficiency] = None
+    modelVersion: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
     claims: List[ClaimItem] = []
-    note: str = "Placeholder contract: real RAG & LLM generation deferred to Phase 5"
+    error: Optional[Dict[str, Any]] = None
 
 class RecoverRequest(BaseModel):
     requestId: Optional[str] = None
@@ -270,77 +280,23 @@ async def delete_document(
             detail=f"Derived index purge failed: {e}"
         )
 
-@app.post("/retrieve", response_model=RetrieveResult)
+@app.post("/retrieve", response_model=RetrieveResponse)
 async def retrieve(payload: RetrieveRequest, x_request_id: Optional[str] = Header(None)):
     """
-    Multi-source candidate retrieval:
-    1. Query-level project-isolated candidate retrieval from Qdrant (dense vectors) and Tantivy (lexical BM25).
-    2. PostgreSQL canonical lifecycle validation (ensures only documents in status='ready' are returned).
-    3. Union deduplication by chunkId.
-    (Note: Query routing, reciprocal rank fusion, and cross-encoder reranking belong to Phase 4).
+    Canonical Phase 4 Multi-Source Retrieval Pipeline:
+    Deterministic Routing -> Qdrant Dense + Tantivy BM25 + NetworkX Graph ->
+    Candidate Normalization -> RRF Fusion -> FlashRank Cross-Encoder ->
+    PostgreSQL READY Validation -> Deterministic Evidence Sufficiency Gate.
     """
-    logger.info(f"[/retrieve] project_id={payload.projectId} query='{payload.query}' req_id={x_request_id}")
-    top_k = payload.topK or 5
-
+    req_id = x_request_id or f"req_{uuid.uuid4().hex[:12]}"
+    logger.info(f"[/retrieve] project_id={payload.projectId} query='{payload.query}' req_id={req_id}")
     try:
-        # 1. Dense Search via Qdrant (project-isolated)
-        query_vector = generate_embeddings([payload.query])[0] if payload.query else []
-        qdrant_hits = qdrant_store.search_dense(payload.projectId, query_vector, top_k)
-
-        # 2. Lexical Search via Tantivy (project-isolated)
-        tantivy_hits = tantivy_store.search_project(payload.projectId, payload.query, top_k)
-
-        # 3. PostgreSQL Lifecycle Validation Invariant:
-        # Ensure evidence only comes from documents that are actively 'ready' in the authorized project
-        candidate_doc_ids = list(set(
-            [h["documentId"] for h in qdrant_hits if h.get("documentId")] +
-            [h["documentId"] for h in tantivy_hits if h.get("documentId")]
-        ))
-
-        ready_doc_ids = validate_ready_documents(payload.projectId, candidate_doc_ids)
-
-        # 4. Filter candidates
-        valid_qdrant = [h for h in qdrant_hits if h.get("documentId") in ready_doc_ids]
-        valid_tantivy = [h for h in tantivy_hits if h.get("documentId") in ready_doc_ids]
-
-        # Combine results deduplicating by chunkId
-        combined: Dict[str, EvidenceItem] = {}
-        for hit in valid_qdrant:
-            c_id = hit["chunkId"]
-            if c_id not in combined:
-                combined[c_id] = EvidenceItem(
-                    evidenceId=f"ev_{uuid.uuid4().hex[:8]}",
-                    chunkId=c_id,
-                    documentId=hit.get("documentId"),
-                    text=hit.get("text", ""),
-                    score=hit.get("score"),
-                    metadata={
-                        "source": "qdrant_dense",
-                        "page": hit.get("pageNumber"),
-                        "chunkIndex": hit.get("chunkIndex"),
-                        "section": hit.get("section"),
-                        "heading": hit.get("heading")
-                    }
-                )
-
-        for hit in valid_tantivy:
-            c_id = hit["chunkId"]
-            if c_id not in combined:
-                combined[c_id] = EvidenceItem(
-                    evidenceId=f"ev_{uuid.uuid4().hex[:8]}",
-                    chunkId=c_id,
-                    documentId=hit.get("documentId"),
-                    text=hit.get("text", ""),
-                    score=hit.get("score"),
-                    metadata={
-                        "source": "tantivy_lexical",
-                        "page": hit.get("pageNumber"),
-                        "identifiers": hit.get("identifiers")
-                    }
-                )
-
-        return RetrieveResult(results=list(combined.values())[:top_k])
-
+        return retrieve_evidence(
+            project_id=payload.projectId,
+            query=payload.query,
+            top_k=payload.topK or 5,
+            request_id=req_id
+        )
     except Exception as e:
         logger.error(f"[/retrieve error] project_id={payload.projectId}: {e}")
         raise HTTPException(
@@ -368,16 +324,116 @@ async def sanity_search(projectId: str, query: str, topK: int = 5):
 
 @app.post("/generate", response_model=GenerateResult)
 async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Header(None)):
+    """
+    Canonical Phase 5 Grounded Generation Pipeline:
+    1. Reuses canonical Phase 4 retrieve_evidence internally (zero self-HTTP)
+    2. Evaluates Deterministic Evidence Sufficiency Gate
+       - If insufficient / empty: abstains cleanly without calling LLM
+    3. If sufficient: builds bounded evidence context and safe prompt
+    4. Invokes Real LLM runtime (fails explicitly if unavailable)
+    5. Returns grounded answer, evidence provenance, and sufficiency metadata.
+    """
     req_id = payload.requestId or x_request_id or f"req_{uuid.uuid4().hex[:12]}"
     gen_id = payload.generationId or f"gen_{uuid.uuid4().hex[:12]}"
-    logger.info(f"[/generate] project_id={payload.projectId} req_id={req_id} gen_id={gen_id}")
-    return GenerateResult(
-        requestId=req_id,
-        generationId=gen_id,
-        status="completed",
-        answer=f"This is a placeholder answer for query '{payload.query}'. Full generation deferred to Phase 5.",
-        claims=[]
-    )
+    top_k = (payload.options or {}).get("topK", 5)
+
+    logger.info(f"[/generate start] project_id={payload.projectId} req_id={req_id} gen_id={gen_id} query='{payload.query}'")
+
+    # Step 1: Internal Phase 4 Retrieval Reuse (direct Python function call)
+    try:
+        retrieval_res = retrieve_evidence(
+            project_id=payload.projectId,
+            query=payload.query,
+            top_k=top_k,
+            request_id=req_id
+        )
+    except Exception as ret_err:
+        logger.error(f"[/generate retrieval error] project_id={payload.projectId} req_id={req_id}: {ret_err}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Retrieval infrastructure failure during generation: {ret_err}"
+        )
+
+    # Step 2: Deterministic Evidence Sufficiency Gate
+    if not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results:
+        reason = retrieval_res.sufficiency.reason if retrieval_res.sufficiency else "No evidence retrieved"
+        logger.info(f"[/generate abstained] project_id={payload.projectId} req_id={req_id} reason='{reason}'")
+        return GenerateResult(
+            requestId=req_id,
+            generationId=gen_id,
+            status="completed",
+            answer="The provided documentation does not contain sufficient evidence to answer this question.",
+            evidence=retrieval_res.results,
+            sufficiency=retrieval_res.sufficiency,
+            modelVersion="groundguard-abstention-gate",
+            metadata={
+                "abstention": True,
+                "reason": reason,
+                "candidateCount": len(retrieval_res.results)
+            },
+            claims=[]
+        )
+
+    # Step 3: Context Building & Prompt Construction
+    context_text, included_items, omitted_items = context_builder.build_context(retrieval_res.results)
+    user_prompt = build_grounded_user_prompt(payload.query, context_text)
+
+    # Step 4: Real LLM Inference
+    try:
+        llm_res = await llm_runtime.generate_answer(user_prompt)
+        logger.info(
+            f"[/generate completed] project_id={payload.projectId} req_id={req_id} "
+            f"model={llm_res.modelVersion} latency={llm_res.latencyMs}ms"
+        )
+        return GenerateResult(
+            requestId=req_id,
+            generationId=gen_id,
+            status="completed",
+            answer=llm_res.answer,
+            evidence=included_items,
+            sufficiency=retrieval_res.sufficiency,
+            modelVersion=llm_res.modelVersion,
+            metadata={
+                "abstention": False,
+                "evidenceCount": len(included_items),
+                "omittedCount": len(omitted_items),
+                "llmLatencyMs": llm_res.latencyMs,
+                "provider": llm_res.provider
+            },
+            claims=[]
+        )
+    except LLMUnavailableError as unavail_err:
+        logger.error(f"[/generate LLM unavailable] project_id={payload.projectId} req_id={req_id}: {unavail_err}")
+        return GenerateResult(
+            requestId=req_id,
+            generationId=gen_id,
+            status="failed",
+            answer="",
+            evidence=retrieval_res.results,
+            sufficiency=retrieval_res.sufficiency,
+            modelVersion=llm_runtime.get_model_version(),
+            error={
+                "code": "LLM_UNAVAILABLE",
+                "message": str(unavail_err)
+            },
+            claims=[]
+        )
+    except Exception as llm_err:
+        logger.error(f"[/generate LLM failure] project_id={payload.projectId} req_id={req_id}: {llm_err}")
+        return GenerateResult(
+            requestId=req_id,
+            generationId=gen_id,
+            status="failed",
+            answer="",
+            evidence=retrieval_res.results,
+            sufficiency=retrieval_res.sufficiency,
+            modelVersion=llm_runtime.get_model_version(),
+            error={
+                "code": "LLM_ERROR",
+                "message": f"LLM generation failed: {llm_err}"
+            },
+            claims=[]
+        )
 
 @app.post("/recover", response_model=RecoverResponse)
 async def recover(payload: RecoverRequest, x_request_id: Optional[str] = Header(None)):
@@ -392,5 +448,5 @@ async def recover(payload: RecoverRequest, x_request_id: Optional[str] = Header(
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("AI_SERVICE_PORT", os.getenv("AI_PORT", 8000)))
     uvicorn.run(app, host="0.0.0.0", port=port)

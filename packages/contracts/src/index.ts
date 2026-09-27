@@ -135,6 +135,15 @@ export interface Evidence {
   chunkId: string;
   documentId?: string;
   text: string;
+  pageNumber?: number;
+  section?: string;
+  heading?: string;
+  identifiers?: string[];
+  sources?: string[];
+  rrfScore?: number;
+  rerankScore?: number;
+  score?: number;
+  graphRelations?: Record<string, unknown>[];
   metadata?: Record<string, unknown>;
 }
 
@@ -172,9 +181,14 @@ export interface GenerationRequest {
 export interface GenerationResult {
   requestId: string;
   generationId: string;
+  conversationId?: string;
   status: GenerationStatus;
   answer?: string;
   claims?: Claim[];
+  evidence?: Evidence[];
+  sufficiency?: EvidenceSufficiency;
+  modelVersion?: string;
+  metadata?: Record<string, unknown>;
   error?: {
     code: string;
     message: string;
@@ -261,8 +275,44 @@ export interface RetrieveRequest {
   topK?: number;
 }
 
+export interface EvidenceSufficiencySignals {
+  resultCount: number;
+  topRerankScore: number;
+  identifierMatched: boolean;
+  sourceCoverage: string[];
+}
+
+export interface EvidenceSufficiency {
+  sufficient: boolean;
+  reason: string;
+  score: number;
+  signals: EvidenceSufficiencySignals;
+}
+
+export interface RetrieveMetadata {
+  selectedSources: string[];
+  denseCandidateCount: number;
+  lexicalCandidateCount: number;
+  graphCandidateCount: number;
+  fusedCandidateCount: number;
+  rerankedCandidateCount: number;
+  finalCandidateCount: number;
+  latencyMs: number;
+  routeDecision?: {
+    dense: boolean;
+    lexical: boolean;
+    graph: boolean;
+    identifierQuery: boolean;
+    extractedIdentifiers: string[];
+    relationshipIntent: boolean;
+    reasons: string[];
+  };
+}
+
 export interface RetrieveResult {
   results: Evidence[];
+  sufficiency?: EvidenceSufficiency;
+  metadata?: RetrieveMetadata;
 }
 
 export interface RecoverRequest {

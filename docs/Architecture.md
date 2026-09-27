@@ -45,7 +45,7 @@ GroundGuard is a four-module system.
 | Redis      | M3    | Redis 7                         |       6379 |
 | Qdrant     | M2    | Qdrant (Dense Vector Index)     |       6333 |
 | Tantivy    | M2    | Tantivy (BM25 Lexical Index)    | File-based |
-| NetworkX   | M2    | NetworkX (Entity Graph Index)   | File-based |
+| NetworkX   | M2    | NetworkX (Entity Graph Index)   | File-based (`uploads/graphs/:projectId/topology.json`) |
 | LanceDB    | M2    | LanceDB (Offline Research Only) | File-based |
 
 The overall source architecture uses Next.js → Node → Python services, with PostgreSQL/Redis supporting the backend and Qdrant/Tantivy/NetworkX supporting knowledge retrieval. LanceDB is isolated for offline research/evaluation.

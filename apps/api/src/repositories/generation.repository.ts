@@ -12,6 +12,8 @@ export interface DBGeneration {
   status: GenerationStatus;
   errorCode: string | null;
   errorMessage: string | null;
+  modelVersion: string | null;
+  metadata: Record<string, unknown> | null;
   maxRecoveryAttempts: number;
   recoveryAttempts: number;
   retrievalLatencyMs: number | null;
@@ -53,6 +55,7 @@ export interface DBEvidence {
 
 const GEN_COLS = `id, request_id AS "requestId", project_id AS "projectId", conversation_id AS "conversationId",
   query, answer, status, error_code AS "errorCode", error_message AS "errorMessage",
+  model_version AS "modelVersion", metadata,
   max_recovery_attempts AS "maxRecoveryAttempts", recovery_attempts AS "recoveryAttempts",
   retrieval_latency_ms AS "retrievalLatencyMs", generation_latency_ms AS "generationLatencyMs",
   verification_latency_ms AS "verificationLatencyMs", total_latency_ms AS "totalLatencyMs",
@@ -60,6 +63,7 @@ const GEN_COLS = `id, request_id AS "requestId", project_id AS "projectId", conv
 
 const GEN_COLS_ALIASED = `g.id, g.request_id AS "requestId", g.project_id AS "projectId", g.conversation_id AS "conversationId",
   g.query, g.answer, g.status, g.error_code AS "errorCode", g.error_message AS "errorMessage",
+  g.model_version AS "modelVersion", g.metadata,
   g.max_recovery_attempts AS "maxRecoveryAttempts", g.recovery_attempts AS "recoveryAttempts",
   g.retrieval_latency_ms AS "retrievalLatencyMs", g.generation_latency_ms AS "generationLatencyMs",
   g.verification_latency_ms AS "verificationLatencyMs", g.total_latency_ms AS "totalLatencyMs",
@@ -128,6 +132,8 @@ export class GenerationRepository {
       answer: string | null;
       errorCode: string | null;
       errorMessage: string | null;
+      modelVersion: string | null;
+      metadata: Record<string, unknown> | null;
       recoveryAttempts: number;
       retrievalLatencyMs: number;
       generationLatencyMs: number;
@@ -142,6 +148,8 @@ export class GenerationRepository {
       answer: 'answer',
       errorCode: 'error_code',
       errorMessage: 'error_message',
+      modelVersion: 'model_version',
+      metadata: 'metadata',
       recoveryAttempts: 'recovery_attempts',
       retrievalLatencyMs: 'retrieval_latency_ms',
       generationLatencyMs: 'generation_latency_ms',

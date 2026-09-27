@@ -5,6 +5,7 @@ import { test, describe, before, after } from 'node:test';
 import { newDb } from 'pg-mem';
 import { buildApp } from '../../apps/api/src/app';
 import { dbManager } from '../../apps/api/src/plugins/database';
+import { redisManager } from '../../apps/api/src/plugins/redis';
 import { userRepository } from '../../apps/api/src/repositories/user.repository';
 import { projectRepository } from '../../apps/api/src/repositories/project.repository';
 import { documentRepository } from '../../apps/api/src/repositories/document.repository';
@@ -88,6 +89,8 @@ describe('GroundGuard Phase 3: Secure Ingestion + Knowledge Indexing Foundation 
       await pool.query("DELETE FROM projects WHERE name LIKE 'Knowledge Test Project%'");
       await pool.query("DELETE FROM users WHERE email LIKE '%@knowledgetest.com'");
       await dbManager.close();
+      await app.close();
+      await redisManager.close();
     } catch (_) {}
   });
 

@@ -1286,7 +1286,7 @@ Not every component necessarily needs its own container if the final architectur
 Frontend should use configuration such as:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:3000
+NEXT_PUBLIC_API_URL=http://localhost:4000
 ```
 
 Backend:
