@@ -147,6 +147,8 @@ export interface Evidence {
   metadata?: Record<string, unknown>;
 }
 
+export type EvidenceItem = Evidence;
+
 export interface VerificationResult {
   label: VerificationLabel;
   scores: {
@@ -178,6 +180,17 @@ export interface GenerationRequest {
   options?: GenerationRequestOptions;
 }
 
+export interface GenerationMetadata {
+  abstention: boolean;
+  reason?: string;
+  candidateCount?: number;
+  evidenceCount?: number;
+  omittedCount?: number;
+  llmLatencyMs?: number;
+  provider?: string;
+  [key: string]: unknown;
+}
+
 export interface GenerationResult {
   requestId: string;
   generationId: string;
@@ -185,10 +198,10 @@ export interface GenerationResult {
   status: GenerationStatus;
   answer?: string;
   claims?: Claim[];
-  evidence?: Evidence[];
+  evidence?: EvidenceItem[];
   sufficiency?: EvidenceSufficiency;
   modelVersion?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: GenerationMetadata;
   error?: {
     code: string;
     message: string;
