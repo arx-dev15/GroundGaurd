@@ -5,6 +5,7 @@ import { newDb } from 'pg-mem';
 import { buildApp } from '../../apps/api/src/app';
 import { config } from '../../apps/api/src/config/env';
 import { dbManager } from '../../apps/api/src/plugins/database';
+import { redisManager } from '../../apps/api/src/plugins/redis';
 import { userRepository } from '../../apps/api/src/repositories/user.repository';
 import { runMigrations } from '../../infra/scripts/migrate';
 
@@ -51,6 +52,8 @@ describe('GroundGuard Phase 2 Auth & Project Isolation Test Suite', () => {
       await pool.query("DELETE FROM projects WHERE name LIKE 'Test Project%'");
       await pool.query("DELETE FROM users WHERE email LIKE '%@testphase2.com'");
       await dbManager.close();
+      await app.close();
+      await redisManager.close();
     } catch (_) {}
   });
 

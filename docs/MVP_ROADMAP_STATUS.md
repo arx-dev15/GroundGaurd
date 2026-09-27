@@ -101,8 +101,8 @@ The GroundGuard Core MVP comprises exactly **12 structured phases**:
 Phase 1  — Foundation & Contracts                  [ COMPLETE ]
 Phase 2  — Authentication + Projects               [ COMPLETE ]
 Phase 3  — Secure Document Ingestion + Indexing    [ COMPLETE ]
-Phase 4  — Hybrid Retrieval + Knowledge Layer      [ PARTIAL - IN PROGRESS ]
-Phase 5  — Conversations + RAG Generation          [ NOT IMPLEMENTED ]
+Phase 4  — Hybrid Retrieval + Knowledge Layer      [ COMPLETE ]
+Phase 5  — Conversations + RAG Generation          [ COMPLETE ]
 Phase 6  — Claim Extraction + Evidence Provenance   [ NOT IMPLEMENTED ]
 Phase 7  — Dual-Stage Grounding Verification       [ STUB / PARTIAL ]
 Phase 8  — Failure-Aware Agentic Recovery          [ NOT IMPLEMENTED ]
@@ -133,17 +133,30 @@ Phase 12 — Production Security + Hardening         [ PARTIAL ]
 * **Validation:** 19/19 Phase 3 tests passing, 3/3 compensating cleanup tests passing, pgvector fully retired.
 
 ### Phase 4 — Hybrid Retrieval + Knowledge Layer
-* **Goal:** Multi-source retrieval engine combining dense vector similarity, BM25 lexical matching, and graph traversal with query routing, Reciprocal Rank Fusion (RRF), and FlashRank reranking.
+* **Goal:** Multi-source retrieval engine combining dense vector similarity, BM25 lexical matching, and graph traversal with query routing, Reciprocal Rank Fusion (RRF), FlashRank reranking, and deterministic evidence sufficiency.
 * **Core Capabilities:**
-  * *Implemented:* Dense Qdrant search with mandatory project filtering; Tantivy BM25 lexical search with Boolean project scoping; PostgreSQL candidate `ready` lifecycle validation.
-  * *Partial:* NetworkX graph relation querying (implemented in `graph_store.py`, exposed via `/sanity/search`, pending `/retrieve` pipeline integration).
-  * *Remaining:* Query router (dense vs. lexical vs. graph vs. hybrid), Reciprocal Rank Fusion (RRF), FlashRank cross-encoder reranking, Evidence Sufficiency checking (`isSufficient`), top-K evidence selection.
-* **Status:** `PARTIAL (ACTIVE PHASE)`
+  * *Deterministic Query Router:* Rule-based routing recognizing equipment tags (`P-101A`), piping line IDs (`100-CW-024`), standards (`API 610`), and relationship keywords (`upstream`, `downstream`, `connected to`, `feeds`, `isolated by`).
+  * *Multi-Source Candidate Generation:* Qdrant dense vector search (top 15, Cosine), Tantivy BM25 lexical search (top 15, Lucene syntax), and conditional NetworkX topology querying (top 10, provenance-backed).
+  * *Candidate Normalization & Deduplication:* Unified `Candidate` representation merging multiple store contributions by `chunkId`.
+  * *Fail-Closed Lifecycle Filtering:* PostgreSQL project and document `ready` validation executed before fusion and reranking, preventing unready candidates from consuming pool slots or displacing valid candidates.
+  * *Reciprocal Rank Fusion (RRF):* Multi-source rank fusion with configurable $k=60$ and deterministic tie-breaking.
+  * *FlashRank Cross-Encoder Reranking:* Production `ms-marco-TinyBERT-L-2-v2` cross-encoder reranking on bounded candidate pool ($K=20$).
+  * *Deterministic Evidence Sufficiency Gate:* Pre-generation gate evaluating relevance score, target identifier support, and result count; returns clean abstention signal when evidence is insufficient.
+  * *Measured Smoke Evaluation:* 5-case positive benchmark achieving 1.000 Recall@5, 1.000 MRR, 1.000 nDCG@5; 2 negative cases verifying 0 cross-project leakage and 0% false-sufficient rate.
+* **Status:** `COMPLETE`
+* **Validation:** 21/21 Phase 4 Python invariant and displacement tests passing; live runtime validation on PostgreSQL, external Qdrant (v1.13.4, localhost:6333), Tantivy, NetworkX, MiniLM, and FlashRank; full external Qdrant validation harness (`validate_external_qdrant.py`) verified all 12 external requirements including upsert, search, project filter, delete, client recreation persistence, server restart persistence, and failure semantics.
 
 ### Phase 5 — Conversations + RAG Generation
-* **Goal:** Stateful conversation management, message history, retrieval-augmented prompt orchestration, and LLM answer generation.
-* **Core Capabilities:** Conversation & message persistence in PostgreSQL, project-scoped conversation history, context budget assembling, LLM invocation (Groq / OpenAI / local model), structured generation response containing preliminary answers and linked retrieval context.
-* **Status:** `NOT IMPLEMENTED` (Placeholder contract exists).
+* **Goal:** Stateful conversation management, message history, retrieval-augmented prompt orchestration, and real LLM answer generation.
+* **Core Capabilities:**
+  * *M3 Conversation Ownership:* Project-isolated conversation and message persistence in PostgreSQL (`conversations`, `messages`, `generations`), strict authorization and ownership validation, migration 007 (`model_version`, `metadata jsonb`).
+  * *Direct Retrieval Reuse:* M2 `/generate` directly invokes canonical Python `retrieve_evidence(...)` internally; zero self-HTTP loopback.
+  * *Deterministic Sufficiency Gate:* Automatically abstains without invoking LLM when evidence is empty or insufficient, preserving clean abstention response.
+  * *Context Builder & Untrusted Evidence Delimiters:* Deduplicates ranked evidence chunks by `chunkId`, conservatively bounds evidence context to a 12,000-character budget (approx. 3,000 tokens, not an exact tokenizer guarantee), retains provenance headers (Document, Page, Section, Heading, Identifiers), and isolates retrieved PDF content within explicit delimiters to neutralize prompt injection overrides.
+  * *Grounded System Prompt:* Enforces strict factuality, units preservation, technical identifier integrity, and honest refusal if facts are unestablished.
+  * *Real LLM Inference:* Integrated real model runtime (`RealLLMRuntime`) supporting Google Gemini (`gemini-flash-lite-latest`), Groq, OpenAI, and Ollama at `temperature=0.0`. Absolutely no mocks or fake responses in production path.
+* **Status:** `COMPLETE`
+* **Validation:** 10/10 Phase 5 integration tests passing; 6/6 Python unit tests passing; Live E2E acceptance test (`e2e_phase5_acceptance.ts`) verified full flow from document upload, conversation creation, real retrieval, real Gemini inference, unit preservation, prompt-injection defense, and truthful persistence.
 
 ### Phase 6 — Claim Extraction + Evidence Provenance
 * **Goal:** Decomposition of generated technical answers into atomic factual claims with explicit evidence attribution.
@@ -189,8 +202,8 @@ Phase 12 — Production Security + Hardening         [ PARTIAL ]
 | **1** | Foundation & Contracts | **COMPLETE** | Fastify, Pino logging, request ID propagation, standard error envelope, contracts. |
 | **2** | Authentication + Projects | **COMPLETE** | `bcryptjs`, JWT, user context resolution, simple project ownership CRUD. |
 | **3** | Secure Ingestion + Indexing | **COMPLETE** | `%PDF` check, `pypdf`, normalization, MiniLM, Qdrant, Tantivy, NetworkX, 004 migration. |
-| **4** | Hybrid Retrieval + Knowledge | **PARTIAL** | Dense & BM25 retrieval integrated; Router, RRF Fusion & FlashRank pending. |
-| **5** | Conversations + Generation | **NOT IMPLEMENTED** | Schemas exist; generation loop pending. |
+| **4** | Hybrid Retrieval + Knowledge | **COMPLETE** | Router, dense+BM25+graph, Candidate normalization, fail-closed READY filter, RRF, FlashRank, sufficiency gate. |
+| **5** | Conversations + Generation | **COMPLETE** | Project-scoped conversations/messages, direct retrieval reuse, sufficiency gate abstention, context builder with untrusted evidence delimiters, real LLM inference (gemini-flash-lite-latest), PostgreSQL persistence. |
 | **6** | Claim Extraction & Provenance | **NOT IMPLEMENTED** | Schemas exist; atomic claim decomposition pending. |
 | **7** | Grounding Verification | **STUB / PARTIAL** | M1 skeleton exists; production NLI cross-encoder pending. |
 | **8** | Agentic Recovery | **NOT IMPLEMENTED** | Recovery contracts exist; targeted repair loop pending. |

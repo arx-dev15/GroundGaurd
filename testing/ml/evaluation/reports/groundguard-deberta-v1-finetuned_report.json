@@ -1,0 +1,416 @@
+{
+  "model_evaluated": "groundguard-deberta-v1-finetuned",
+  "total_samples": 27,
+  "overall_accuracy": 0.963,
+  "class_metrics": {
+    "entailment": {
+      "precision": 0.8571,
+      "recall": 1.0,
+      "f1": 0.9231,
+      "support": 6
+    },
+    "contradiction": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 12
+    },
+    "neutral": {
+      "precision": 1.0,
+      "recall": 0.8889,
+      "f1": 0.9412,
+      "support": 9
+    }
+  },
+  "category_accuracy": {
+    "normal_entailment": "3/3 (100.0%)",
+    "paraphrase_entailment": "3/3 (100.0%)",
+    "numerical_swap": "3/3 (100.0%)",
+    "date_swap": "3/3 (100.0%)",
+    "entity_swap": "3/3 (100.0%)",
+    "negation": "3/3 (100.0%)",
+    "unsupported_addition": "3/3 (100.0%)",
+    "causal_modification": "2/3 (66.7%)",
+    "partial_support": "3/3 (100.0%)"
+  },
+  "sample_evaluations": [
+    {
+      "id": "test_0001",
+      "category": "normal_entailment",
+      "difficulty": "easy",
+      "ground_truth": "entailment",
+      "predicted": "entailment",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.9989,
+        "contradiction": 0.0001,
+        "neutral": 0.001
+      },
+      "groundingScore": 0.9988
+    },
+    {
+      "id": "test_0002",
+      "category": "paraphrase_entailment",
+      "difficulty": "medium",
+      "ground_truth": "entailment",
+      "predicted": "entailment",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.9992,
+        "contradiction": 0.0001,
+        "neutral": 0.0007
+      },
+      "groundingScore": 0.9991
+    },
+    {
+      "id": "test_0003",
+      "category": "numerical_swap",
+      "difficulty": "hard",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9999,
+        "neutral": 0.0001
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0004",
+      "category": "date_swap",
+      "difficulty": "hard",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9999,
+        "neutral": 0.0001
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0005",
+      "category": "entity_swap",
+      "difficulty": "hard",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9996,
+        "neutral": 0.0004
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0006",
+      "category": "negation",
+      "difficulty": "medium",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9999,
+        "neutral": 0.0001
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0007",
+      "category": "unsupported_addition",
+      "difficulty": "hard",
+      "ground_truth": "neutral",
+      "predicted": "neutral",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.0003,
+        "neutral": 0.9996
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0008",
+      "category": "causal_modification",
+      "difficulty": "hard",
+      "ground_truth": "neutral",
+      "predicted": "neutral",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0001,
+        "contradiction": 0.0004,
+        "neutral": 0.9995
+      },
+      "groundingScore": 0.0001
+    },
+    {
+      "id": "test_0009",
+      "category": "partial_support",
+      "difficulty": "hard",
+      "ground_truth": "neutral",
+      "predicted": "neutral",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0006,
+        "contradiction": 0.0001,
+        "neutral": 0.9994
+      },
+      "groundingScore": 0.0006
+    },
+    {
+      "id": "test_0010",
+      "category": "normal_entailment",
+      "difficulty": "easy",
+      "ground_truth": "entailment",
+      "predicted": "entailment",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.9989,
+        "contradiction": 0.0002,
+        "neutral": 0.0009
+      },
+      "groundingScore": 0.9987
+    },
+    {
+      "id": "test_0011",
+      "category": "paraphrase_entailment",
+      "difficulty": "medium",
+      "ground_truth": "entailment",
+      "predicted": "entailment",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.9993,
+        "contradiction": 0.0001,
+        "neutral": 0.0007
+      },
+      "groundingScore": 0.9992
+    },
+    {
+      "id": "test_0012",
+      "category": "numerical_swap",
+      "difficulty": "hard",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9999,
+        "neutral": 0.0001
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0013",
+      "category": "date_swap",
+      "difficulty": "hard",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9998,
+        "neutral": 0.0002
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0014",
+      "category": "entity_swap",
+      "difficulty": "hard",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9999,
+        "neutral": 0.0001
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0015",
+      "category": "negation",
+      "difficulty": "medium",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9999,
+        "neutral": 0.0001
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0016",
+      "category": "unsupported_addition",
+      "difficulty": "hard",
+      "ground_truth": "neutral",
+      "predicted": "neutral",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0001,
+        "contradiction": 0.0001,
+        "neutral": 0.9998
+      },
+      "groundingScore": 0.0001
+    },
+    {
+      "id": "test_0017",
+      "category": "causal_modification",
+      "difficulty": "hard",
+      "ground_truth": "neutral",
+      "predicted": "entailment",
+      "is_correct": false,
+      "scores": {
+        "entailment": 0.9433,
+        "contradiction": 0.0004,
+        "neutral": 0.0563
+      },
+      "groundingScore": 0.9429
+    },
+    {
+      "id": "test_0018",
+      "category": "partial_support",
+      "difficulty": "hard",
+      "ground_truth": "neutral",
+      "predicted": "neutral",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0003,
+        "contradiction": 0.0001,
+        "neutral": 0.9996
+      },
+      "groundingScore": 0.0003
+    },
+    {
+      "id": "test_0019",
+      "category": "normal_entailment",
+      "difficulty": "easy",
+      "ground_truth": "entailment",
+      "predicted": "entailment",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.9989,
+        "contradiction": 0.0001,
+        "neutral": 0.001
+      },
+      "groundingScore": 0.9988
+    },
+    {
+      "id": "test_0020",
+      "category": "paraphrase_entailment",
+      "difficulty": "medium",
+      "ground_truth": "entailment",
+      "predicted": "entailment",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.9992,
+        "contradiction": 0.0001,
+        "neutral": 0.0007
+      },
+      "groundingScore": 0.9991
+    },
+    {
+      "id": "test_0021",
+      "category": "numerical_swap",
+      "difficulty": "hard",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9999,
+        "neutral": 0.0001
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0022",
+      "category": "date_swap",
+      "difficulty": "hard",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9999,
+        "neutral": 0.0001
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0023",
+      "category": "entity_swap",
+      "difficulty": "hard",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 0.9992,
+        "neutral": 0.0008
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0024",
+      "category": "negation",
+      "difficulty": "medium",
+      "ground_truth": "contradiction",
+      "predicted": "contradiction",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0,
+        "contradiction": 1.0,
+        "neutral": 0.0
+      },
+      "groundingScore": 0.0
+    },
+    {
+      "id": "test_0025",
+      "category": "unsupported_addition",
+      "difficulty": "hard",
+      "ground_truth": "neutral",
+      "predicted": "neutral",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0001,
+        "contradiction": 0.0001,
+        "neutral": 0.9998
+      },
+      "groundingScore": 0.0001
+    },
+    {
+      "id": "test_0026",
+      "category": "causal_modification",
+      "difficulty": "hard",
+      "ground_truth": "neutral",
+      "predicted": "neutral",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0002,
+        "contradiction": 0.0002,
+        "neutral": 0.9997
+      },
+      "groundingScore": 0.0002
+    },
+    {
+      "id": "test_0027",
+      "category": "partial_support",
+      "difficulty": "hard",
+      "ground_truth": "neutral",
+      "predicted": "neutral",
+      "is_correct": true,
+      "scores": {
+        "entailment": 0.0004,
+        "contradiction": 0.0,
+        "neutral": 0.9995
+      },
+      "groundingScore": 0.0004
+    }
+  ]
+}

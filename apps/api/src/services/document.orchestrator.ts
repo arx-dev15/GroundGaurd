@@ -2,6 +2,7 @@ import { documentRepository, DBDocument } from '../repositories/document.reposit
 import { chunkRepository } from '../repositories/chunk.repository';
 import { aiClient } from '../clients/ai.client';
 import { saveUploadedFile, deleteStoredFile } from '../utils/storage';
+import { generateId } from '../utils/id';
 import { BadRequestError, NotFoundError, ServiceUnavailableError } from '../utils/errors';
 import { Document } from '@groundguard/contracts';
 
@@ -38,19 +39,21 @@ export class DocumentOrchestrator {
       throw new BadRequestError('Uploaded file is not a valid PDF document');
     }
 
-    // 2. Insert initial document record in PostgreSQL ('uploaded')
-    // Generate placeholder ID before file save
+    // 2. Generate document ID and persist file to disk
+    const docId = generateId('doc');
+    const filePath = await saveUploadedFile(data.projectId, docId, data.fileBuffer);
+
+    // Insert initial document record in PostgreSQL ('uploaded') with real filePath
     const tempDoc = await documentRepository.createDocument({
+      id: docId,
       projectId: data.projectId,
       filename: data.filename,
       fileSize: data.fileSize,
       mimeType: data.mimeType,
-      filePath: '', // filled below
+      filePath: filePath,
     });
 
-    const filePath = await saveUploadedFile(data.projectId, tempDoc.id, data.fileBuffer);
-
-    // Update with file_path & status 'processing'
+    // Update with status 'processing'
     await documentRepository.updateStatus(tempDoc.id, 'processing');
 
     // 3. Invoke M2 AI Service HTTP Ingestion

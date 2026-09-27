@@ -3,6 +3,7 @@ import { test, describe, before, after } from 'node:test';
 import { newDb } from 'pg-mem';
 import { buildApp } from '../../apps/api/src/app';
 import { dbManager } from '../../apps/api/src/plugins/database';
+import { redisManager } from '../../apps/api/src/plugins/redis';
 import { userRepository } from '../../apps/api/src/repositories/user.repository';
 import { projectRepository } from '../../apps/api/src/repositories/project.repository';
 import { documentRepository } from '../../apps/api/src/repositories/document.repository';
@@ -84,6 +85,8 @@ describe('GroundGuard Phase 3 Document Ingestion & RAG Foundation Test Suite', (
       await pool.query("DELETE FROM projects WHERE name LIKE 'Test Project Phase 3%'");
       await pool.query("DELETE FROM users WHERE email LIKE '%@testphase3.com'");
       await dbManager.close();
+      await app.close();
+      await redisManager.close();
     } catch (_) {}
   });
 

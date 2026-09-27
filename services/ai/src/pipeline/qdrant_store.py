@@ -30,20 +30,25 @@ class QdrantStore:
     def _init_client(self) -> QdrantClient:
         """
         Initializes Qdrant client. If live server at QDRANT_URL is not reachable,
-        falls back to in-memory mode for offline unit testing without docker.
+        fails explicitly. Embedded :memory: is only allowed if QDRANT_URL is explicitly ':memory:'
+        or ALLOW_IN_MEMORY_FALLBACK='true'.
         """
+        if self.url == ":memory:":
+            logger.info("Using explicit in-memory QdrantClient(':memory:')")
+            return QdrantClient(":memory:")
+
         try:
             client = QdrantClient(url=self.url, timeout=3.0)
             client.get_collections()
             logger.info(f"Connected to Qdrant server at {self.url}")
             return client
         except Exception as e:
-            env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
-            if env == "production":
-                logger.error(f"FATAL: Production Qdrant connection to {self.url} failed: {e}")
-                raise RuntimeError(f"Qdrant server unavailable in production mode: {e}")
-            logger.warning(f"Could not connect to Qdrant server at {self.url} ({e}). Falling back to embedded in-memory Qdrant.")
-            return QdrantClient(":memory:")
+            allow_fallback = os.getenv("ALLOW_IN_MEMORY_FALLBACK", "false").lower() == "true"
+            if allow_fallback:
+                logger.warning(f"Could not connect to Qdrant server at {self.url} ({e}). Falling back to embedded in-memory Qdrant because ALLOW_IN_MEMORY_FALLBACK=true.")
+                return QdrantClient(":memory:")
+            logger.error(f"FATAL: External Qdrant connection to {self.url} failed: {e}")
+            raise RuntimeError(f"External Qdrant server unavailable at {self.url}: {e}")
 
     def _ensure_collection(self) -> None:
         """

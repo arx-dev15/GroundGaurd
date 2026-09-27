@@ -99,6 +99,8 @@ export class GenerationOrchestrator {
       await generationRepository.updateGeneration(generationId, {
         status: 'completed',
         answer: result.answer ?? null,
+        modelVersion: result.modelVersion ?? null,
+        metadata: (result.metadata as Record<string, unknown>) ?? null,
         totalLatencyMs,
         generationLatencyMs: totalLatencyMs,
         completedAt: new Date(),
@@ -126,6 +128,151 @@ export class GenerationOrchestrator {
           /* best-effort; if this also fails the generation stays stuck at 'generating' */
         });
       console.error(`[generation ${generationId}] pipeline failed`, err?.message || err);
+    }
+  }
+
+  /**
+   * Phase 5 Synchronous Conversation Message Flow:
+   * Client -> M3 -> persist user message -> create generation -> M2 /generate -> persist assistant message + generation -> return
+   */
+  public async sendMessage(data: {
+    projectId: string;
+    conversationId: string;
+    query: string;
+    requestId?: string;
+  }) {
+    const { generateId } = await import('../utils/id');
+    const requestId = data.requestId || generateId('req');
+    const startedAt = Date.now();
+
+    // 1. Persist user message
+    const userMsg = await conversationRepository.createMessage({
+      conversationId: data.conversationId,
+      role: 'user',
+      content: data.query,
+    });
+
+    // 2. Establish generation record
+    const generation = await generationRepository.createGeneration({
+      requestId,
+      projectId: data.projectId,
+      conversationId: data.conversationId,
+      query: data.query,
+      maxRecoveryAttempts: 0,
+    });
+
+    await generationRepository.updateGeneration(generation.id, { status: 'generating' });
+
+    // 3. Invoke M2 /generate directly
+    try {
+      const result = await aiClient.generate({
+        projectId: data.projectId,
+        query: data.query,
+        requestId,
+        generationId: generation.id,
+        conversationId: data.conversationId,
+      });
+
+      const totalLatencyMs = Date.now() - startedAt;
+
+      if (result.status === 'failed' || result.error) {
+        await generationRepository.updateGeneration(generation.id, {
+          status: 'failed',
+          errorCode: result.error?.code ?? 'GENERATION_FAILED',
+          errorMessage: result.error?.message ?? 'Generation failed',
+          modelVersion: result.modelVersion ?? null,
+          metadata: (result.metadata as Record<string, unknown>) ?? null,
+          totalLatencyMs,
+          completedAt: new Date(),
+        });
+
+        return {
+          requestId,
+          generationId: generation.id,
+          conversationId: data.conversationId,
+          status: 'failed' as const,
+          answer: undefined,
+          evidence: result.evidence ?? [],
+          sufficiency: result.sufficiency,
+          modelVersion: result.modelVersion,
+          metadata: result.metadata,
+          error: result.error ?? {
+            code: 'GENERATION_FAILED',
+            message: 'Generation failed',
+          },
+          userMessage: {
+            id: userMsg.id,
+            conversationId: userMsg.conversationId,
+            role: userMsg.role,
+            content: userMsg.content,
+            createdAt: userMsg.createdAt.toISOString(),
+          },
+        };
+      }
+
+      // 4. Successful generation / abstention: update generation record
+      await generationRepository.updateGeneration(generation.id, {
+        status: 'completed',
+        answer: result.answer ?? null,
+        modelVersion: result.modelVersion ?? null,
+        metadata: (result.metadata as Record<string, unknown>) ?? null,
+        totalLatencyMs,
+        generationLatencyMs: totalLatencyMs,
+        completedAt: new Date(),
+      });
+
+      // 5. Persist assistant message if answer provided
+      let assistantMsg;
+      if (result.answer) {
+        assistantMsg = await conversationRepository.createMessage({
+          conversationId: data.conversationId,
+          role: 'assistant',
+          content: result.answer,
+          generationId: generation.id,
+        });
+      }
+
+      return {
+        requestId,
+        generationId: generation.id,
+        conversationId: data.conversationId,
+        status: 'completed' as const,
+        answer: result.answer,
+        evidence: result.evidence ?? [],
+        sufficiency: result.sufficiency,
+        modelVersion: result.modelVersion,
+        metadata: result.metadata,
+        userMessage: {
+          id: userMsg.id,
+          conversationId: userMsg.conversationId,
+          role: userMsg.role,
+          content: userMsg.content,
+          createdAt: userMsg.createdAt.toISOString(),
+        },
+        message: assistantMsg
+          ? {
+              id: assistantMsg.id,
+              conversationId: assistantMsg.conversationId,
+              role: assistantMsg.role,
+              content: assistantMsg.content,
+              generationId: assistantMsg.generationId || undefined,
+              createdAt: assistantMsg.createdAt.toISOString(),
+            }
+          : undefined,
+      };
+    } catch (err: any) {
+      const totalLatencyMs = Date.now() - startedAt;
+      await generationRepository
+        .updateGeneration(generation.id, {
+          status: 'failed',
+          errorCode: 'SERVICE_UNAVAILABLE',
+          errorMessage: err.message || 'Generation service unavailable',
+          totalLatencyMs,
+          completedAt: new Date(),
+        })
+        .catch(() => {});
+
+      throw err;
     }
   }
 }

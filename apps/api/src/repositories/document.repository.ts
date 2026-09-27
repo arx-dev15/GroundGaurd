@@ -18,6 +18,7 @@ export interface DBDocument {
 
 export class DocumentRepository {
   public async createDocument(data: {
+    id?: string;
     projectId: string;
     filename: string;
     fileSize: number;
@@ -25,7 +26,7 @@ export class DocumentRepository {
     filePath: string;
   }): Promise<DBDocument> {
     const pool = dbManager.getPool();
-    const id = generateId('doc');
+    const id = data.id || generateId('doc');
     const now = new Date();
 
     const query = `
