@@ -28,7 +28,17 @@ LEARNING_RATE = 2e-5
 WEIGHT_DECAY = 0.01
 MAX_LENGTH = 512
 
+def set_seed(seed: int = 42):
+    import random
+    import numpy as np
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
 def train():
+    set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[TRAIN] Training GroundGuard DeBERTa-v1 on device: {device}")
 
