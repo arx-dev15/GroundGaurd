@@ -18,25 +18,43 @@ from src.pipeline.embedder import EMBEDDING_DIM
 logger = logging.getLogger("m2-qdrant-store")
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_PATH = os.getenv("QDRANT_PATH", "")  # Disk-embedded path (no server required)
 COLLECTION_NAME = "groundguard_chunks"
 VECTOR_DIM = EMBEDDING_DIM
 
 class QdrantStore:
-    def __init__(self, url: str = QDRANT_URL):
+    def __init__(self, url: str = QDRANT_URL, path: str = QDRANT_PATH):
         self.url = url
+        self.path = path
         self.client = self._init_client()
         self._ensure_collection()
 
     def _init_client(self) -> QdrantClient:
         """
-        Initializes Qdrant client. If live server at QDRANT_URL is not reachable,
-        fails explicitly. Embedded :memory: is only allowed if QDRANT_URL is explicitly ':memory:'
-        or ALLOW_IN_MEMORY_FALLBACK='true'.
+        Initializes Qdrant client with three modes (checked in order):
+        1. QDRANT_PATH set → disk-backed embedded client (no server needed, data persists)
+        2. QDRANT_URL == ':memory:' → in-memory client (data lost on restart)
+        3. QDRANT_URL → connect to remote Qdrant server
+           - Falls back to in-memory if ALLOW_IN_MEMORY_FALLBACK=true
+           - Otherwise raises RuntimeError
         """
+        # Mode 1: Disk-backed embedded Qdrant (preferred for dev without a server)
+        if self.path:
+            try:
+                os.makedirs(self.path, exist_ok=True)
+                client = QdrantClient(path=self.path)
+                logger.info(f"Using disk-backed embedded Qdrant at path={self.path}")
+                return client
+            except Exception as e:
+                logger.error(f"Failed to initialize disk-backed embedded Qdrant at {self.path}: {e}")
+                raise RuntimeError(f"Disk-backed embedded Qdrant failed at {self.path}: {e}")
+
+        # Mode 2: Explicit in-memory
         if self.url == ":memory:":
             logger.info("Using explicit in-memory QdrantClient(':memory:')")
             return QdrantClient(":memory:")
 
+        # Mode 3: Remote server
         try:
             client = QdrantClient(url=self.url, timeout=3.0)
             client.get_collections()

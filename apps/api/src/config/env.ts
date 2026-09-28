@@ -21,7 +21,7 @@ export function loadConfig(): Config {
   const port = parseInt(process.env.PORT || process.env.API_PORT || '4000', 10);
   
   const databaseUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/groundguard';
-  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+  const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
   const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
   const mlServiceUrl = process.env.ML_SERVICE_URL || 'http://localhost:8001';
   

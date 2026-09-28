@@ -9,8 +9,11 @@
   ],
   "scripts": {
     "dev:api": "npm --prefix apps/api run dev",
+    "dev:web": "npm --prefix apps/web run dev",
+    "build:web": "npm --prefix apps/web run build",
     "build": "npm --prefix packages/contracts run build && npm --prefix packages/types run build && npm --prefix apps/api run build",
     "test": "npx ts-node tests/integration/phase1.test.ts",
+    "dev:redis": "node scripts/dev-redis.js",
     "infra:up": "docker compose -f docker-compose.infra.yml up -d",
     "infra:down": "docker compose -f docker-compose.infra.yml down",
     "infra:logs": "docker compose -f docker-compose.infra.yml logs -f",

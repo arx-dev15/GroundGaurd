@@ -1,5 +1,6 @@
 node_modules/
 testing/
+Run_Commands.md
 .next/
 dist/
 build/

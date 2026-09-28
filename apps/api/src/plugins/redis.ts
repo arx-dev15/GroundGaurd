@@ -36,6 +36,12 @@ export class RedisManager {
 
   public async checkHealth(): Promise<{ ok: boolean; error?: string }> {
     try {
+      if (this.client && this.client.status !== 'ready' && this.client.status !== 'connect') {
+        try {
+          this.client.disconnect();
+        } catch (_) {}
+        this.client = null;
+      }
       const client = this.getClient();
       if (client.status === 'wait') {
         await client.connect();
@@ -46,6 +52,12 @@ export class RedisManager {
       }
       return { ok: false, error: `Redis ping returned ${pong}` };
     } catch (err: any) {
+      if (this.client) {
+        try {
+          this.client.disconnect();
+        } catch (_) {}
+        this.client = null;
+      }
       return { ok: false, error: err.message || 'Redis connection failed' };
     }
   }

@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Base Surface & Typography (Light - Warm off-white / Slate) */
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 222 47% 11%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 20% 94%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 20% 92%;
+    --muted-foreground: 215 16% 44%;
+
+    --accent: 210 20% 92%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 222 47% 20%;
+
+    --radius: 0.5rem;
+
+    /* Canonical Trust States (Light) */
+    --status-pending: 38 92% 48%;
+    --status-pending-foreground: 35 92% 22%;
+    --status-pending-bg: 45 100% 96%;
+    --status-pending-border: 40 85% 82%;
+
+    --status-verified: 152 57% 38%;
+    --status-verified-foreground: 154 62% 20%;
+    --status-verified-bg: 150 60% 96%;
+    --status-verified-border: 151 50% 82%;
+
+    --status-recovered: 199 89% 38%;
+    --status-recovered-foreground: 201 90% 22%;
+    --status-recovered-bg: 200 85% 96%;
+    --status-recovered-border: 200 70% 82%;
+
+    --status-flagged: 0 72% 51%;
+    --status-flagged-foreground: 0 74% 28%;
+    --status-flagged-bg: 0 86% 97%;
+    --status-flagged-border: 0 70% 85%;
+
+    --status-needs-review: 28 85% 50%;
+    --status-needs-review-foreground: 25 80% 24%;
+    --status-needs-review-bg: 32 100% 96%;
+    --status-needs-review-border: 30 80% 84%;
+  }
+
+  .dark {
+    /* Base Surface & Typography (Dark - Graphite / Charcoal / Slate) */
+    --background: 220 18% 10%;
+    --foreground: 210 20% 96%;
+
+    --card: 220 18% 13%;
+    --card-foreground: 210 20% 96%;
+
+    --popover: 220 18% 15%;
+    --popover-foreground: 210 20% 96%;
+
+    --primary: 210 20% 98%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 220 16% 17%;
+    --secondary-foreground: 210 20% 96%;
+
+    --muted: 220 16% 17%;
+    --muted-foreground: 215 14% 60%;
+
+    --accent: 220 16% 19%;
+    --accent-foreground: 210 20% 96%;
+
+    --destructive: 0 63% 45%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 14% 19%;
+    --input: 220 14% 19%;
+    --ring: 212 96% 75%;
+
+    /* Canonical Trust States (Dark) */
+    --status-pending: 38 92% 54%;
+    --status-pending-foreground: 45 100% 88%;
+    --status-pending-bg: 38 85% 12%;
+    --status-pending-border: 38 55% 24%;
+
+    --status-verified: 152 57% 48%;
+    --status-verified-foreground: 150 70% 90%;
+    --status-verified-bg: 152 55% 10%;
+    --status-verified-border: 152 42% 22%;
+
+    --status-recovered: 199 89% 52%;
+    --status-recovered-foreground: 200 90% 90%;
+    --status-recovered-bg: 200 65% 11%;
+    --status-recovered-border: 200 48% 24%;
+
+    --status-flagged: 0 72% 58%;
+    --status-flagged-foreground: 0 85% 92%;
+    --status-flagged-bg: 0 55% 12%;
+    --status-flagged-border: 0 45% 24%;
+
+    --status-needs-review: 28 85% 56%;
+    --status-needs-review-foreground: 30 90% 90%;
+    --status-needs-review-bg: 28 65% 12%;
+    --status-needs-review-border: 28 48% 24%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: light dark;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased min-h-screen selection:bg-muted selection:text-foreground;
+  }
+
+  /* Accessible focus indicators */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+/* Reduced motion global override */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
