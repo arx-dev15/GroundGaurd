@@ -40,6 +40,22 @@ export class MLClient {
     }
   }
 
+  public async health(): Promise<{ service: string; status: string; modelLoaded: boolean; modelVersion: string; device: string }> {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/health`);
+    if (!res.ok) {
+      throw new ServiceUnavailableError('ML Service (/health)');
+    }
+    return res.json();
+  }
+
+  public async modelInfo(): Promise<{ modelVersion: string; engineType: string; baseModel: string; labels: string[]; status: string }> {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/model/info`);
+    if (!res.ok) {
+      throw new ServiceUnavailableError('ML Service (/model/info)');
+    }
+    return res.json();
+  }
+
   public async verify(payload: VerifyRequest, requestId?: string): Promise<VerifyResponse> {
     const reqId = payload.requestId || requestId;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -53,6 +69,46 @@ export class MLClient {
 
     if (!res.ok) {
       throw new ServiceUnavailableError('ML Service (/verify)');
+    }
+    return res.json();
+  }
+
+  public async verifyBatch(
+    payload: {
+      requestId?: string;
+      items: Array<{
+        claimId: string;
+        claim: string;
+        evidence: Array<{ chunkId: string; text: string }>;
+      }>;
+    },
+    requestId?: string
+  ): Promise<{
+    requestId: string;
+    results: Array<{
+      claimId: string;
+      label: 'entailment' | 'contradiction' | 'neutral';
+      scores: {
+        entailment: number;
+        contradiction: number;
+        neutral: number;
+      };
+      groundingScore: number;
+    }>;
+    modelVersion: string;
+  }> {
+    const reqId = payload.requestId || requestId;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (reqId) headers['x-request-id'] = reqId;
+
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/verify/batch`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...payload, requestId: reqId }),
+    });
+
+    if (!res.ok) {
+      throw new ServiceUnavailableError('ML Service (/verify/batch)');
     }
     return res.json();
   }

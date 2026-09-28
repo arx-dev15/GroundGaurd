@@ -1,6 +1,7 @@
 import { generationRepository, DBGeneration } from '../repositories/generation.repository';
 import { conversationRepository } from '../repositories/conversation.repository';
 import { aiClient } from '../clients/ai.client';
+import { verificationOrchestrator } from './verification.orchestrator';
 
 export class GenerationOrchestrator {
   public async createGeneration(data: {
@@ -77,6 +78,9 @@ export class GenerationOrchestrator {
         claims: result.claims ?? [],
         conversationId: generation.conversationId,
       });
+
+      // Phase 7: Dual-stage Grounding Verification (M1 cross-encoder + deterministic checks)
+      await verificationOrchestrator.verifyGenerationClaims(generationId, generation.requestId);
     } catch (err: any) {
       const totalLatencyMs = Date.now() - startedAt;
       await generationRepository
@@ -185,6 +189,9 @@ export class GenerationOrchestrator {
         conversationId: data.conversationId,
       });
 
+      // Phase 7: Dual-stage Grounding Verification (M1 cross-encoder + deterministic checks)
+      const verifiedClaims = await verificationOrchestrator.verifyGenerationClaims(generation.id, requestId);
+
       return {
         requestId,
         generationId: generation.id,
@@ -193,7 +200,7 @@ export class GenerationOrchestrator {
         answer: result.answer,
         evidence: result.evidence ?? [],
         sufficiency: result.sufficiency,
-        claims: result.claims ?? [],
+        claims: verifiedClaims,
         modelVersion: result.modelVersion,
         metadata: result.metadata,
         userMessage: {

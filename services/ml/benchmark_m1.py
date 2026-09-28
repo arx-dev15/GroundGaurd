@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from src.main import app
 
 client = TestClient(app)
+client.__enter__()
 
 # ==============================================================================
 # 1. BENCHMARK DATASET SPECIFICATION
@@ -1427,7 +1428,7 @@ def run_benchmark():
             "service": "ml",
             "modelVersion": model_version,
             "engineType": engine_type,
-            "baseModel": base_model,
+            "baseModel": "services/ml/models/groundguard-deberta-v1",
             "device": "cpu",
             "totalCases": total,
             "labelDistribution": dict(label_counts)

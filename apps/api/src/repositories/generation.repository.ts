@@ -216,6 +216,47 @@ export class GenerationRepository {
     return res.rows[0];
   }
 
+  public async updateClaimVerification(
+    claimId: string,
+    data: {
+      status: ClaimStatus;
+      label: VerificationLabel;
+      entailmentScore?: number | null;
+      contradictionScore?: number | null;
+      neutralScore?: number | null;
+      groundingScore?: number | null;
+      modelVersion?: string | null;
+    }
+  ): Promise<DBClaim | null> {
+    const pool = dbManager.getPool();
+    const now = new Date();
+    const res = await pool.query(
+      `UPDATE claims
+       SET status = $1,
+           label = $2,
+           entailment_score = $3,
+           contradiction_score = $4,
+           neutral_score = $5,
+           grounding_score = $6,
+           model_version = $7,
+           updated_at = $8
+       WHERE id = $9
+       RETURNING ${CLAIM_COLS};`,
+      [
+        data.status,
+        data.label,
+        data.entailmentScore ?? null,
+        data.contradictionScore ?? null,
+        data.neutralScore ?? null,
+        data.groundingScore ?? null,
+        data.modelVersion ?? null,
+        now,
+        claimId,
+      ]
+    );
+    return res.rows[0] || null;
+  }
+
   public async listClaimsByGenerationId(generationId: string): Promise<DBClaim[]> {
     const pool = dbManager.getPool();
     const res = await pool.query(
