@@ -99,17 +99,21 @@ class GenerateResult(BaseModel):
 
 class RecoverRequest(BaseModel):
     requestId: Optional[str] = None
+    projectId: str
     claimId: str
     claim: str
-    evidence: List[EvidenceItem] = []
     failureReason: str
+    existingEvidence: List[Dict[str, Any]] = []
+    attempt: int = 1
 
 class RecoverResponse(BaseModel):
     requestId: str
     claimId: str
-    status: str = "recovered"
-    recoveredClaim: str
-    note: str = "Placeholder contract: recovery agent deferred to Phase 5"
+    action: str  # "keep" | "revise" | "abstain"
+    candidateClaim: str
+    recoveryEvidence: List[EvidenceItem] = []
+    modelVersion: str
+    reason: Optional[str] = None
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -462,12 +466,27 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
 @app.post("/recover", response_model=RecoverResponse)
 async def recover(payload: RecoverRequest, x_request_id: Optional[str] = Header(None)):
     req_id = payload.requestId or x_request_id or f"req_{uuid.uuid4().hex[:12]}"
-    logger.info(f"[/recover] claim_id={payload.claimId} req_id={req_id}")
+    logger.info(
+        f"[/recover] claim_id={payload.claimId} req_id={req_id} "
+        f"attempt={payload.attempt} reason={payload.failureReason}"
+    )
+    from src.pipeline.recovery import execute_recovery
+    result = await execute_recovery(
+        project_id=payload.projectId,
+        claim_id=payload.claimId,
+        claim=payload.claim,
+        failure_reason=payload.failureReason,
+        attempt=payload.attempt,
+        request_id=req_id
+    )
     return RecoverResponse(
         requestId=req_id,
         claimId=payload.claimId,
-        status="recovered",
-        recoveredClaim=f"Recovered version of: {payload.claim}"
+        action=result.action,
+        candidateClaim=result.candidateClaim,
+        recoveryEvidence=result.recoveryEvidence,
+        modelVersion=result.modelVersion,
+        reason=result.reason
     )
 
 if __name__ == "__main__":

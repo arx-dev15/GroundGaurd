@@ -53,6 +53,24 @@ export interface DBEvidence {
   createdAt: Date;
 }
 
+export interface DBRecoveryAttempt {
+  id: string;
+  claimId: string;
+  attemptNumber: number;
+  failureReason: string;
+  action: string;
+  originalText: string;
+  candidateText: string | null;
+  verificationLabel: VerificationLabel | null;
+  entailmentScore: number | null;
+  contradictionScore: number | null;
+  neutralScore: number | null;
+  groundingScore: number | null;
+  modelVersion: string | null;
+  recoveryModelVersion: string | null;
+  createdAt: Date;
+}
+
 const GEN_COLS = `id, request_id AS "requestId", project_id AS "projectId", conversation_id AS "conversationId",
   query, answer, status, error_code AS "errorCode", error_message AS "errorMessage",
   model_version AS "modelVersion", metadata,
@@ -81,6 +99,14 @@ const CLAIM_COLS_ALIASED = `c.id, c.generation_id AS "generationId", c.external_
 
 const EVIDENCE_COLS = `id, claim_id AS "claimId", chunk_id AS "chunkId", document_id AS "documentId", text,
   retrieval_score AS "retrievalScore", metadata, created_at AS "createdAt"`;
+
+const RECOVERY_ATTEMPT_COLS = `id, claim_id AS "claimId", attempt_number AS "attemptNumber",
+  failure_reason AS "failureReason", action, original_text AS "originalText",
+  candidate_text AS "candidateText", verification_label AS "verificationLabel",
+  entailment_score AS "entailmentScore", contradiction_score AS "contradictionScore",
+  neutral_score AS "neutralScore", grounding_score AS "groundingScore",
+  model_version AS "modelVersion", recovery_model_version AS "recoveryModelVersion",
+  created_at AS "createdAt"`;
 
 export class GenerationRepository {
   // ---------- Generations ----------
@@ -481,6 +507,105 @@ export class GenerationRepository {
     } finally {
       client.release();
     }
+  }
+
+  // ---------- Recovery Attempts ----------
+
+  public async createRecoveryAttempt(data: {
+    claimId: string;
+    attemptNumber: number;
+    failureReason: string;
+    action: string;
+    originalText: string;
+    candidateText?: string | null;
+    verificationLabel?: VerificationLabel | null;
+    entailmentScore?: number | null;
+    contradictionScore?: number | null;
+    neutralScore?: number | null;
+    groundingScore?: number | null;
+    modelVersion?: string | null;
+    recoveryModelVersion?: string | null;
+  }): Promise<DBRecoveryAttempt> {
+    const pool = dbManager.getPool();
+    const id = generateId('rcv');
+    const now = new Date();
+
+    const res = await pool.query(
+      `INSERT INTO claim_recovery_attempts
+        (id, claim_id, attempt_number, failure_reason, action, original_text, candidate_text,
+         verification_label, entailment_score, contradiction_score, neutral_score, grounding_score,
+         model_version, recovery_model_version, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (claim_id, attempt_number) DO UPDATE
+         SET action = EXCLUDED.action,
+             candidate_text = EXCLUDED.candidate_text,
+             verification_label = EXCLUDED.verification_label,
+             entailment_score = EXCLUDED.entailment_score,
+             contradiction_score = EXCLUDED.contradiction_score,
+             neutral_score = EXCLUDED.neutral_score,
+             grounding_score = EXCLUDED.grounding_score,
+             model_version = EXCLUDED.model_version,
+             recovery_model_version = EXCLUDED.recovery_model_version
+       RETURNING ${RECOVERY_ATTEMPT_COLS};`,
+      [
+        id, data.claimId, data.attemptNumber, data.failureReason, data.action, data.originalText,
+        data.candidateText ?? null, data.verificationLabel ?? null, data.entailmentScore ?? null,
+        data.contradictionScore ?? null, data.neutralScore ?? null, data.groundingScore ?? null,
+        data.modelVersion ?? null, data.recoveryModelVersion ?? null, now,
+      ]
+    );
+    return res.rows[0];
+  }
+
+  public async listRecoveryAttemptsByClaimId(claimId: string): Promise<DBRecoveryAttempt[]> {
+    const pool = dbManager.getPool();
+    const res = await pool.query(
+      `SELECT ${RECOVERY_ATTEMPT_COLS} FROM claim_recovery_attempts WHERE claim_id = $1 ORDER BY attempt_number ASC;`,
+      [claimId]
+    );
+    return res.rows;
+  }
+
+  public async updateClaimRecovered(
+    claimId: string,
+    data: {
+      text: string;
+      label: VerificationLabel;
+      entailmentScore: number;
+      contradictionScore: number;
+      neutralScore: number;
+      groundingScore: number;
+      modelVersion: string;
+    }
+  ): Promise<DBClaim | null> {
+    const pool = dbManager.getPool();
+    const now = new Date();
+    const res = await pool.query(
+      `UPDATE claims
+       SET status = 'recovered',
+           text = $1,
+           label = $2,
+           entailment_score = $3,
+           contradiction_score = $4,
+           neutral_score = $5,
+           grounding_score = $6,
+           model_version = $7,
+           updated_at = $8
+       WHERE id = $9
+       RETURNING ${CLAIM_COLS};`,
+      [
+        data.text,
+        data.label,
+        data.entailmentScore,
+        data.contradictionScore,
+        data.neutralScore,
+        data.groundingScore,
+        data.modelVersion,
+        now,
+        claimId,
+      ]
+    );
+    return res.rows[0] || null;
   }
 }
 

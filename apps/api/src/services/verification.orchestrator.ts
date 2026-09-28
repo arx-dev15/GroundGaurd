@@ -216,7 +216,13 @@ export class VerificationOrchestrator {
       .updateGeneration(generationId, { verificationLatencyMs })
       .catch(() => {});
 
-    // Read back updated claims with verification results
+    return this.getHydratedClaims(generationId);
+  }
+
+  /**
+   * Reads back fully hydrated claims including evidence and verification results.
+   */
+  public async getHydratedClaims(generationId: string): Promise<Claim[]> {
     const updatedClaims = await generationRepository.listClaimsByGenerationId(generationId);
     return Promise.all(
       updatedClaims.map(async (c) => {
