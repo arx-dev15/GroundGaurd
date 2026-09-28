@@ -9,8 +9,8 @@ SERVICE_NAME = "ml"
 FINETUNED_PATH = Path(__file__).resolve().parent.parent / "models" / "groundguard-deberta-v1"
 HAS_FINETUNED = (FINETUNED_PATH / "model.safetensors").exists()
 
-DEFAULT_MODEL = str(FINETUNED_PATH) if HAS_FINETUNED else "cross-encoder/nli-deberta-v3-small"
-DEFAULT_VERSION = "groundguard-deberta-v1-finetuned" if HAS_FINETUNED else "groundguard-deberta-v3-small-v1"
+DEFAULT_MODEL = str(FINETUNED_PATH)
+DEFAULT_VERSION = "groundguard-deberta-v1-finetuned"
 
 USE_NEURAL_ENGINE = os.getenv("USE_NEURAL_ENGINE", "true").lower() == "true"
 MODEL_NAME = os.getenv("MODEL_NAME", DEFAULT_MODEL)

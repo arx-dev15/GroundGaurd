@@ -1,6 +1,8 @@
 import { generationRepository, DBGeneration } from '../repositories/generation.repository';
 import { conversationRepository } from '../repositories/conversation.repository';
 import { aiClient } from '../clients/ai.client';
+import { verificationOrchestrator } from './verification.orchestrator';
+import { recoveryOrchestrator } from './recovery.orchestrator';
 
 export class GenerationOrchestrator {
   public async createGeneration(data: {
@@ -77,6 +79,14 @@ export class GenerationOrchestrator {
         claims: result.claims ?? [],
         conversationId: generation.conversationId,
       });
+
+      // Phase 7: Dual-stage Grounding Verification (M1 cross-encoder + deterministic checks)
+      await verificationOrchestrator.verifyGenerationClaims(generationId, generation.requestId);
+
+      // Phase 8: Failure-Aware Agentic Recovery (for failed claims)
+      if (generation.maxRecoveryAttempts > 0) {
+        await recoveryOrchestrator.recoverGenerationClaims(generationId, generation.requestId);
+      }
     } catch (err: any) {
       const totalLatencyMs = Date.now() - startedAt;
       await generationRepository
@@ -116,12 +126,13 @@ export class GenerationOrchestrator {
     });
 
     // 2. Establish generation record
+    const maxRecoveryAttempts = 2;
     const generation = await generationRepository.createGeneration({
       requestId,
       projectId: data.projectId,
       conversationId: data.conversationId,
       query: data.query,
-      maxRecoveryAttempts: 0,
+      maxRecoveryAttempts,
     });
 
     await generationRepository.updateGeneration(generation.id, { status: 'generating' });
@@ -185,6 +196,16 @@ export class GenerationOrchestrator {
         conversationId: data.conversationId,
       });
 
+      // Phase 7: Dual-stage Grounding Verification (M1 cross-encoder + deterministic checks)
+      await verificationOrchestrator.verifyGenerationClaims(generation.id, requestId);
+
+      // Phase 8: Failure-Aware Agentic Recovery (for failed claims)
+      if (maxRecoveryAttempts > 0) {
+        await recoveryOrchestrator.recoverGenerationClaims(generation.id, requestId);
+      }
+
+      const finalClaims = await verificationOrchestrator.getHydratedClaims(generation.id);
+
       return {
         requestId,
         generationId: generation.id,
@@ -193,7 +214,7 @@ export class GenerationOrchestrator {
         answer: result.answer,
         evidence: result.evidence ?? [],
         sufficiency: result.sufficiency,
-        claims: result.claims ?? [],
+        claims: finalClaims,
         modelVersion: result.modelVersion,
         metadata: result.metadata,
         userMessage: {

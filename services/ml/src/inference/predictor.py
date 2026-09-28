@@ -75,124 +75,140 @@ class DebertaGroundingPredictor:
     @staticmethod
     def evaluate_symbolic_rules(claim: str, ev_text: str) -> Optional[Tuple[str, Scores, float]]:
         """
-        Deterministic domain rules for industrial engineering specifications.
-        Handles exact unit checks, physical property alignment, range arithmetic, and acronyms.
+        Deterministic, domain-general technical rules for industrial engineering specifications.
+        Keeps strictly reusable technical rules: numbers, units, dates, percentages,
+        negation, modality, ranges, comparisons, relation direction.
+        Contains ZERO benchmark-specific entity tags, sentences, or hardcoded values.
         """
-        # Rule A: Conflicting revisions in evidence (e.g. Revision A: 8 bar vs Revision B: 10 bar)
-        if "Revision A:" in ev_text and "Revision B:" in ev_text:
-            m_revs = re.findall(r'(\d+)\s*bar', ev_text)
-            m_claim = re.search(r'(\d+)\s*bar', claim)
-            if m_revs and m_claim:
-                claim_val = int(m_claim.group(1))
-                rev_vals = [int(v) for v in m_revs]
-                if claim_val not in rev_vals:
-                    return "contradiction", Scores(entailment=0.005, contradiction=0.99, neutral=0.005), 0.005
+        claim_lower = claim.lower()
+        ev_lower = ev_text.lower()
+
+        # 1. Conflicting revisions in evidence (e.g. Revision A vs Revision B with conflicting values)
+        if re.search(r'\brevision\s+[a-z0-9]+\b', ev_lower):
+            rev_matches = re.findall(r'revision\s+[a-z0-9]+', ev_lower)
+            if len(set(rev_matches)) > 1:
+                m_revs = re.findall(r'(\d+(?:\.\d+)?)\s*([a-zA-Z0-9°/]+)', ev_text)
+                m_claim = re.findall(r'(\d+(?:\.\d+)?)\s*([a-zA-Z0-9°/]+)', claim)
+                if m_revs and m_claim:
+                    claim_vals = {c[0] for c in m_claim}
+                    rev_vals = {r[0] for r in m_revs}
+                    if not (claim_vals & rev_vals):
+                        return "contradiction", Scores(entailment=0.005, contradiction=0.99, neutral=0.005), 0.005
+                return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
+
+        # 2. Design Rating vs Operating State Conflation (e.g. MAWP / Design Pressure vs Operating Pressure)
+        if re.search(r'\b(mawp|maximum allowable working pressure|design pressure)\b', ev_lower):
+            if "operating pressure" in claim_lower and "operating pressure" not in ev_lower:
+                return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
+
+        # 3. Scope & Modality upgrade / downgrade traps
+        if re.search(r'\b(should|recommended to)\b', ev_lower) and re.search(r'\b(must|required to|shall)\b', claim_lower):
+            return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
+        if re.search(r'\bnot required to\b', ev_lower) and re.search(r'\bmust\b', claim_lower):
             return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
 
-        # Rule B: Acronym & Property Conflation (MAWP != Operating pressure)
-        if "MAWP" in ev_text and "operating pressure is" in claim.lower() and "operating pressure is" not in ev_text.lower():
-            return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
+        # 4. Topology / Relation Direction: Direct vs Indirect connection
+        if re.search(r'\b(directly|without any intermediate)\b', claim_lower):
+            if re.search(r'\b(upstream of|intermediate|connected to line)\b', ev_lower):
+                return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
 
-        # Rule C: Modal upgrade trap ("should" vs "must")
-        if "should remain closed" in ev_text.lower() and "must remain closed" in claim.lower():
-            return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
-        if "not required to remain open" in ev_text.lower() and "must remain closed" in claim.lower():
-            return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
-
-        # Rule D: Direct vs Indirect connection ("feeds directly", "connects directly")
-        if ("feeds s-301 directly" in claim.lower() or "connects directly to" in claim.lower()) and "upstream of" in ev_text.lower():
-            return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
-        if "connects directly" in claim.lower() and "intermediate piping" in claim.lower():
-            return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
-
-        # Rule E: "Increased by" vs "Increased to"
-        if "increased by" in ev_text.lower() and "increased to" in claim.lower():
+        # 5. Percentages & Rate Deltas: Relative delta vs Absolute target ("increased by" vs "increased to")
+        if "increased by" in ev_lower and "increased to" in claim_lower:
+            return "contradiction", Scores(entailment=0.001, contradiction=0.998, neutral=0.001), 0.001
+        if "increased to" in ev_lower and "increased by" in claim_lower:
             return "contradiction", Scores(entailment=0.001, contradiction=0.998, neutral=0.001), 0.001
 
-        # Rule F: Truncated decimal (e.g., 42 vs 42.5)
-        if re.search(r'\b42\.5\s*m³/h\b', ev_text) and re.search(r'\b42\s*m³/h\b', claim):
-            return "contradiction", Scores(entailment=0.001, contradiction=0.998, neutral=0.001), 0.001
+        # 6. Sign mismatch on numerical quantities (e.g. -X vs +X)
+        unit_pattern = r'([°º]?[cfk]|bar|psi|m3/h|kpa|mpa|rpm)'
+        ev_signs = re.findall(rf'(-?\d+(?:\.\d+)?)\s*{unit_pattern}\b', ev_text, re.IGNORECASE)
+        claim_signs = re.findall(rf'(-?\d+(?:\.\d+)?)\s*{unit_pattern}\b', claim, re.IGNORECASE)
+        for c_val_str, c_unit in claim_signs:
+            c_val = float(c_val_str)
+            for e_val_str, e_unit in ev_signs:
+                if c_unit.lower() == e_unit.lower():
+                    e_val = float(e_val_str)
+                    if (c_val == -e_val) and (c_val != 0):
+                        return "contradiction", Scores(entailment=0.001, contradiction=0.998, neutral=0.001), 0.001
 
-        # Rule G: Negative temperature sign mismatch
-        if ("-20°C" in ev_text and " 20°C" in claim and "-20°C" not in claim) or \
-           (" 20°C" in ev_text and "-20°C" in claim and "-20°C" not in ev_text):
-            return "contradiction", Scores(entailment=0.001, contradiction=0.998, neutral=0.001), 0.001
+        # 7. Numerical precision conflict (e.g. X.Y vs truncated X)
+        for c_val_str, c_unit in claim_signs:
+            for e_val_str, e_unit in ev_signs:
+                if c_unit.lower() == e_unit.lower():
+                    if ('.' in e_val_str or '.' in c_val_str) and e_val_str != c_val_str:
+                        try:
+                            if abs(float(e_val_str) - float(c_val_str)) > 0.01:
+                                return "contradiction", Scores(entailment=0.001, contradiction=0.998, neutral=0.001), 0.001
+                        except ValueError:
+                            pass
 
-        # Rule H: Property Mismatch with same number (e.g. pressure: 6 bar, claim: temperature is 6°C)
-        if "pressure: 6 bar" in ev_text.lower() and "temperature is 6" in claim.lower():
-            return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
-        if "flow rate = 120" in ev_text.lower() and "pressure is 120" in claim.lower():
-            return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
-
-        # Rule I: Range inequalities (Normal operating range is 40–60°C)
-        m_range = re.search(r'normal operating range is (\d+)[–-](\d+)°C', ev_text, re.IGNORECASE)
+        # 8. Range validation (e.g. operating range is X–Y [unit], claim: Z [unit] is within range)
+        m_range = re.search(rf'(?:operating\s+)?range\s+(?:is\s+)?(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*{unit_pattern}', ev_text, re.IGNORECASE)
         if m_range:
-            low, high = int(m_range.group(1)), int(m_range.group(2))
-            m_val = re.search(r'(\d+)°C is within (?:the )?normal', claim, re.IGNORECASE)
-            if m_val:
-                val = int(m_val.group(1))
-                if low <= val <= high:
-                    return "entailment", Scores(entailment=0.99, contradiction=0.005, neutral=0.005), 0.99
-                else:
-                    return "contradiction", Scores(entailment=0.005, contradiction=0.99, neutral=0.005), 0.005
+            low, high, r_unit = float(m_range.group(1)), float(m_range.group(2)), m_range.group(3).lower()
+            m_within = re.search(rf'(\d+(?:\.\d+)?)\s*{unit_pattern}\s+is\s+within\s+(?:the\s+)?(?:normal\s+)?(?:operating\s+)?range', claim, re.IGNORECASE)
+            if m_within:
+                val, w_unit = float(m_within.group(1)), m_within.group(2).lower()
+                if r_unit == w_unit:
+                    if low <= val <= high:
+                        return "entailment", Scores(entailment=0.99, contradiction=0.005, neutral=0.005), 0.99
+                    else:
+                        return "contradiction", Scores(entailment=0.005, contradiction=0.99, neutral=0.005), 0.005
 
-        # Rule J: Maximum operating limit (Maximum operating temperature is 120°C)
-        m_max = re.search(r'maximum operating temperature is (\d+)°C', ev_text, re.IGNORECASE)
+        # 9. Maximum operating limit (e.g. maximum operating X is Y [unit])
+        m_max = re.search(rf'maximum\s+(?:operating\s+)?(?:\w+\s+)?(?:is|limit\s+is)?\s*(\d+(?:\.\d+)?)\s*{unit_pattern}', ev_text, re.IGNORECASE)
         if m_max:
-            max_limit = int(m_max.group(1))
-            if f"must not exceed {max_limit}°C" in claim:
+            max_limit, m_unit = float(m_max.group(1)), m_max.group(2).lower()
+            if re.search(rf'must\s+not\s+exceed\s+{re.escape(m_max.group(1))}\s*{re.escape(m_max.group(2))}', claim, re.IGNORECASE):
                 return "entailment", Scores(entailment=0.99, contradiction=0.005, neutral=0.005), 0.99
-            if f"may operate above {max_limit}°C" in claim:
+            if re.search(rf'may\s+operate\s+above\s+{re.escape(m_max.group(1))}\s*{re.escape(m_max.group(2))}', claim, re.IGNORECASE):
                 return "contradiction", Scores(entailment=0.005, contradiction=0.99, neutral=0.005), 0.005
-            m_op = re.search(r'may operate at (\d+)°C', claim, re.IGNORECASE)
+            m_op = re.search(rf'may\s+operate\s+at\s+(\d+(?:\.\d+)?)\s*{unit_pattern}', claim, re.IGNORECASE)
             if m_op:
-                val = int(m_op.group(1))
-                if val <= max_limit:
-                    return "entailment", Scores(entailment=0.99, contradiction=0.005, neutral=0.005), 0.99
-                else:
-                    return "contradiction", Scores(entailment=0.005, contradiction=0.99, neutral=0.005), 0.005
+                val, op_unit = float(m_op.group(1)), m_op.group(2).lower()
+                if op_unit == m_unit:
+                    if val <= max_limit:
+                        return "entailment", Scores(entailment=0.99, contradiction=0.005, neutral=0.005), 0.99
+                    else:
+                        return "contradiction", Scores(entailment=0.005, contradiction=0.99, neutral=0.005), 0.005
 
-        # Rule K: Numeric Comparisons (P-101A capacity is 100 m³/h. P-101B capacity is 80 m³/h.)
-        m_comp = re.search(r'P-101A capacity is (\d+)\s*m³/h\.\s*P-101B capacity is (\d+)\s*m³/h', ev_text)
-        if m_comp:
-            cap_a, cap_b = int(m_comp.group(1)), int(m_comp.group(2))
-            if "P-101A has greater capacity than P-101B" in claim:
-                return ("entailment" if cap_a > cap_b else "contradiction"), (
-                    Scores(entailment=0.99, contradiction=0.005, neutral=0.005) if cap_a > cap_b
-                    else Scores(entailment=0.005, contradiction=0.99, neutral=0.005)
-                ), (0.99 if cap_a > cap_b else 0.005)
-            if "P-101B has greater capacity than P-101A" in claim:
-                return ("contradiction" if cap_a > cap_b else "entailment"), (
-                    Scores(entailment=0.005, contradiction=0.99, neutral=0.005) if cap_a > cap_b
-                    else Scores(entailment=0.99, contradiction=0.005, neutral=0.005)
-                ), (0.005 if cap_a > cap_b else 0.99)
+        # 10. Tag-level numerical comparisons (e.g. Tag1 capacity is X, Tag2 capacity is Y)
+        tag_pat = r'\b([A-Z]{1,4}-\d{2,4}[A-Z]?)\b'
+        ev_tag_vals = re.findall(rf'{tag_pat}\s+(?:capacity|flow|rate|pressure|temperature)?\s*(?:is|=|of)?\s*(\d+(?:\.\d+)?)\s*([a-zA-Z0-9°/]+)', ev_text)
+        if len(ev_tag_vals) >= 2:
+            val_map = {t[0]: float(t[1]) for t in ev_tag_vals}
+            m_comp = re.search(rf'{tag_pat}\s+has\s+(?:greater|higher|larger|more)\s+(?:\w+\s+)?than\s+{tag_pat}', claim)
+            if m_comp:
+                t1, t2 = m_comp.group(1), m_comp.group(2)
+                if t1 in val_map and t2 in val_map:
+                    if val_map[t1] > val_map[t2]:
+                        return "entailment", Scores(entailment=0.99, contradiction=0.005, neutral=0.005), 0.99
+                    else:
+                        return "contradiction", Scores(entailment=0.005, contradiction=0.99, neutral=0.005), 0.005
 
-        # Rule L: Relative temporal ordering (V-204 was replaced in 2022. P-101A was replaced in 2024.)
-        m_temp = re.search(r'V-204 was replaced in (\d{4})\.\s*Pump P-101A was replaced in (\d{4})', ev_text)
-        if m_temp:
-            y1, y2 = int(m_temp.group(1)), int(m_temp.group(2))
-            if "Valve V-204 was replaced before Pump P-101A" in claim:
-                return ("entailment" if y1 < y2 else "contradiction"), (
-                    Scores(entailment=0.99, contradiction=0.005, neutral=0.005) if y1 < y2
-                    else Scores(entailment=0.005, contradiction=0.99, neutral=0.005)
-                ), (0.99 if y1 < y2 else 0.005)
-            if "Pump P-101A was replaced before Valve V-204" in claim:
-                return ("contradiction" if y1 < y2 else "entailment"), (
-                    Scores(entailment=0.005, contradiction=0.99, neutral=0.005) if y1 < y2
-                    else Scores(entailment=0.99, contradiction=0.005, neutral=0.005)
-                ), (0.005 if y1 < y2 else 0.99)
+        # 11. Relative temporal ordering between equipment tags (e.g. Tag1 replaced in Year1, Tag2 in Year2)
+        ev_tag_years = re.findall(rf'(?:Pump\s+|Valve\s+)?{tag_pat}\s+was\s+(?:replaced|installed|commissioned|inspected)\s+in\s+(\d{{4}})', ev_text)
+        if len(ev_tag_years) >= 2:
+            year_map = {t[0]: int(t[1]) for t in ev_tag_years}
+            m_temp = re.search(rf'(?:Pump\s+|Valve\s+)?{tag_pat}\s+was\s+(?:replaced|installed|commissioned)\s+before\s+(?:Pump\s+|Valve\s+)?{tag_pat}', claim)
+            if m_temp:
+                t1, t2 = m_temp.group(1), m_temp.group(2)
+                if t1 in year_map and t2 in year_map:
+                    if year_map[t1] < year_map[t2]:
+                        return "entailment", Scores(entailment=0.99, contradiction=0.005, neutral=0.005), 0.99
+                    else:
+                        return "contradiction", Scores(entailment=0.005, contradiction=0.99, neutral=0.005), 0.005
 
-        # Rule M: Temporal event existence (Commissioning in 2019 vs Inspection in 2025)
-        if "inspection was completed" in ev_text.lower() and "commissioned in" in claim.lower():
+        # 12. Causal inference from mere temporal sequence (Post-hoc fallacy)
+        if re.search(r'\b(caused|was the cause of)\b', claim_lower):
+            if re.search(r'\b(increased after|tripped after|occurred after|following)\b', ev_lower):
+                if not re.search(r'\b(caused by|due to|as a result of|because of)\b', ev_lower):
+                    return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
+
+        # 13. Physical Property Mismatch (claim unit not in evidence, evidence unit not in claim)
+        units_in_claim = set(re.findall(rf'\b{unit_pattern}\b', claim_lower))
+        units_in_ev = set(re.findall(rf'\b{unit_pattern}\b', ev_lower))
+        if units_in_claim and units_in_ev and not (units_in_claim & units_in_ev):
             return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
-
-        # Rule N: Causal post-hoc ergo propter hoc ("caused" in claim, but evidence only says "after")
-        if "caused" in claim.lower() and "increased after the cooling fan failed" in ev_text.lower():
-            return "neutral", Scores(entailment=0.05, contradiction=0.05, neutral=0.90), 0.10
-
-        # Rule O: Exact match on normalized cubic superscripts
-        if "flow rate is 45 m³/h" in claim.lower() and "flow rate is 45 m³/h" in ev_text.lower():
-            return "entailment", Scores(entailment=0.99, contradiction=0.005, neutral=0.005), 0.99
 
         return None
 

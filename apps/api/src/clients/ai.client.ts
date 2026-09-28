@@ -130,11 +130,15 @@ export class AIClient {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (reqId) headers['x-request-id'] = reqId;
 
-    const res = await this.fetchWithTimeout(`${this.baseUrl}/recover`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ ...payload, requestId: reqId }),
-    });
+    const res = await this.fetchWithTimeout(
+      `${this.baseUrl}/recover`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ...payload, requestId: reqId }),
+      },
+      60000 // 60s timeout for recovery retrieval and LLM call
+    );
 
     if (!res.ok) {
       throw new ServiceUnavailableError('AI Service (/recover)');

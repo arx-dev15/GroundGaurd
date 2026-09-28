@@ -338,19 +338,51 @@ export interface RetrieveResult {
   metadata?: RetrieveMetadata;
 }
 
+export type RecoveryFailureReason =
+  | 'CONTRADICTION'
+  | 'INSUFFICIENT_EVIDENCE'
+  | 'TECHNICAL_CONFLICT'
+  | 'ZERO_EVIDENCE'
+  | 'M1_UNAVAILABLE';
+
+export type RecoveryAction = 'keep' | 'revise' | 'abstain';
+
 export interface RecoverRequest {
-  requestId: string;
+  requestId?: string;
+  projectId: string;
   claimId: string;
   claim: string;
-  evidence: Evidence[];
-  failureReason: string;
+  failureReason: RecoveryFailureReason | string;
+  existingEvidence?: Evidence[];
+  attempt?: number;
 }
 
 export interface RecoverResponse {
   requestId: string;
   claimId: string;
-  status: ClaimStatus;
-  recoveredClaim?: string;
+  action: RecoveryAction;
+  candidateClaim: string;
+  recoveryEvidence: Evidence[];
+  modelVersion: string;
+  reason?: string;
+}
+
+export interface RecoveryAttempt {
+  id: string;
+  claimId: string;
+  attemptNumber: number;
+  failureReason: string;
+  action: string;
+  originalText: string;
+  candidateText?: string | null;
+  verificationLabel?: VerificationLabel | null;
+  entailmentScore?: number | null;
+  contradictionScore?: number | null;
+  neutralScore?: number | null;
+  groundingScore?: number | null;
+  modelVersion?: string | null;
+  recoveryModelVersion?: string | null;
+  createdAt: string;
 }
 
 export interface VerifyRequest {

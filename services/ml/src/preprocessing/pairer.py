@@ -24,8 +24,9 @@ class TextPairer:
         # 3. Replace typographic quotes
         text = text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
 
-        # 4. Superscript & degree normalizations
-        text = text.replace("m3/h", "m³/h").replace("m^3/h", "m³/h").replace("m3 / h", "m³/h")
+        # 4. Superscript & degree normalizations (canonical ASCII normalization for tokenizer parity)
+        text = text.replace("m³/h", "m3/h").replace("m^3/h", "m3/h").replace("m3 / h", "m3/h")
+        text = text.replace("m³", "m3").replace("m^3", "m3")
         text = text.replace("ºC", "°C").replace("º C", "°C").replace("deg C", "°C").replace(" \u00b0C", "°C")
         text = text.replace("150PSI", "150 PSI")
         
