@@ -56,6 +56,7 @@ class TestPhase4CandidateNormalization(unittest.TestCase):
         """
         Verify: If Qdrant and Tantivy return the same chunkId,
         the normalized representation contains ONE candidate with both contributions.
+        Also verifies identifier string parsing and union deduplication across sources.
         """
         candidates_map = {}
         
@@ -65,19 +66,24 @@ class TestPhase4CandidateNormalization(unittest.TestCase):
             documentId="doc_100",
             projectId="proj_test",
             text="Shared content for pump P-101A.",
+            identifiers=["P-101A"],
             denseScore=0.85,
             denseRank=2,
             sources=["qdrant_dense"]
         )
         candidates_map[c1.chunkId] = c1
 
-        # Lexical contribution for same chunk
+        # Lexical contribution for same chunk (e.g. Tantivy space-delimited identifiers)
+        ident_raw = "P-101A API-610"
+        lex_idents = ident_raw.split() if isinstance(ident_raw, str) else list(ident_raw)
+
         if "chk_shared" in candidates_map:
             cand = candidates_map["chk_shared"]
             cand.lexicalScore = 12.4
             cand.lexicalRank = 1
             if "tantivy_lexical" not in cand.sources:
                 cand.sources.append("tantivy_lexical")
+            cand.identifiers = list(set(cand.identifiers + lex_idents))
 
         self.assertEqual(len(candidates_map), 1)
         merged = candidates_map["chk_shared"]
@@ -86,6 +92,33 @@ class TestPhase4CandidateNormalization(unittest.TestCase):
         self.assertEqual(merged.denseScore, 0.85)
         self.assertEqual(merged.lexicalScore, 12.4)
         self.assertEqual(set(merged.sources), {"qdrant_dense", "tantivy_lexical"})
+        self.assertEqual(set(merged.identifiers), {"P-101A", "API-610"})
+
+    def test_missing_chunk_id_is_skipped(self):
+        """
+        Verify: Raw hits lacking chunkId are safely skipped during candidate normalization.
+        """
+        raw_dense_hits = [
+            {"documentId": "doc_1", "text": "Malformed hit without chunkId", "score": 0.5},
+            {"chunkId": "chk_valid", "documentId": "doc_1", "projectId": "p1", "text": "Valid hit", "score": 0.9}
+        ]
+        candidates_map = {}
+        for rank, hit in enumerate(raw_dense_hits, start=1):
+            c_id = hit.get("chunkId")
+            if not c_id:
+                continue
+            candidates_map[c_id] = Candidate(
+                chunkId=c_id,
+                documentId=hit.get("documentId", ""),
+                projectId=hit.get("projectId", "p1"),
+                text=hit.get("text", ""),
+                denseScore=float(hit.get("score", 0.0)),
+                denseRank=rank,
+                sources=["qdrant_dense"]
+            )
+        self.assertEqual(len(candidates_map), 1)
+        self.assertIn("chk_valid", candidates_map)
+        self.assertNotIn("Malformed hit without chunkId", [c.text for c in candidates_map.values()])
 
 
 class TestPhase4QueryRouter(unittest.TestCase):
