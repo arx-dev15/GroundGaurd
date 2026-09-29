@@ -28,3 +28,10 @@ export class ServiceUnavailableError extends AppError {
     super(`${serviceName.toUpperCase()}_UNAVAILABLE`, `${serviceName} service unavailable`, 503);
   }
 }
+
+export class PayloadTooLargeError extends AppError {
+  constructor(message: string = 'File size exceeds maximum allowed limit of 10MB') {
+    super('PAYLOAD_TOO_LARGE', message, 413);
+  }
+}
+

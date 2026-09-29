@@ -21,19 +21,48 @@ export class AIClient {
     this.timeoutMs = timeoutMs;
   }
 
-  private async fetchWithTimeout(url: string, options: RequestInit = {}, customTimeoutMs?: number): Promise<Response> {
+  private async fetchWithTimeout(
+    url: string,
+    options: RequestInit = {},
+    customTimeoutMs?: number,
+    externalSignal?: AbortSignal
+  ): Promise<Response> {
     const controller = new AbortController();
     const timeout = customTimeoutMs || this.timeoutMs;
     const id = setTimeout(() => controller.abort(), timeout);
+
+    const onAbort = () => {
+      controller.abort();
+    };
+
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort();
+      } else {
+        externalSignal.addEventListener('abort', onAbort, { once: true });
+      }
+    }
+
     try {
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
       clearTimeout(id);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onAbort);
+      }
       return response;
     } catch (err: any) {
       clearTimeout(id);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onAbort);
+      }
+      if (externalSignal?.aborted || err?.name === 'AbortError') {
+        const cancelErr = new Error('Request was aborted by user');
+        (cancelErr as any).name = 'AbortError';
+        throw cancelErr;
+      }
       throw new ServiceUnavailableError('AI Service');
     }
   }
@@ -101,7 +130,8 @@ export class AIClient {
 
    public async generate(
     payload: GenerationRequest & { projectId: string; requestId?: string; generationId?: string },
-    requestId?: string
+    requestId?: string,
+    signal?: AbortSignal
   ): Promise<GenerationResult> {
     const reqId = payload.requestId || requestId;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -116,7 +146,8 @@ export class AIClient {
         headers,
         body: JSON.stringify({ ...payload, requestId: reqId }),
       },
-      GENERATE_TIMEOUT_MS
+      GENERATE_TIMEOUT_MS,
+      signal
     );
 
     if (!res.ok) {
@@ -125,7 +156,7 @@ export class AIClient {
     return res.json();
   }
 
-  public async recover(payload: RecoverRequest, requestId?: string): Promise<RecoverResponse> {
+  public async recover(payload: RecoverRequest, requestId?: string, signal?: AbortSignal): Promise<RecoverResponse> {
     const reqId = payload.requestId || requestId;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (reqId) headers['x-request-id'] = reqId;
@@ -137,7 +168,8 @@ export class AIClient {
         headers,
         body: JSON.stringify({ ...payload, requestId: reqId }),
       },
-      60000 // 60s timeout for recovery retrieval and LLM call
+      60000, // 60s timeout for recovery retrieval and LLM call
+      signal
     );
 
     if (!res.ok) {

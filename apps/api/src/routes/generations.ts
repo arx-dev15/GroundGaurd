@@ -133,6 +133,7 @@ export async function generationRoutes(fastify: FastifyInstance) {
       conversationId,
       query: body.query.trim(),
       maxRecoveryAttempts,
+      requestId: request.requestId,
     });
 
     return reply.status(202).send(toGenerationResult(generation));

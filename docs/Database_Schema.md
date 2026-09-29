@@ -64,18 +64,18 @@ Project
 Fields:
 
 ```text
-id
-userId
-name
-description
-createdAt
-updatedAt
+id (VARCHAR(64), PK)
+user_id (VARCHAR(64), FK -> users.id ON DELETE CASCADE) -- Added in migration 011
+name (VARCHAR(255), NOT NULL)
+description (TEXT, NULLABLE)
+created_at (TIMESTAMPTZ, DEFAULT NOW())
+updated_at (TIMESTAMPTZ, DEFAULT NOW())
 ```
 
 Relationship:
 
 ```text
-User 1 ─── N Project
+User 1 ─── N Project (ON DELETE CASCADE)
 ```
 
 ---
@@ -86,18 +86,20 @@ User 1 ─── N Project
 Document
 ```
 
-Fields:
+Fields (Canonical DB Columns per 002 migration):
 
 ```text
-id
-projectId
-name
-filePath
-mimeType
-size
-status
-createdAt
-updatedAt
+id (VARCHAR(64), PK)
+project_id (VARCHAR(64), FK -> projects.id ON DELETE CASCADE)
+filename (VARCHAR(255), NOT NULL)
+file_path (VARCHAR(500), NOT NULL)
+file_size (INTEGER, NOT NULL)
+mime_type (VARCHAR(100), NOT NULL)
+status (VARCHAR(50), NOT NULL, DEFAULT 'pending') -- 'pending', 'processing', 'ready', 'failed'
+error_message (TEXT, NULLABLE)
+chunks_count (INTEGER, DEFAULT 0)
+created_at (TIMESTAMPTZ, DEFAULT NOW())
+updated_at (TIMESTAMPTZ, DEFAULT NOW())
 ```
 
 Relationship:
@@ -114,17 +116,18 @@ Project 1 ─── N Document
 Chunk
 ```
 
-Fields:
+Fields (per 002 & 003 migrations):
 
 ```text
-id (UUID, PK)
-document_id (UUID, FK -> documents.id)
+id (VARCHAR(64), PK)
+document_id (VARCHAR(64), FK -> documents.id ON DELETE CASCADE)
 text (TEXT, NOT NULL)
 chunk_index (INTEGER, NOT NULL)
+page_number (INTEGER, NULLABLE) -- Page provenance
 section (TEXT, NULLABLE) -- Added in migration 003 (e.g. "SECTION 4.2")
 heading (TEXT, NULLABLE) -- Added in migration 003 (e.g. "PUMP SPECIFICATIONS")
 identifiers (JSONB, DEFAULT '[]') -- Added in migration 003 ([{"value": "V-204", "normalized": "V-204", "type": "vessel"}])
-metadata (JSONB, DEFAULT '{}') -- page, source file, etc.
+metadata (JSONB, DEFAULT '{}') -- source file, lineage, etc.
 created_at (TIMESTAMPTZ, DEFAULT NOW())
 ```
 
@@ -200,21 +203,30 @@ Generation
 Fields:
 
 ```text
-id
-requestId
-projectId
-conversationId
-query
-answer
-status
-retrievalLatencyMs
-generationLatencyMs
-verificationLatencyMs
-totalLatencyMs
-recoveryAttempts
-createdAt
-completedAt
+id (VARCHAR(64), PK)
+request_id (VARCHAR(64), NOT NULL)
+project_id (VARCHAR(64), FK -> projects.id ON DELETE CASCADE)
+conversation_id (VARCHAR(64), FK -> conversations.id ON DELETE SET NULL)
+query (TEXT, NOT NULL)
+answer (TEXT, NULLABLE)
+status (VARCHAR(50), NOT NULL, DEFAULT 'queued')
+  Allowed Statuses: 'queued', 'generating', 'verifying', 'recovering', 'completed', 'failed', 'cancelled'
+error_code (VARCHAR(100), NULLABLE)
+error_message (TEXT, NULLABLE)
+model_version (VARCHAR(100), NULLABLE)
+metadata (JSONB, DEFAULT '{}')
+retrieval_latency_ms (INTEGER, NULLABLE)
+generation_latency_ms (INTEGER, NULLABLE)
+verification_latency_ms (INTEGER, NULLABLE)
+total_latency_ms (INTEGER, NULLABLE)
+recovery_attempts (INTEGER, DEFAULT 0)
+max_recovery_attempts (INTEGER, DEFAULT 2)
+created_at (TIMESTAMPTZ, DEFAULT NOW())
+completed_at (TIMESTAMPTZ, NULLABLE)
+updated_at (TIMESTAMPTZ, DEFAULT NOW())
 ```
+
+*Note on `retrieving`:* While `@groundguard/contracts` and `@groundguard/types` retain `'retrieving'` as a permissible contract state for future distributed retrieval workers, M3 currently delegates retrieval and generation atomically to M2's `/generate` endpoint. The generation lifecycle therefore transitions through: `queued` → `generating` → `verifying` (or `recovering`) → `completed`/`failed`/`cancelled`. M3 does not persist `retrieving` separately in PostgreSQL because M2 encapsulates retrieval.
 
 ---
 

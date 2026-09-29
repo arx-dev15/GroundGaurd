@@ -3,7 +3,7 @@ import { authenticate } from '../middleware/auth';
 import { projectRepository } from '../repositories/project.repository';
 import { documentRepository, DBDocument } from '../repositories/document.repository';
 import { documentOrchestrator } from '../services/document.orchestrator';
-import { BadRequestError, NotFoundError } from '../utils/errors';
+import { BadRequestError, NotFoundError, PayloadTooLargeError } from '../utils/errors';
 import { Document } from '@groundguard/contracts';
 
 function toPublicDocument(dbDoc: DBDocument): Document {
@@ -50,6 +50,9 @@ export async function documentRoutes(fastify: FastifyInstance) {
     }
 
     const fileBuffer = await data.toBuffer();
+    if (data.file.truncated) {
+      throw new PayloadTooLargeError('File size exceeds maximum allowed limit of 10MB');
+    }
     if (fileBuffer.length === 0) {
       throw new BadRequestError('Uploaded file is empty');
     }

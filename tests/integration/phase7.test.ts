@@ -386,4 +386,10 @@ describe('GroundGuard Phase 7: Dual-Stage Grounding Verification Test Suite', ()
     // Invariant: no claims are 'pending' or 'recovered'
     assert.ok(persistedVerified.every((c) => c.status !== 'pending' && (c.status as string) !== 'recovered'));
   });
+
+  after(async () => {
+    await app.close();
+    await dbManager.getPool().end();
+  });
 });
+

@@ -29,6 +29,18 @@ export function buildApp(): FastifyInstance {
   registerRequestId(app);
   registerErrorHandler(app);
 
+  // Allow bodyless JSON POST/PUT requests to parse as empty object rather than throw FST_ERR_CTP_EMPTY_JSON_BODY
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    if (!body || (typeof body === 'string' && body.trim() === '')) {
+      return done(null, {});
+    }
+    try {
+      done(null, JSON.parse(body as string));
+    } catch (err: any) {
+      done(err, undefined);
+    }
+  });
+
    // Routes
   app.register(healthRoutes);
   app.register(authRoutes);

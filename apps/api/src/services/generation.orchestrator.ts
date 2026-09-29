@@ -13,9 +13,10 @@ export class GenerationOrchestrator {
     conversationId?: string | null;
     query: string;
     maxRecoveryAttempts: number;
+    requestId?: string;
   }): Promise<DBGeneration> {
     const { generateId } = await import('../utils/id');
-    const requestId = generateId('req');
+    const requestId = data.requestId || generateId('req');
 
     const generation = await generationRepository.createGeneration({
       requestId,
@@ -100,13 +101,17 @@ export class GenerationOrchestrator {
         requestId: generation.requestId,
       });
 
-      const result = await aiClient.generate({
-        projectId: generation.projectId,
-        query: generation.query,
-        requestId: generation.requestId,
-        generationId: generation.id,
-        options: { maxRecoveryAttempts: generation.maxRecoveryAttempts },
-      });
+      const result = await aiClient.generate(
+        {
+          projectId: generation.projectId,
+          query: generation.query,
+          requestId: generation.requestId,
+          generationId: generation.id,
+          options: { maxRecoveryAttempts: generation.maxRecoveryAttempts },
+        },
+        generation.requestId,
+        abortController.signal
+      );
 
       // Check if cancelled while M2 /generate was running
       const postGen = await generationRepository.findGenerationById(generationId);
@@ -183,7 +188,7 @@ export class GenerationOrchestrator {
       });
     } catch (err: any) {
       const checkCancelled = await generationRepository.findGenerationById(generationId);
-      if (checkCancelled?.status === 'cancelled') return;
+      if (checkCancelled?.status === 'cancelled' || abortController.signal.aborted || err?.name === 'AbortError') return;
 
       const totalLatencyMs = Date.now() - startedAt;
       await generationRepository

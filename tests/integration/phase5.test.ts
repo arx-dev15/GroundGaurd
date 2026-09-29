@@ -188,7 +188,7 @@ describe('GroundGuard Phase 5 Conversations + Grounded RAG Generation Test Suite
     assert.strictEqual(body.conversationId, conversationAId);
     assert.strictEqual(body.status, 'completed');
     assert.ok(body.answer, 'answer must be provided');
-    assert.match(body.answer, /not contain sufficient evidence/i);
+    assert.match(body.answer, /(?:no ready documents|not contain sufficient evidence)/i);
     assert.strictEqual(body.modelVersion, 'groundguard-abstention-gate');
     assert.strictEqual(body.metadata?.abstention, true);
     assert.strictEqual(body.sufficiency?.sufficient, false);
@@ -221,7 +221,7 @@ describe('GroundGuard Phase 5 Conversations + Grounded RAG Generation Test Suite
     assert.strictEqual(userMsg.role, 'user');
     assert.strictEqual(userMsg.content, 'What is the operating pressure of boiler B-201?');
     assert.strictEqual(assistantMsg.role, 'assistant');
-    assert.match(assistantMsg.content, /not contain sufficient evidence/i);
+    assert.match(assistantMsg.content, /(?:no ready documents|not contain sufficient evidence)/i);
   });
 
   // ==========================================

@@ -3,6 +3,7 @@ testing/
 Run_Commands.md
 .next/
 dist/
+scratch/
 build/
 .venv/
 venv/

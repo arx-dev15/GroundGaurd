@@ -162,10 +162,10 @@ describe('GroundGuard Phase 6: Claim Extraction + Evidence Provenance Test Suite
       claims: sampleClaims,
     });
 
-    // Verify generation status is completed
+    // Verify generation status is verifying per Phase 9 lifecycle contract
     const updatedGen = await generationRepository.findGenerationById(gen.id);
     assert.ok(updatedGen);
-    assert.strictEqual(updatedGen.status, 'completed');
+    assert.strictEqual(updatedGen.status, 'verifying');
     assert.strictEqual(updatedGen.answer, answer);
 
     // Read back claims via repository
@@ -408,4 +408,10 @@ describe('GroundGuard Phase 6: Claim Extraction + Evidence Provenance Test Suite
     assert.strictEqual(claimGet2.statusCode, 200);
     assert.strictEqual(JSON.parse(claimGet2.payload).claim.text, 'Valve V-204 operates at 10 bar.');
   });
+
+  after(async () => {
+    await app.close();
+    await dbManager.getPool().end();
+  });
 });
+

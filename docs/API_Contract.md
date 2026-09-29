@@ -60,6 +60,8 @@ failed
 cancelled
 ```
 
+*Implementation note:* While `retrieving` is retained in the contract specification for distributed pipelines, M3 currently executes retrieval and LLM generation atomically via M2's `/generate` endpoint. Active generations transition: `queued` → `generating` → `verifying` (or `recovering`) → `completed`/`failed`/`cancelled`. M3 does not persist a separate `retrieving` state in PostgreSQL.
+
 ## Claim
 
 ```text

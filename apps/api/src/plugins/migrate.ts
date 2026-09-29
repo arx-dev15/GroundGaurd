@@ -6,14 +6,30 @@ export interface MigrationOptions {
   isPgMem?: boolean;
 }
 
-export async function runMigrations(pool: Pool, options?: MigrationOptions): Promise<void> {
-  const migrationsDir = path.resolve(process.cwd(), 'infra/migrations');
-  const fallbackMigrationsDir = path.resolve(process.cwd(), '../../infra/migrations');
-  
-  const targetDir = fs.existsSync(migrationsDir) ? migrationsDir : fallbackMigrationsDir;
-  if (!fs.existsSync(targetDir)) {
-    return;
+export function resolveMigrationsDir(): string {
+  const candidates = [
+    process.env.MIGRATIONS_DIR,
+    path.resolve(__dirname, '../../../../infra/migrations'),
+    path.resolve(__dirname, '../../../infra/migrations'),
+    path.resolve(process.cwd(), 'infra/migrations'),
+    path.resolve(process.cwd(), '../../infra/migrations'),
+  ].filter((p): p is string => Boolean(p));
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+      return path.resolve(candidate);
+    }
   }
+
+  throw new Error(
+    `[Migrations] Failed to locate migrations directory. Checked locations: ${candidates.join(', ')}`
+  );
+}
+
+export async function runMigrations(pool: Pool, options?: MigrationOptions): Promise<void> {
+  const targetDir = resolveMigrationsDir();
+  console.log(`[Migrations] Resolved migration directory: ${targetDir}`);
+
 
   const client = await pool.connect();
   const isPgMem = options?.isPgMem ?? (pool as any).__isPgMem ?? (process.env.PG_MEM_MODE === 'true');

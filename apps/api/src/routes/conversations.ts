@@ -160,6 +160,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
       projectId,
       conversationId,
       query: rawContent.trim(),
+      requestId: request.requestId,
     });
 
     return reply.status(200).send(result);

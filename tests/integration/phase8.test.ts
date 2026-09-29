@@ -138,12 +138,24 @@ describe('GroundGuard Phase 8: Failure-Aware Agentic Recovery Test Suite', () =>
       'p101a_temp.pdf'
     );
     assert.ok(ingestRes2.status === 'completed' || ingestRes2.status === 'ready');
+
+    // Register documents as READY in PostgreSQL to satisfy M2 canonical lifecycle check
+    await pool.query(
+      `INSERT INTO documents (id, project_id, filename, file_path, file_size, mime_type, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'ready', NOW(), NOW()),
+              ($7, $2, $8, $9, $10, $6, 'ready', NOW(), NOW())
+       ON CONFLICT (id) DO UPDATE SET status = 'ready';`,
+      ['doc_p101a_specs', projectIdA, 'p101a_specs.pdf', 'uploads/p101a_specs.pdf', pdfBufferSpecs.length, 'application/pdf',
+       'doc_p101a_temp', 'p101a_temp.pdf', 'uploads/p101a_temp.pdf', pdfBufferTemp.length]
+    );
   });
 
   after(async () => {
     // Cleanup Project A & B
     await aiClient.deleteDocument('doc_p101a_specs', projectIdA).catch(() => {});
     await aiClient.deleteDocument('doc_p101a_temp', projectIdA).catch(() => {});
+    await app.close();
+    await dbManager.getPool().end();
   });
 
   test('1. Eligibility: Verified and Recovered Claims are NOT Eligible for Recovery', async () => {
