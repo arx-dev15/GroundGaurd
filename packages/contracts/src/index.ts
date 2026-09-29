@@ -429,3 +429,82 @@ export interface RetryClaimResponse {
   claim: Claim;
   recoveryAttempts: RecoveryAttempt[];
 }
+
+// API Key Contracts
+export interface ApiKey {
+  id: string;
+  name: string;
+  projectId?: string | null;
+  keyPrefix: string;
+  lastUsedAt?: string | null;
+  expiresAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateApiKeyRequest {
+  name: string;
+  projectId?: string;
+  expiresAt?: string;
+}
+
+export interface CreateApiKeyResponse {
+  apiKey: ApiKey;
+  secretKey: string;
+}
+
+export interface ApiKeyListResponse {
+  apiKeys: ApiKey[];
+}
+
+// Evaluation & Reliability Metrics Contracts
+export interface EvaluationMetricSummary {
+  totalCases: number;
+  passedCases: number;
+  passRate: number;
+  entailmentPrecision?: number;
+  contradictionRecall?: number;
+  averageLatencyMs?: number;
+  groundingPassRate?: number;
+  [key: string]: unknown;
+}
+
+export interface Evaluation {
+  id: string;
+  projectId: string;
+  name: string;
+  status: 'running' | 'completed' | 'failed';
+  dataset?: string;
+  modelVersion?: string;
+  metrics?: EvaluationMetricSummary;
+  errorMessage?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface EvaluationResultCase {
+  id: string;
+  evaluationId: string;
+  caseId: string;
+  claim: string;
+  expectedLabel?: string;
+  predictedLabel?: string;
+  groundingScore?: number;
+  passed: boolean;
+  latencyMs?: number;
+  evidence?: unknown;
+  createdAt: string;
+}
+
+export interface ProjectMetricsResponse {
+  projectId: string;
+  totalGenerations: number;
+  completedGenerations: number;
+  totalClaims: number;
+  verifiedClaims: number;
+  flaggedClaims: number;
+  recoveredClaims: number;
+  groundingPassRate: number;
+  contradictionRate: number;
+  recoverySuccessRate: number;
+  averageLatencyMs: number;
+}
