@@ -9,6 +9,8 @@ import { projectRoutes } from './routes/projects';
 import { documentRoutes } from './routes/documents';
 import { conversationRoutes } from './routes/conversations';
 import { generationRoutes } from './routes/generations';
+import { apiKeyRoutes } from './routes/api-keys';
+import { evaluationRoutes } from './routes/evaluations';
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({
@@ -34,5 +36,7 @@ export function buildApp(): FastifyInstance {
   app.register(documentRoutes);
   app.register(conversationRoutes);
   app.register(generationRoutes);
+  app.register(apiKeyRoutes);
+  app.register(evaluationRoutes);
   return app;
 }

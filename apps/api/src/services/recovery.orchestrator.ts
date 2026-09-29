@@ -54,9 +54,11 @@ export class RecoveryOrchestrator {
     existingEvidence: DBEvidence[];
     requestId?: string;
     maxAttempts?: number;
+    startAttempt?: number;
   }): Promise<{ recovered: boolean; attempts: number; finalClaim: DBClaim }> {
     const { projectId, generationId, claim, existingEvidence, requestId } = params;
     const maxAttempts = params.maxAttempts ?? MAX_RECOVERY_ATTEMPTS;
+    const startAttempt = params.startAttempt ?? 1;
 
     // Eligibility check (Section 3): Recovery applies ONLY to 'flagged' or 'needs_review'
     if (claim.status !== 'flagged' && claim.status !== 'needs_review') {
@@ -76,11 +78,12 @@ export class RecoveryOrchestrator {
 
     let currentClaim = claim;
     let attemptsRun = 0;
+    const endAttempt = startAttempt + maxAttempts - 1;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (let attempt = startAttempt; attempt <= endAttempt; attempt++) {
       attemptsRun++;
       console.log(
-        `[recovery] Starting attempt ${attempt}/${maxAttempts} for claim ${claim.id} (req: ${requestId})`
+        `[recovery] Starting attempt ${attempt} for claim ${claim.id} (req: ${requestId})`
       );
 
       // 1. Invoke M2 /recover
