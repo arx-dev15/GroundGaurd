@@ -85,54 +85,82 @@ export function AnswerView({
     return idx >= 0 ? idx + 1 : 1;
   };
 
-  // Case 1: Insufficient Evidence / Abstention (No factual claims generated)
+  // Case 1: Non-claim response (Conversational, Product Help, or Scoped Abstention)
   if (!hasClaims) {
-    return (
-      <div className={cn('py-2 space-y-3', className)}>
-        <div className="p-4 rounded-xl border border-border/60 bg-muted/20 space-y-3">
-          <div className="flex items-start gap-2.5">
-            <div className="p-1.5 rounded-md bg-muted text-muted-foreground shrink-0 mt-0.5">
-              <SearchX className="h-4 w-4" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-xs font-semibold text-foreground tracking-tight">
-                No supported answer found
-              </h4>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                The current project knowledge does not contain enough evidence to answer this question.
-              </p>
-            </div>
-          </div>
+    const isAbstention =
+      answerText.includes('does not contain sufficient evidence') ||
+      answerText.includes('scoped strictly to') ||
+      answerText.includes('No supported answer');
 
-          <p className="text-xs text-foreground/90 leading-relaxed pl-8 italic">
-            &ldquo;{answerText}&rdquo;
-          </p>
+    if (isAbstention) {
+      return (
+        <div className={cn('py-2 space-y-3', className)}>
+          <div className="p-4 rounded-xl border border-border/60 bg-muted/20 space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <div className="p-1.5 rounded-md bg-muted text-muted-foreground shrink-0 mt-0.5">
+                <SearchX className="h-4 w-4" />
+              </div>
+              <div className="space-y-1 flex-1">
+                <h4 className="text-xs font-semibold text-foreground tracking-tight">
+                  Evidence Boundary Notice
+                </h4>
+                <p className="text-xs text-foreground/90 leading-relaxed font-sans">
+                  {answerText}
+                </p>
+              </div>
+            </div>
 
-          <div className="flex items-center gap-2 pt-1 pl-8">
-            {onAskAnother && (
+            <div className="flex items-center gap-2 pt-1 pl-8">
+              {onAskAnother && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onAskAnother}
+                  className="h-7 text-[11px] px-2.5 gap-1.5"
+                >
+                  <span>Ask another question</span>
+                </Button>
+              )}
+
               <Button
-                variant="outline"
+                asChild
+                variant="ghost"
                 size="sm"
-                onClick={onAskAnother}
-                className="h-7 text-[11px] px-2.5 gap-1.5"
+                className="h-7 text-[11px] px-2.5 gap-1 text-muted-foreground hover:text-foreground"
               >
-                <span>Ask another question</span>
+                <Link href={`/projects/${projectId}/knowledge`}>
+                  <BookOpen className="h-3 w-3" />
+                  <span>View Knowledge Base</span>
+                  <ArrowRight className="h-2.5 w-2.5 ml-0.5" />
+                </Link>
               </Button>
-            )}
-
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="h-7 text-[11px] px-2.5 gap-1 text-muted-foreground hover:text-foreground"
-            >
-              <Link href={`/projects/${projectId}/knowledge`}>
-                <BookOpen className="h-3 w-3" />
-                <span>View Knowledge Base</span>
-                <ArrowRight className="h-2.5 w-2.5 ml-0.5" />
-              </Link>
-            </Button>
+            </div>
           </div>
+        </div>
+      );
+    }
+
+    // Friendly conversational or product help response (no fake verification, clean prose)
+    return (
+      <div className={cn('space-y-2 py-1', className)}>
+        <div className="flex items-center justify-end pb-1 select-none">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            title="Copy answer"
+            aria-label="Copy answer text"
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-500" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
+
+        <div className="text-sm sm:text-base text-foreground leading-relaxed font-sans whitespace-pre-wrap">
+          {answerText}
         </div>
       </div>
     );

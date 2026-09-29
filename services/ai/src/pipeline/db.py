@@ -55,3 +55,34 @@ def validate_ready_documents(project_id: str, document_ids: List[str]) -> Set[st
         return set(document_ids)
     finally:
         conn.close()
+
+def get_project_knowledge_summary(project_id: str) -> dict:
+    """
+    Retrieves ready document count and file names for project metadata and routing context.
+    """
+    conn = get_connection()
+    if conn is None:
+        return {"readyCount": 0, "filenames": []}
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT filename FROM documents
+                WHERE project_id = %s AND status = 'ready'
+                ORDER BY created_at ASC;
+                """,
+                (project_id,)
+            )
+            rows = cur.fetchall()
+            filenames = [r[0] for r in rows if r[0]]
+            return {
+                "readyCount": len(filenames),
+                "filenames": filenames
+            }
+    except Exception as e:
+        logger.error(f"Error fetching project knowledge summary: {e}")
+        return {"readyCount": 0, "filenames": []}
+    finally:
+        conn.close()
+

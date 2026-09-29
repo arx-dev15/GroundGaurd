@@ -20,10 +20,10 @@ export function loadConfig(): Config {
   const env = process.env.NODE_ENV || 'development';
   const port = parseInt(process.env.PORT || process.env.API_PORT || '4000', 10);
   
-  const databaseUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/groundguard';
+  const databaseUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5432/groundguard';
   const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-  const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-  const mlServiceUrl = process.env.ML_SERVICE_URL || 'http://localhost:8001';
+  const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000';
+  const mlServiceUrl = process.env.ML_SERVICE_URL || 'http://127.0.0.1:8001';
   
   const jwtSecret = process.env.JWT_SECRET || 'dev_jwt_secret_groundguard_phase2_change_me_in_prod';
   const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '24h';

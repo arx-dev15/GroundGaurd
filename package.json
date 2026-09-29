@@ -10,8 +10,8 @@
   "scripts": {
     "dev:api": "npm --prefix apps/api run dev",
     "dev:web": "npm --prefix apps/web run dev",
-    "dev:ai": "cd services/ai && .venv\\Scripts\\python -m uvicorn src.main:app --port 8000",
-    "dev:ml": "cd services/ml && ..\\ai\\.venv\\Scripts\\python -m uvicorn src.main:app --port 8001",
+    "dev:ai": "cd services/ai && python -m uvicorn src.main:app --host 127.0.0.1 --port 8000",
+    "dev:ml": "cd services/ml && python -m uvicorn src.main:app --host 127.0.0.1 --port 8001",
     "build:web": "npm --prefix apps/web run build",
     "build": "npm --prefix packages/contracts run build && npm --prefix packages/types run build && npm --prefix apps/api run build",
     "test": "npx ts-node tests/integration/phase1.test.ts",

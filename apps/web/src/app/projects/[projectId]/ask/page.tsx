@@ -3,21 +3,18 @@
 import * as React from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   MessageSquareCode,
   Sparkles,
   Shield,
-  ShieldCheck,
-  Send,
   Loader2,
   FileText,
-  AlertCircle,
-  Database,
-  History,
   RotateCcw,
   CheckCircle2,
+  PanelRightOpen,
+  PanelRightClose,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AskComposer } from '@/components/ask/ask-composer';
 import { ZeroKnowledgeState } from '@/components/ask/zero-knowledge-state';
@@ -29,8 +26,7 @@ import {
   useProjectConversations,
   useConversationMessages,
   useCreateConversation,
-  useSendMessage,
-  useGenerationClaims,
+  conversationQueryKeys,
 } from '@/lib/conversations-query';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
@@ -40,20 +36,11 @@ export default function AskPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const shouldReduceMotion = useReducedMotion();
 
   const projectId = (params?.projectId as string) || '';
   const convParam = searchParams.get('c');
-
-  // Project data
-  const [project, setProject] = React.useState<Project | null>(null);
-  React.useEffect(() => {
-    if (!projectId) return;
-    apiClient
-      .get<{ project: Project }>(`/v1/projects/${projectId}`)
-      .then((res) => setProject(res.project))
-      .catch(() => null);
-  }, [projectId]);
 
   // Documents data to check ready knowledge
   const { data: documents = [], isLoading: isLoadingDocs } = useProjectDocuments(projectId);
@@ -68,21 +55,26 @@ export default function AskPage() {
   React.useEffect(() => {
     if (convParam && convParam !== activeConversationId) {
       setActiveConversationId(convParam);
+    } else if (!convParam && activeConversationId) {
+      setActiveConversationId(null);
     }
-  }, [convParam]);
+  }, [convParam, activeConversationId]);
 
   // Messages query for active conversation
   const {
-    data: messages = [],
+    data: persistedMessages = [],
     isLoading: isLoadingMessages,
     refetch: refetchMessages,
   } = useConversationMessages(projectId, activeConversationId);
+
+  // Optimistic pending user message state during in-flight request
+  const [pendingUserMessage, setPendingUserMessage] = React.useState<Message | null>(null);
 
   // Composer input state
   const [inputValue, setInputValue] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  // Inspector state
+  // Inspector state: CLOSED by default
   const [selectedClaim, setSelectedClaim] = React.useState<Claim | null>(null);
   const [selectedEvidence, setSelectedEvidence] = React.useState<EvidenceItem | null>(null);
   const [inspectorOpen, setInspectorOpen] = React.useState(false);
@@ -96,13 +88,23 @@ export default function AskPage() {
   // Claims cache for loaded generations in active conversation
   const [generationClaimsMap, setGenerationClaimsMap] = React.useState<Record<string, Claim[]>>({});
 
-  // Mutations
+  // Mutation to create conversation
   const createConversationMutation = useCreateConversation(projectId);
-  const sendMessageMutation = useSendMessage(projectId, activeConversationId || '');
+
+  // Combine persisted messages with any pending in-flight user message
+  const messages = React.useMemo(() => {
+    if (!pendingUserMessage) return persistedMessages;
+    // If the server has already persisted the message, don't duplicate
+    const exists = persistedMessages.some(
+      (m) => m.content === pendingUserMessage.content && m.role === 'user'
+    );
+    if (exists) return persistedMessages;
+    return [...persistedMessages, pendingUserMessage];
+  }, [persistedMessages, pendingUserMessage]);
 
   // Load claims for assistant messages that have a generationId
   React.useEffect(() => {
-    messages.forEach((msg) => {
+    persistedMessages.forEach((msg) => {
       if (msg.role === 'assistant' && msg.generationId && !generationClaimsMap[msg.generationId]) {
         apiClient
           .get<{ claims: Claim[] }>(`/v1/generations/${msg.generationId}/claims`)
@@ -112,34 +114,48 @@ export default function AskPage() {
                 ...prev,
                 [msg.generationId!]: res.claims,
               }));
+              queryClient.setQueryData(
+                conversationQueryKeys.generationClaims(msg.generationId!),
+                res.claims
+              );
             }
           })
           .catch(() => null);
       }
     });
-  }, [messages]);
+  }, [persistedMessages, generationClaimsMap, queryClient]);
 
   // Submit Handler: Handles both initial question (Hero) and follow-up (Compact)
   const handleSubmit = async (overrideText?: string) => {
     const textToSend = (overrideText ?? inputValue).trim();
     if (!textToSend || isSubmitting) return;
 
-    setIsSubmitting(true);
+    // 1. Optimistic UI update: show message immediately and clear composer
+    const tempMsg: Message = {
+      id: `temp-${Date.now()}`,
+      conversationId: activeConversationId || 'pending',
+      role: 'user',
+      content: textToSend,
+      createdAt: new Date().toISOString(),
+    };
+
+    setPendingUserMessage(tempMsg);
     setInputValue('');
+    setIsSubmitting(true);
 
     try {
       let targetConvId = activeConversationId;
 
-      // 1. If no active conversation, create one first
+      // 2. If no active conversation, create one first
       if (!targetConvId) {
         const titleSnippet = textToSend.slice(0, 48);
         const newConv = await createConversationMutation.mutateAsync(titleSnippet);
         targetConvId = newConv.id;
         setActiveConversationId(newConv.id);
-        router.push(`/projects/${projectId}/ask?c=${newConv.id}`);
+        router.replace(`/projects/${projectId}/ask?c=${newConv.id}`);
       }
 
-      // 2. Send query message to M3
+      // 3. Send query message to M3
       const res = await apiClient.post<any>(
         `/v1/projects/${projectId}/conversations/${targetConvId}/messages`,
         { content: textToSend }
@@ -151,12 +167,37 @@ export default function AskPage() {
           ...prev,
           [res.generationId]: res.claims,
         }));
+        queryClient.setQueryData(
+          conversationQueryKeys.generationClaims(res.generationId),
+          res.claims
+        );
       }
 
-      // Refresh messages and conversation list
-      await Promise.all([refetchMessages(), refetchConversations()]);
+      // 4. Update TanStack query cache directly for instantaneous display without reload
+      if (res?.userMessage && res?.message) {
+        queryClient.setQueryData<Message[]>(
+          conversationQueryKeys.messages(targetConvId),
+          (old = []) => {
+            const filtered = old.filter((m) => !m.id.startsWith('temp-'));
+            const hasUser = filtered.some((m) => m.id === res.userMessage.id);
+            const hasAssistant = filtered.some((m) => m.id === res.message.id);
+            const next = [...filtered];
+            if (!hasUser) next.push(res.userMessage);
+            if (!hasAssistant) next.push(res.message);
+            return next;
+          }
+        );
+      }
+
+      // Clear pending message and re-fetch to guarantee cache consistency
+      setPendingUserMessage(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: conversationQueryKeys.messages(targetConvId) }),
+        queryClient.invalidateQueries({ queryKey: conversationQueryKeys.projectList(projectId) }),
+      ]);
     } catch (err: any) {
       console.error('Failed to send message:', err);
+      setPendingUserMessage(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -165,20 +206,21 @@ export default function AskPage() {
   // Switch to new conversation state
   const handleNewConversation = () => {
     setActiveConversationId(null);
+    setPendingUserMessage(null);
     setSelectedClaim(null);
     setSelectedEvidence(null);
     setInspectorOpen(false);
     router.push(`/projects/${projectId}/ask`);
   };
 
-  // Select a claim to inspect
+  // Select a claim to inspect: Opens Inspector
   const handleSelectClaim = (claim: Claim) => {
     setSelectedClaim(claim);
     setSelectedEvidence(null);
     setInspectorOpen(true);
   };
 
-  // Select an evidence chunk to inspect
+  // Select an evidence chunk to inspect: Opens Inspector
   const handleSelectEvidence = (ev: EvidenceItem) => {
     setSelectedEvidence(ev);
     setInspectorOpen(true);
@@ -190,10 +232,10 @@ export default function AskPage() {
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isSubmitting]);
+  }, [messages.length, isSubmitting]);
 
   return (
-    <div className="flex h-[calc(100vh-5rem)] overflow-hidden rounded-xl border border-border/70 bg-background shadow-xs">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
       {/* 1. Left Conversation History Sidebar (Active Conversation state only) */}
       {!isHeroState && (
         <ConversationSidebar
@@ -211,7 +253,7 @@ export default function AskPage() {
       )}
 
       {/* 2. Main Center Workspace */}
-      <div className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden bg-background">
         {/* Zero Knowledge State */}
         {!isLoadingDocs && !hasReadyKnowledge ? (
           <div className="flex-1 flex flex-col justify-center items-center p-6">
@@ -273,7 +315,7 @@ export default function AskPage() {
           // ============================================================
           <div className="flex-1 flex flex-col min-h-0">
             {/* Top Workspace Bar */}
-            <div className="px-4 py-2.5 border-b border-border/50 bg-card/40 flex items-center justify-between select-none">
+            <div className="px-4 py-2.5 border-b border-border/50 bg-card/30 flex items-center justify-between select-none shrink-0">
               <div className="flex items-center gap-2 truncate">
                 <Button
                   variant="ghost"
@@ -290,103 +332,127 @@ export default function AskPage() {
                 </span>
               </div>
 
-              <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                <span className="hidden sm:inline">
-                  {readyDocuments.length} ready {readyDocuments.length === 1 ? 'doc' : 'docs'}
-                </span>
+              <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  <span className="hidden sm:inline">
+                    {readyDocuments.length} ready {readyDocuments.length === 1 ? 'doc' : 'docs'}
+                  </span>
+                </div>
+
+                {/* Subtle Inspector Toggle if a claim was selected */}
+                {selectedClaim && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setInspectorOpen(!inspectorOpen)}
+                    className="h-7 text-xs gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+                    title={inspectorOpen ? 'Hide Inspector' : 'Show Inspector'}
+                  >
+                    {inspectorOpen ? (
+                      <PanelRightClose className="h-3.5 w-3.5" />
+                    ) : (
+                      <PanelRightOpen className="h-3.5 w-3.5" />
+                    )}
+                    <span className="hidden md:inline">Inspector</span>
+                  </Button>
+                )}
               </div>
             </div>
 
-            {/* Transcript Messages Scroll Area */}
+            {/* Transcript Messages Scroll Area: Centered Reading Column */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin">
-              {messages.map((msg, index) => {
-                const isUser = msg.role === 'user';
-                const assistantClaims = msg.generationId ? generationClaimsMap[msg.generationId] || [] : [];
+              <div className="max-w-[760px] mx-auto w-full space-y-6">
+                {messages.map((msg, index) => {
+                  const isUser = msg.role === 'user';
+                  const assistantClaims = msg.generationId ? generationClaimsMap[msg.generationId] || [] : [];
 
-                if (isUser) {
+                  if (isUser) {
+                    return (
+                      <div
+                        key={msg.id || index}
+                        className="space-y-1.5 pt-3 pb-2 border-b border-border/20"
+                      >
+                        <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground">
+                          YOU
+                        </div>
+                        <div className="text-sm sm:text-base text-foreground font-normal leading-relaxed">
+                          {msg.content}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Assistant Response Area
                   return (
-                    <div
-                      key={msg.id || index}
-                      className="max-w-3xl space-y-1 pt-3 pb-1 border-b border-border/20"
-                    >
-                      <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground">
-                        YOU
+                    <div key={msg.id || index} className="space-y-2 pb-6">
+                      <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <Shield className="h-3.5 w-3.5 text-primary" />
+                        <span>GROUNDGUARD</span>
                       </div>
-                      <div className="text-sm sm:text-base text-foreground font-normal leading-relaxed">
-                        {msg.content}
-                      </div>
+
+                      <AnswerView
+                        answerText={msg.content}
+                        claims={assistantClaims}
+                        projectId={projectId}
+                        selectedClaimId={selectedClaim?.claimId}
+                        onSelectClaim={handleSelectClaim}
+                        onSelectEvidence={handleSelectEvidence}
+                        isEvidenceLens={isEvidenceLens}
+                        onToggleEvidenceLens={() => setIsEvidenceLens(!isEvidenceLens)}
+                        onAskAnother={() => {
+                          const textarea = document.querySelector('textarea');
+                          if (textarea) {
+                            textarea.focus();
+                          }
+                        }}
+                      />
                     </div>
                   );
-                }
+                })}
 
-                // Assistant Verified Response Area
-                return (
-                  <div key={msg.id || index} className="max-w-3xl space-y-2 pb-6">
-                    <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <Shield className="h-3.5 w-3.5 text-primary" />
-                      <span>GROUNDGUARD RESPONSE</span>
+                {/* In-flight Generating Indicator */}
+                {isSubmitting && (
+                  <div className="space-y-2 animate-in fade-in duration-200">
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground pl-1 flex items-center gap-1.5">
+                      <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                      <span>Thinking & verifying against project knowledge...</span>
                     </div>
-
-                    <AnswerView
-                      answerText={msg.content}
-                      claims={assistantClaims}
-                      projectId={projectId}
-                      selectedClaimId={selectedClaim?.claimId}
-                      onSelectClaim={handleSelectClaim}
-                      onSelectEvidence={handleSelectEvidence}
-                      isEvidenceLens={isEvidenceLens}
-                      onToggleEvidenceLens={() => setIsEvidenceLens(!isEvidenceLens)}
-                      onAskAnother={() => {
-                        const textarea = document.querySelector('textarea');
-                        if (textarea) {
-                          textarea.focus();
-                        }
-                      }}
-                    />
+                    <div className="p-4 rounded-xl border border-border/60 bg-card/30 space-y-2">
+                      <div className="h-4 w-3/4 rounded bg-muted/60 animate-pulse" />
+                      <div className="h-4 w-5/6 rounded bg-muted/40 animate-pulse" />
+                      <div className="h-4 w-2/3 rounded bg-muted/30 animate-pulse" />
+                    </div>
                   </div>
-                );
-              })}
+                )}
 
-              {/* In-flight Generating Indicator */}
-              {isSubmitting && (
-                <div className="max-w-3xl space-y-1.5 animate-in fade-in duration-200">
-                  <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground pl-1 flex items-center gap-1.5">
-                    <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                    <span>Retrieving evidence & synthesizing verified answer...</span>
-                  </div>
-                  <div className="p-4 rounded-xl border border-border/60 bg-card/30 space-y-2">
-                    <div className="h-4 w-3/4 rounded bg-muted/60 animate-pulse" />
-                    <div className="h-4 w-5/6 rounded bg-muted/40 animate-pulse" />
-                    <div className="h-4 w-2/3 rounded bg-muted/30 animate-pulse" />
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
+                <div ref={messagesEndRef} />
+              </div>
             </div>
 
-            {/* Persistent Compact Bottom Composer */}
-            <div className="p-3 sm:p-4 border-t border-border/60 bg-background/80 backdrop-blur-sm">
-              <AskComposer
-                mode="compact"
-                value={inputValue}
-                onChange={setInputValue}
-                onSubmit={() => handleSubmit()}
-                isLoading={isSubmitting}
-                readyDocuments={readyDocuments}
-              />
+            {/* Persistent Compact Bottom Composer: Centered Column */}
+            <div className="p-3 sm:p-4 border-t border-border/60 bg-background/95 backdrop-blur-sm shrink-0">
+              <div className="max-w-[760px] mx-auto w-full">
+                <AskComposer
+                  mode="compact"
+                  value={inputValue}
+                  onChange={setInputValue}
+                  onSubmit={() => handleSubmit()}
+                  isLoading={isSubmitting}
+                  readyDocuments={readyDocuments}
+                />
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* 3. Right Contextual Inspector (Phoenix/LangSmith inspired drill-down) */}
+      {/* 3. Right Contextual Inspector: Opened ONLY when a claim/evidence is selected */}
       <AskInspector
         claim={selectedClaim}
         selectedEvidence={selectedEvidence}
         projectId={projectId}
-        isOpen={inspectorOpen}
+        isOpen={inspectorOpen && Boolean(selectedClaim)}
         onClose={() => setInspectorOpen(false)}
       />
     </div>

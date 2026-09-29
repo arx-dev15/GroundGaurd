@@ -22,7 +22,8 @@ export function AppShellLayout({
   className,
 }: AppShellLayoutProps) {
   const shouldReduceMotion = useReducedMotion();
-  const { isDesktop } = useShell();
+  const { isDesktop, currentSection } = useShell();
+  const isAskPage = currentSection === 'ask';
 
   return (
     <div className={cn('min-h-screen bg-background text-foreground flex overflow-hidden', className)}>
@@ -37,15 +38,24 @@ export function AppShellLayout({
         <AppHeader actions={headerActions} />
 
         {/* Scrollable Page Body */}
-        <main className="flex-1 overflow-y-auto pb-20 md:pb-6 p-4 sm:p-6 lg:p-8">
-          <div className="mx-auto max-w-6xl w-full animate-in fade-in duration-200">
-            {children}
-          </div>
+        <main
+          className={cn(
+            'flex-1 overflow-y-auto',
+            isAskPage ? 'p-0 pb-0 overflow-hidden flex flex-col' : 'pb-20 md:pb-6 p-4 sm:p-6 lg:p-8'
+          )}
+        >
+          {isAskPage ? (
+            <div className="w-full h-full flex-1 flex flex-col">{children}</div>
+          ) : (
+            <div className="mx-auto max-w-6xl w-full animate-in fade-in duration-200">
+              {children}
+            </div>
+          )}
         </main>
       </div>
 
-      {/* 3. Docked Right Inspector */}
-      <AppInspector />
+      {/* 3. Docked Right Inspector (Only outside Ask page, since Ask has contextual claim inspector) */}
+      {!isAskPage && <AppInspector />}
 
       {/* 4. Global Command Palette (⌘K) */}
       <CommandPalette />

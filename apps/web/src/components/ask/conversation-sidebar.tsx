@@ -66,7 +66,7 @@ export function ConversationSidebar({
   return (
     <aside
       className={cn(
-        'w-64 border-r border-border/70 bg-card/30 flex flex-col h-full shrink-0 select-none',
+        'w-[210px] border-r border-border/70 bg-card/20 flex flex-col h-full shrink-0 select-none',
         className
       )}
       aria-label="Conversation History"

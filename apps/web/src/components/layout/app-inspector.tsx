@@ -48,83 +48,26 @@ export function AppInspector({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [inspectorOpen, setInspectorOpen]);
 
-  // Default neutral placeholder demonstrating future Claim / Evidence / Recovery slots
+  // Default neutral placeholder when no specific claim or evidence is passed
   const placeholderContent = (
     <div className="space-y-4 text-xs">
-      {/* Readiness Notice */}
-      <div className="p-3 rounded-lg border border-border/70 bg-card/60 space-y-1.5">
+      <div className="p-3.5 rounded-lg border border-border/70 bg-card/60 space-y-2">
         <div className="flex items-center gap-2 text-foreground font-semibold">
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          <span>Contextual Evidence Architecture</span>
+          <span>Trust Inspector</span>
         </div>
         <p className="text-muted-foreground text-[11px] leading-relaxed">
-          The Trust Inspector is docked to the workspace. When investigating claims in Ask or Knowledge, factual assertions connect directly to supporting passages and verification scores here.
+          Select any verified statement, evidence marker, or citation in your workspace to inspect its full grounding lineage, NLI cross-encoder scores, and provenance.
         </p>
       </div>
 
-      {/* Slot 1: Active Claim Structure */}
-      <div className="p-3 rounded-lg border border-border/60 bg-muted/20 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-            Selected Claim
-          </span>
-          <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono">
-            Pending selection
-          </Badge>
-        </div>
-        <p className="text-muted-foreground italic text-[11px]">
-          Click any verified or flagged statement in the workspace to inspect its grounding lineage.
+      <div className="p-3 rounded-lg border border-border/50 bg-muted/20 text-center py-6 space-y-1">
+        <p className="text-xs text-muted-foreground">
+          No claim currently selected.
         </p>
-      </div>
-
-      {/* Slot 2: Evidence Lineage Structure */}
-      <div className="p-3 rounded-lg border border-border/60 bg-muted/20 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <FileText className="h-3 w-3" />
-            <span>Document Provenance</span>
-          </span>
-          <span className="text-[10px] font-mono text-muted-foreground/60">—</span>
-        </div>
-        <div className="space-y-1.5">
-          <div className="h-2 w-3/4 rounded bg-muted/60 animate-pulse" />
-          <div className="h-2 w-1/2 rounded bg-muted/40 animate-pulse" />
-        </div>
-      </div>
-
-      {/* Slot 3: NLI Verification Score Structure */}
-      <div className="p-3 rounded-lg border border-border/60 bg-muted/20 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <Activity className="h-3 w-3" />
-            <span>NLI Diagnostics</span>
-          </span>
-          <span className="text-[10px] font-mono text-muted-foreground/60">0.00</span>
-        </div>
-        <div className="h-1.5 w-full rounded-full bg-muted/50 overflow-hidden">
-          <div className="h-full w-0 bg-status-verified transition-all" />
-        </div>
-      </div>
-
-      {/* Slot 4: Observability Trace Structure */}
-      <div className="p-3 rounded-lg border border-border/60 bg-muted/20 space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <Layers className="h-3 w-3" />
-            <span>Observability Trace</span>
-          </span>
-          <span className="text-[10px] font-mono text-muted-foreground/60">Ready</span>
-        </div>
-        <div className="text-[10px] font-mono text-muted-foreground/70 space-y-0.5">
-          <div className="flex justify-between">
-            <span>Model:</span>
-            <span>nli-deberta-v3-large</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Threshold:</span>
-            <span>0.78 strict</span>
-          </div>
-        </div>
+        <p className="text-[11px] text-muted-foreground/70">
+          Click a claim or citation in Ask to view details here.
+        </p>
       </div>
     </div>
   );

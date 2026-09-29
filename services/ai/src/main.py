@@ -1,4 +1,7 @@
 import os
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
 import sys
 import uuid
 import logging
@@ -17,7 +20,13 @@ from pydantic import BaseModel, Field
 from src.pipeline.parser import parse_pdf
 from src.pipeline.chunker import chunk_pages
 from src.pipeline.embedder import generate_embeddings
-from src.pipeline.db import validate_ready_documents
+from src.pipeline.db import validate_ready_documents, get_project_knowledge_summary
+from src.pipeline.intent_classifier import (
+    classify_intent,
+    generate_conversational_response,
+    generate_product_help_response,
+    generate_unsupported_query_response,
+)
 from src.pipeline.qdrant_store import qdrant_store
 from src.pipeline.tantivy_store import tantivy_store
 from src.pipeline.graph_store import graph_store
@@ -346,6 +355,47 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
 
     logger.info(f"[/generate start] project_id={payload.projectId} req_id={req_id} gen_id={gen_id} query='{payload.query}'")
 
+    # Step 0: Conversational & Intent Routing Layer
+    intent, sub_intent = classify_intent(payload.query)
+    logger.info(f"[/generate intent] project_id={payload.projectId} req_id={req_id} intent={intent} sub_intent={sub_intent}")
+
+    if intent == "conversational":
+        reply = generate_conversational_response(sub_intent)
+        return GenerateResult(
+            requestId=req_id,
+            generationId=gen_id,
+            status="completed",
+            answer=reply,
+            evidence=[],
+            sufficiency=None,
+            modelVersion="groundguard-conversational",
+            metadata={
+                "intent": "conversational",
+                "subIntent": sub_intent,
+                "abstention": False,
+            },
+            claims=[]
+        )
+
+    if intent == "product_help":
+        doc_summary = get_project_knowledge_summary(payload.projectId)
+        reply = generate_product_help_response(doc_summary)
+        return GenerateResult(
+            requestId=req_id,
+            generationId=gen_id,
+            status="completed",
+            answer=reply,
+            evidence=[],
+            sufficiency=None,
+            modelVersion="groundguard-product-help",
+            metadata={
+                "intent": "product_help",
+                "readyDocumentCount": doc_summary.get("readyCount", 0),
+                "abstention": False,
+            },
+            claims=[]
+        )
+
     # Step 1: Internal Phase 4 Retrieval Reuse (direct Python function call)
     try:
         retrieval_res = retrieve_evidence(
@@ -365,18 +415,21 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
     if not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results:
         reason = retrieval_res.sufficiency.reason if retrieval_res.sufficiency else "No evidence retrieved"
         logger.info(f"[/generate abstained] project_id={payload.projectId} req_id={req_id} reason='{reason}'")
+        doc_summary = get_project_knowledge_summary(payload.projectId)
+        unsupported_msg = generate_unsupported_query_response(payload.query, doc_summary)
         return GenerateResult(
             requestId=req_id,
             generationId=gen_id,
             status="completed",
-            answer="The provided documentation does not contain sufficient evidence to answer this question.",
+            answer=unsupported_msg,
             evidence=retrieval_res.results,
             sufficiency=retrieval_res.sufficiency,
             modelVersion="groundguard-abstention-gate",
             metadata={
                 "abstention": True,
                 "reason": reason,
-                "candidateCount": len(retrieval_res.results)
+                "candidateCount": len(retrieval_res.results),
+                "intent": "grounded_query_insufficient",
             },
             claims=[]
         )

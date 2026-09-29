@@ -58,7 +58,7 @@ export function AskInspector({
     } else if (claim) {
       setActiveTab('claim');
     }
-  }, [claim?.claimId, selectedEvidence?.chunkId]);
+  }, [claim, selectedEvidence]);
 
   if (!isOpen || !claim) return null;
 
