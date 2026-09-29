@@ -424,3 +424,8 @@ export interface SSEEvent {
   event: string;
   data: Record<string, unknown>;
 }
+
+export interface RetryClaimResponse {
+  claim: Claim;
+  recoveryAttempts: RecoveryAttempt[];
+}
