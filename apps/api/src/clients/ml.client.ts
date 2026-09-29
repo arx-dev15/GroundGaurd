@@ -112,6 +112,16 @@ export class MLClient {
     }
     return res.json();
   }
+
+  public async evaluate(): Promise<Record<string, unknown>> {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/evaluate`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      throw new ServiceUnavailableError('ML Service (/evaluate)');
+    }
+    return res.json();
+  }
 }
 
 export const mlClient = new MLClient();

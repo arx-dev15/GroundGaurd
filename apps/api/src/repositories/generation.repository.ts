@@ -378,6 +378,7 @@ export class GenerationRepository {
   public async persistCompletedGeneration(data: {
     generationId: string;
     projectId: string;
+    status?: GenerationStatus;
     answer?: string | null;
     modelVersion?: string | null;
     metadata?: Record<string, unknown> | null;
@@ -395,24 +396,29 @@ export class GenerationRepository {
     try {
       await client.query('BEGIN');
 
-      // 1. Update generation to completed
+      const targetStatus = data.status ?? 'verifying';
+      const completedAt = targetStatus === 'completed' ? new Date() : null;
+
+      // 1. Update generation to target status (default 'verifying')
       const genRes = await client.query(
         `UPDATE generations
-         SET status = 'completed',
-             answer = $1,
-             model_version = $2,
-             metadata = $3,
-             total_latency_ms = $4,
-             generation_latency_ms = $4,
-             completed_at = $5,
-             updated_at = $5
-         WHERE id = $6
+         SET status = $1,
+             answer = $2,
+             model_version = $3,
+             metadata = $4,
+             total_latency_ms = $5,
+             generation_latency_ms = $5,
+             completed_at = $6,
+             updated_at = $7
+         WHERE id = $8
          RETURNING ${GEN_COLS};`,
         [
+          targetStatus,
           data.answer ?? null,
           data.modelVersion ?? null,
           JSON.stringify(data.metadata ?? {}),
           data.totalLatencyMs ?? null,
+          completedAt,
           new Date(),
           data.generationId,
         ]

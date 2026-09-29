@@ -10,6 +10,8 @@ import {
   DBRecoveryAttempt,
 } from '../repositories/generation.repository';
 import { generationOrchestrator } from '../services/generation.orchestrator';
+import { recoveryOrchestrator } from '../services/recovery.orchestrator';
+import { generationEvents } from '../services/generation-events';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 import { Claim, Evidence, RecoveryAttempt } from '@groundguard/contracts';
 
@@ -197,5 +199,111 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const attempts = await generationRepository.listRecoveryAttemptsByClaimId(claim.id);
     return reply.status(200).send({ recoveryAttempts: attempts.map(toPublicRecoveryAttempt) });
+  });
+
+  // POST /v1/claims/:claimId/retry
+  fastify.post('/v1/claims/:claimId/retry', async (request, reply) => {
+    const { claimId } = request.params as { claimId: string };
+    const userId = request.user!.id;
+
+    const claim = await generationRepository.findClaimByIdAndUserId(claimId, userId);
+    if (!claim) throw new NotFoundError('Claim not found');
+
+    if (claim.status !== 'flagged' && claim.status !== 'needs_review') {
+      throw new BadRequestError(`Claim '${claimId}' is in '${claim.status}' state and is not eligible for recovery`);
+    }
+
+    const generation = await generationRepository.findGenerationById(claim.generationId);
+    if (!generation) throw new NotFoundError('Generation not found');
+
+    const existingEvidence = await generationRepository.listEvidenceByClaimId(claim.id);
+    const existingAttempts = await generationRepository.listRecoveryAttemptsByClaimId(claim.id);
+
+    const result = await recoveryOrchestrator.recoverClaim({
+      projectId: generation.projectId,
+      generationId: generation.id,
+      claim,
+      existingEvidence,
+      requestId: generation.requestId,
+      startAttempt: existingAttempts.length + 1,
+      maxAttempts: 1,
+    });
+
+    if (result.attempts > 0) {
+      await generationRepository.updateGeneration(generation.id, {
+        recoveryAttempts: (generation.recoveryAttempts ?? 0) + result.attempts,
+      }).catch(() => {});
+    }
+
+    const updatedClaim = await generationRepository.findClaimByIdAndUserId(claimId, userId);
+    const updatedEvidence = await generationRepository.listEvidenceByClaimId(claim.id);
+    const updatedAttempts = await generationRepository.listRecoveryAttemptsByClaimId(claim.id);
+
+    return reply.status(200).send({
+      claim: toPublicClaim(updatedClaim || result.finalClaim, updatedEvidence),
+      recoveryAttempts: updatedAttempts.map(toPublicRecoveryAttempt),
+    });
+  });
+
+  // GET /v1/generations/:generationId/events
+  fastify.get('/v1/generations/:generationId/events', async (request, reply) => {
+    const { generationId } = request.params as { generationId: string };
+    const userId = request.user!.id;
+
+    const generation = await generationRepository.findGenerationByIdAndUserId(generationId, userId);
+    if (!generation) throw new NotFoundError('Generation not found');
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const lastEventIdStr = request.headers['last-event-id'];
+    const lastEventId = typeof lastEventIdStr === 'string' ? parseInt(lastEventIdStr, 10) : 0;
+
+    const history = generationEvents.history(generationId);
+    for (const evt of history) {
+      if (!Number.isNaN(lastEventId) && evt.id <= lastEventId) continue;
+      reply.raw.write(`id: ${evt.id}\nevent: ${evt.event}\ndata: ${JSON.stringify(evt.data)}\n\n`);
+    }
+
+    if (generationEvents.isTerminal(generationId) || generation.status === 'completed' || generation.status === 'failed' || generation.status === 'cancelled') {
+      if (history.length === 0) {
+        const terminalEvent = generation.status === 'completed' ? 'generation.completed' : 'generation.failed';
+        reply.raw.write(`id: 1\nevent: ${terminalEvent}\ndata: ${JSON.stringify({ generationId, answer: generation.answer })}\n\n`);
+      }
+      reply.raw.end();
+      return;
+    }
+
+    const unsubscribe = generationEvents.subscribe(generationId, (evt) => {
+      reply.raw.write(`id: ${evt.id}\nevent: ${evt.event}\ndata: ${JSON.stringify(evt.data)}\n\n`);
+      if (evt.event === 'generation.completed' || evt.event === 'generation.failed') {
+        reply.raw.end();
+      }
+    });
+
+    request.raw.on('close', () => {
+      unsubscribe();
+    });
+  });
+
+  // POST /v1/generations/:generationId/cancel
+  fastify.post('/v1/generations/:generationId/cancel', async (request, reply) => {
+    const { generationId } = request.params as { generationId: string };
+    const userId = request.user!.id;
+
+    const generation = await generationRepository.findGenerationByIdAndUserId(generationId, userId);
+    if (!generation) throw new NotFoundError('Generation not found');
+
+    const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+    if (TERMINAL_STATUSES.has(generation.status)) {
+      throw new BadRequestError(`Cannot cancel generation in '${generation.status}' state`);
+    }
+
+    const cancelled = await generationOrchestrator.cancelGeneration(generationId);
+    return reply.status(200).send(toGenerationResult(cancelled));
   });
 }

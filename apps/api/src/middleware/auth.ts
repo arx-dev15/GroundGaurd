@@ -4,6 +4,9 @@ import { config } from '../config/env';
 import { userRepository } from '../repositories/user.repository';
 import { AppError } from '../utils/errors';
 
+import crypto from 'node:crypto';
+import { apiKeyRepository } from '../repositories/api-key.repository';
+
 export interface AuthenticatedUserContext {
   id: string;
   email: string;
@@ -18,12 +21,42 @@ declare module 'fastify' {
 
 export async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const authHeader = request.headers.authorization;
+  const rawApiKey = (request.headers['x-api-key'] as string | undefined) ||
+    (authHeader?.startsWith('ApiKey ') ? authHeader.substring(7).trim() : undefined);
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new AppError('UNAUTHORIZED', 'Authentication required', 401);
+  if (rawApiKey) {
+    const keyHash = crypto.createHash('sha256').update(rawApiKey.trim()).digest('hex');
+    const apiKey = await apiKeyRepository.findActiveApiKeyByHash(keyHash);
+    if (!apiKey) {
+      throw new AppError('UNAUTHORIZED', 'Invalid or revoked API key', 401);
+    }
+
+    const dbUser = await userRepository.findById(apiKey.userId);
+    if (!dbUser) {
+      throw new AppError('UNAUTHORIZED', 'User associated with API key not found', 401);
+    }
+
+    apiKeyRepository.updateLastUsed(apiKey.id);
+
+    request.user = {
+      id: dbUser.id,
+      email: dbUser.email,
+      name: dbUser.name,
+    };
+    return;
   }
 
-  const token = authHeader.substring(7).trim();
+  let token: string | undefined;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if ((request.query as Record<string, unknown>)?.token) {
+    const queryToken = (request.query as Record<string, unknown>).token;
+    if (typeof queryToken === 'string') {
+      token = queryToken.trim();
+    }
+  }
+
   if (!token) {
     throw new AppError('UNAUTHORIZED', 'Authentication required', 401);
   }
