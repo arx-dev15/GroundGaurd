@@ -3,6 +3,7 @@ import { conversationRepository } from '../repositories/conversation.repository'
 import { aiClient } from '../clients/ai.client';
 import { verificationOrchestrator } from './verification.orchestrator';
 import { recoveryOrchestrator } from './recovery.orchestrator';
+import { generationEvents } from './generation-events';
 
 export class GenerationOrchestrator {
   public async createGeneration(data: {
@@ -39,6 +40,26 @@ export class GenerationOrchestrator {
     return generation;
   }
 
+  private static readonly FLAGGED = new Set(['flagged', 'needs_review']);
+
+  private async emitClaimEvents(generationId: string, onlyIds?: Set<string>): Promise<Set<string>> {
+    const claims = await verificationOrchestrator.getHydratedClaims(generationId);
+    const flagged = new Set<string>();
+    for (const c of claims) {
+      if (onlyIds && !onlyIds.has(c.claimId)) continue;
+      const isFlagged = GenerationOrchestrator.FLAGGED.has(c.status);
+      if (isFlagged) flagged.add(c.claimId);
+      generationEvents.publish(generationId, isFlagged ? 'sentence.flagged' : 'sentence.verified', {
+        claimId: c.claimId,
+        text: c.text,
+        status: c.status,
+        label: c.verification?.label,
+        groundingScore: c.verification?.groundingScore,
+      });
+    }
+    return flagged;
+  }
+
   private async runPipeline(generationId: string): Promise<void> {
     const startedAt = Date.now();
     const generation = await generationRepository.findGenerationById(generationId);
@@ -46,6 +67,10 @@ export class GenerationOrchestrator {
 
     try {
       await generationRepository.updateGeneration(generationId, { status: 'generating' });
+      generationEvents.publish(generationId, 'generation.started', {
+        generationId,
+        requestId: generation.requestId,
+      });
 
       const result = await aiClient.generate({
         projectId: generation.projectId,
@@ -58,13 +83,16 @@ export class GenerationOrchestrator {
       const totalLatencyMs = Date.now() - startedAt;
 
       if (result.status === 'failed' || result.error) {
+        const code = result.error?.code ?? 'GENERATION_FAILED';
+        const message = result.error?.message ?? 'Generation service returned a failure';
         await generationRepository.updateGeneration(generationId, {
           status: 'failed',
-          errorCode: result.error?.code ?? 'GENERATION_FAILED',
-          errorMessage: result.error?.message ?? 'Generation service returned a failure',
+          errorCode: code,
+          errorMessage: message,
           totalLatencyMs,
           completedAt: new Date(),
         });
+        generationEvents.publish(generationId, 'generation.failed', { code, message });
         return;
       }
 
@@ -82,24 +110,42 @@ export class GenerationOrchestrator {
 
       // Phase 7: Dual-stage Grounding Verification (M1 cross-encoder + deterministic checks)
       await verificationOrchestrator.verifyGenerationClaims(generationId, generation.requestId);
+      const flagged = await this.emitClaimEvents(generationId);
 
       // Phase 8: Failure-Aware Agentic Recovery (for failed claims)
       if (generation.maxRecoveryAttempts > 0) {
+        if (flagged.size > 0) {
+          generationEvents.publish(generationId, 'recovery.started', { claims: [...flagged] });
+        }
         await recoveryOrchestrator.recoverGenerationClaims(generationId, generation.requestId);
+        if (flagged.size > 0) {
+          await this.emitClaimEvents(generationId, flagged);
+          generationEvents.publish(generationId, 'recovery.completed', { claims: [...flagged] });
+        }
       }
+
+      generationEvents.publish(generationId, 'generation.completed', {
+        generationId,
+        answer: result.answer ?? null,
+        totalLatencyMs: Date.now() - startedAt,
+      });
     } catch (err: any) {
       const totalLatencyMs = Date.now() - startedAt;
       await generationRepository
         .updateGeneration(generationId, {
           status: 'failed',
           errorCode: 'GENERATION_FAILED',
-          errorMessage: 'Generation service unavailable',
+          errorMessage: err?.message || 'Generation service unavailable',
           totalLatencyMs,
           completedAt: new Date(),
         })
         .catch(() => {
           /* best-effort; if this also fails the generation stays stuck at 'generating' */
         });
+      generationEvents.publish(generationId, 'generation.failed', {
+        code: 'GENERATION_FAILED',
+        message: err?.message || 'Generation service unavailable',
+      });
       console.error(`[generation ${generationId}] pipeline failed`, err?.message || err);
     }
   }
