@@ -6,7 +6,7 @@ export interface GenerationEvent {
   data: Record<string, unknown>;
 }
 
-const TERMINAL_EVENTS = new Set(['generation.completed', 'generation.failed']);
+const TERMINAL_EVENTS = new Set(['generation.completed', 'generation.failed', 'generation.cancelled']);
 const BUFFER_TTL_MS = 5 * 60 * 1000;
 
 class GenerationEventBus {

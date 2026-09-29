@@ -18,12 +18,17 @@ declare module 'fastify' {
 
 export async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const authHeader = request.headers.authorization;
+  let token: string | undefined;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new AppError('UNAUTHORIZED', 'Authentication required', 401);
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  } else if ((request.query as Record<string, unknown>)?.token) {
+    const queryToken = (request.query as Record<string, unknown>).token;
+    if (typeof queryToken === 'string') {
+      token = queryToken.trim();
+    }
   }
 
-  const token = authHeader.substring(7).trim();
   if (!token) {
     throw new AppError('UNAUTHORIZED', 'Authentication required', 401);
   }

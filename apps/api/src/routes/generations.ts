@@ -224,7 +224,7 @@ export async function generationRoutes(fastify: FastifyInstance) {
       reply.raw.write(`id: ${evt.id}\nevent: ${evt.event}\ndata: ${JSON.stringify(evt.data)}\n\n`);
     }
 
-    if (generationEvents.isTerminal(generationId) || generation.status === 'completed' || generation.status === 'failed') {
+    if (generationEvents.isTerminal(generationId) || generation.status === 'completed' || generation.status === 'failed' || generation.status === 'cancelled') {
       if (history.length === 0) {
         const terminalEvent = generation.status === 'completed' ? 'generation.completed' : 'generation.failed';
         reply.raw.write(`id: 1\nevent: ${terminalEvent}\ndata: ${JSON.stringify({ generationId, answer: generation.answer })}\n\n`);
@@ -243,5 +243,22 @@ export async function generationRoutes(fastify: FastifyInstance) {
     request.raw.on('close', () => {
       unsubscribe();
     });
+  });
+
+  // POST /v1/generations/:generationId/cancel
+  fastify.post('/v1/generations/:generationId/cancel', async (request, reply) => {
+    const { generationId } = request.params as { generationId: string };
+    const userId = request.user!.id;
+
+    const generation = await generationRepository.findGenerationByIdAndUserId(generationId, userId);
+    if (!generation) throw new NotFoundError('Generation not found');
+
+    const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+    if (TERMINAL_STATUSES.has(generation.status)) {
+      throw new BadRequestError(`Cannot cancel generation in '${generation.status}' state`);
+    }
+
+    const cancelled = await generationOrchestrator.cancelGeneration(generationId);
+    return reply.status(200).send(toGenerationResult(cancelled));
   });
 }

@@ -6,6 +6,8 @@ import { recoveryOrchestrator } from './recovery.orchestrator';
 import { generationEvents } from './generation-events';
 
 export class GenerationOrchestrator {
+  private activeControllers = new Map<string, AbortController>();
+
   public async createGeneration(data: {
     projectId: string;
     conversationId?: string | null;
@@ -40,6 +42,29 @@ export class GenerationOrchestrator {
     return generation;
   }
 
+  public async cancelGeneration(generationId: string): Promise<DBGeneration> {
+    const controller = this.activeControllers.get(generationId);
+    if (controller) {
+      controller.abort();
+      this.activeControllers.delete(generationId);
+    }
+
+    const updated = await generationRepository.updateGeneration(generationId, {
+      status: 'cancelled',
+      completedAt: new Date(),
+    });
+
+    generationEvents.publish(generationId, 'generation.failed', {
+      code: 'GENERATION_CANCELLED',
+      message: 'Generation was cancelled by user',
+    });
+
+    if (!updated) {
+      throw new Error(`Generation ${generationId} not found`);
+    }
+    return updated;
+  }
+
   private static readonly FLAGGED = new Set(['flagged', 'needs_review']);
 
   private async emitClaimEvents(generationId: string, onlyIds?: Set<string>): Promise<Set<string>> {
@@ -65,6 +90,9 @@ export class GenerationOrchestrator {
     const generation = await generationRepository.findGenerationById(generationId);
     if (!generation) return; // shouldn't happen, we just created it
 
+    const abortController = new AbortController();
+    this.activeControllers.set(generationId, abortController);
+
     try {
       await generationRepository.updateGeneration(generationId, { status: 'generating' });
       generationEvents.publish(generationId, 'generation.started', {
@@ -79,6 +107,10 @@ export class GenerationOrchestrator {
         generationId: generation.id,
         options: { maxRecoveryAttempts: generation.maxRecoveryAttempts },
       });
+
+      // Check if cancelled while M2 /generate was running
+      const postGen = await generationRepository.findGenerationById(generationId);
+      if (postGen?.status === 'cancelled') return;
 
       const totalLatencyMs = Date.now() - startedAt;
 
@@ -96,10 +128,11 @@ export class GenerationOrchestrator {
         return;
       }
 
-      // Atomic Phase 6 persistence: generation update, claims, and claim evidence provenance
+      // Atomic Phase 6 persistence: transition to 'verifying' while verification and recovery proceed
       await generationRepository.persistCompletedGeneration({
         generationId,
         projectId: generation.projectId,
+        status: 'verifying',
         answer: result.answer ?? null,
         modelVersion: result.modelVersion ?? null,
         metadata: (result.metadata as Record<string, unknown>) ?? null,
@@ -108,13 +141,22 @@ export class GenerationOrchestrator {
         conversationId: generation.conversationId,
       });
 
+      // Check if cancelled before verification
+      const postPersist = await generationRepository.findGenerationById(generationId);
+      if (postPersist?.status === 'cancelled') return;
+
       // Phase 7: Dual-stage Grounding Verification (M1 cross-encoder + deterministic checks)
       await verificationOrchestrator.verifyGenerationClaims(generationId, generation.requestId);
       const flagged = await this.emitClaimEvents(generationId);
 
+      // Check if cancelled before recovery
+      const postVerify = await generationRepository.findGenerationById(generationId);
+      if (postVerify?.status === 'cancelled') return;
+
       // Phase 8: Failure-Aware Agentic Recovery (for failed claims)
       if (generation.maxRecoveryAttempts > 0) {
         if (flagged.size > 0) {
+          await generationRepository.updateGeneration(generationId, { status: 'recovering' });
           generationEvents.publish(generationId, 'recovery.started', { claims: [...flagged] });
         }
         await recoveryOrchestrator.recoverGenerationClaims(generationId, generation.requestId);
@@ -124,12 +166,25 @@ export class GenerationOrchestrator {
         }
       }
 
+      // Final check if cancelled
+      const preComplete = await generationRepository.findGenerationById(generationId);
+      if (preComplete?.status === 'cancelled') return;
+
+      // Transition to completed
+      await generationRepository.updateGeneration(generationId, {
+        status: 'completed',
+        completedAt: new Date(),
+      });
+
       generationEvents.publish(generationId, 'generation.completed', {
         generationId,
         answer: result.answer ?? null,
         totalLatencyMs: Date.now() - startedAt,
       });
     } catch (err: any) {
+      const checkCancelled = await generationRepository.findGenerationById(generationId);
+      if (checkCancelled?.status === 'cancelled') return;
+
       const totalLatencyMs = Date.now() - startedAt;
       await generationRepository
         .updateGeneration(generationId, {
@@ -147,6 +202,8 @@ export class GenerationOrchestrator {
         message: err?.message || 'Generation service unavailable',
       });
       console.error(`[generation ${generationId}] pipeline failed`, err?.message || err);
+    } finally {
+      this.activeControllers.delete(generationId);
     }
   }
 
@@ -251,6 +308,11 @@ export class GenerationOrchestrator {
       }
 
       const finalClaims = await verificationOrchestrator.getHydratedClaims(generation.id);
+
+      await generationRepository.updateGeneration(generation.id, {
+        status: 'completed',
+        completedAt: new Date(),
+      });
 
       return {
         requestId,
