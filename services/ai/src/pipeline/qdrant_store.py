@@ -17,8 +17,8 @@ from qdrant_client.http.models import (
 from src.pipeline.embedder import EMBEDDING_DIM
 logger = logging.getLogger("m2-qdrant-store")
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-QDRANT_PATH = os.getenv("QDRANT_PATH", "")  # Disk-embedded path (no server required)
+QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+QDRANT_PATH = os.getenv("QDRANT_PATH", "")  # Optional disk-embedded path (fallback/offline only)
 COLLECTION_NAME = "groundguard_chunks"
 VECTOR_DIM = EMBEDDING_DIM
 
@@ -31,14 +31,35 @@ class QdrantStore:
 
     def _init_client(self) -> QdrantClient:
         """
-        Initializes Qdrant client with three modes (checked in order):
-        1. QDRANT_PATH set → disk-backed embedded client (no server needed, data persists)
-        2. QDRANT_URL == ':memory:' → in-memory client (data lost on restart)
-        3. QDRANT_URL → connect to remote Qdrant server
-           - Falls back to in-memory if ALLOW_IN_MEMORY_FALLBACK=true
-           - Otherwise raises RuntimeError
+        Initializes Qdrant client with prioritized modes:
+        1. QDRANT_URL (Remote Docker server) → Authoritative development & production mode
+        2. QDRANT_PATH set without QDRANT_URL → Optional disk-backed embedded client (offline only)
+        3. QDRANT_URL == ':memory:' → explicit in-memory client
         """
-        # Mode 1: Disk-backed embedded Qdrant (preferred for dev without a server)
+        # Mode 1: Remote server (Authoritative production & local Docker mode)
+        if self.url and self.url != ":memory:":
+            try:
+                client = QdrantClient(url=self.url, timeout=3.0)
+                client.get_collections()
+                logger.info(f"Connected to authoritative Qdrant server at {self.url}")
+                return client
+            except Exception as e:
+                # If path is explicitly provided as a fallback mode:
+                if self.path:
+                    logger.warning(f"Could not connect to Qdrant server at {self.url} ({e}). Falling back to embedded disk Qdrant at {self.path}.")
+                    try:
+                        os.makedirs(self.path, exist_ok=True)
+                        return QdrantClient(path=self.path)
+                    except Exception as path_err:
+                        raise RuntimeError(f"Both Qdrant server ({e}) and embedded fallback failed ({path_err})")
+                allow_fallback = os.getenv("ALLOW_IN_MEMORY_FALLBACK", "false").lower() == "true"
+                if allow_fallback:
+                    logger.warning(f"Could not connect to Qdrant server at {self.url} ({e}). Falling back to embedded in-memory Qdrant because ALLOW_IN_MEMORY_FALLBACK=true.")
+                    return QdrantClient(":memory:")
+                logger.error(f"FATAL: External Qdrant connection to {self.url} failed: {e}")
+                raise RuntimeError(f"External Qdrant server unavailable at {self.url}: {e}")
+
+        # Mode 2: Explicit optional disk-backed embedded Qdrant (when QDRANT_URL is not set or empty)
         if self.path:
             try:
                 os.makedirs(self.path, exist_ok=True)
@@ -49,24 +70,14 @@ class QdrantStore:
                 logger.error(f"Failed to initialize disk-backed embedded Qdrant at {self.path}: {e}")
                 raise RuntimeError(f"Disk-backed embedded Qdrant failed at {self.path}: {e}")
 
-        # Mode 2: Explicit in-memory
+        # Mode 3: Explicit in-memory
         if self.url == ":memory:":
             logger.info("Using explicit in-memory QdrantClient(':memory:')")
             return QdrantClient(":memory:")
 
-        # Mode 3: Remote server
-        try:
-            client = QdrantClient(url=self.url, timeout=3.0)
-            client.get_collections()
-            logger.info(f"Connected to Qdrant server at {self.url}")
-            return client
-        except Exception as e:
-            allow_fallback = os.getenv("ALLOW_IN_MEMORY_FALLBACK", "false").lower() == "true"
-            if allow_fallback:
-                logger.warning(f"Could not connect to Qdrant server at {self.url} ({e}). Falling back to embedded in-memory Qdrant because ALLOW_IN_MEMORY_FALLBACK=true.")
-                return QdrantClient(":memory:")
-            logger.error(f"FATAL: External Qdrant connection to {self.url} failed: {e}")
-            raise RuntimeError(f"External Qdrant server unavailable at {self.url}: {e}")
+        # Fallback if neither URL nor path provided
+        logger.error("FATAL: Neither QDRANT_URL nor QDRANT_PATH specified.")
+        raise RuntimeError("No Qdrant configuration found. Set QDRANT_URL for Docker or QDRANT_PATH for offline embedded.")
 
     def _ensure_collection(self) -> None:
         """

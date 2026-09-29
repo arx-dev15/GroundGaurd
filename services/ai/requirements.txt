@@ -11,3 +11,5 @@ qdrant-client>=1.13.0,<1.14.0
 tantivy>=0.22.0
 networkx>=3.0
 flashrank==0.2.10
+onnxruntime>=1.18.0
+requests>=2.31.0

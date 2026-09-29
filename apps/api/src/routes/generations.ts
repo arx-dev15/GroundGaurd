@@ -7,10 +7,11 @@ import {
   DBGeneration,
   DBClaim,
   DBEvidence,
+  DBRecoveryAttempt,
 } from '../repositories/generation.repository';
 import { generationOrchestrator } from '../services/generation.orchestrator';
 import { BadRequestError, NotFoundError } from '../utils/errors';
-import { Claim, Evidence } from '@groundguard/contracts';
+import { Claim, Evidence, RecoveryAttempt } from '@groundguard/contracts';
 
 const MAX_QUERY_LENGTH = 2000;
 const MAX_RECOVERY_ATTEMPTS_LIMIT = 5;
@@ -60,6 +61,26 @@ function toPublicEvidence(e: DBEvidence): Evidence {
     pageNumber: (meta?.pageNumber as number) ?? undefined,
     section: (meta?.section as string) ?? undefined,
     heading: (meta?.heading as string) ?? undefined,
+  };
+}
+
+function toPublicRecoveryAttempt(r: DBRecoveryAttempt): RecoveryAttempt {
+  return {
+    id: r.id,
+    claimId: r.claimId,
+    attemptNumber: r.attemptNumber,
+    failureReason: r.failureReason,
+    action: (r.action as any) || 'revise',
+    originalText: r.originalText,
+    candidateText: r.candidateText,
+    verificationLabel: r.verificationLabel,
+    entailmentScore: r.entailmentScore,
+    contradictionScore: r.contradictionScore,
+    neutralScore: r.neutralScore,
+    groundingScore: r.groundingScore,
+    modelVersion: r.modelVersion,
+    recoveryModelVersion: r.recoveryModelVersion,
+    createdAt: r.createdAt.toISOString(),
   };
 }
 
@@ -164,5 +185,17 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const evidence = await generationRepository.listEvidenceByClaimId(claim.id);
     return reply.status(200).send({ evidence: evidence.map(toPublicEvidence) });
+  });
+
+  // GET /v1/claims/:claimId/recovery-attempts
+  fastify.get('/v1/claims/:claimId/recovery-attempts', async (request, reply) => {
+    const { claimId } = request.params as { claimId: string };
+    const userId = request.user!.id;
+
+    const claim = await generationRepository.findClaimByIdAndUserId(claimId, userId);
+    if (!claim) throw new NotFoundError('Claim not found');
+
+    const attempts = await generationRepository.listRecoveryAttemptsByClaimId(claim.id);
+    return reply.status(200).send({ recoveryAttempts: attempts.map(toPublicRecoveryAttempt) });
   });
 }
