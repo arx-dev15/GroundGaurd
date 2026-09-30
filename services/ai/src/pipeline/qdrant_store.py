@@ -54,11 +54,21 @@ class QdrantStore:
                 logger.info(f"Connected to authoritative Qdrant server at {self.url}")
                 return client
             except Exception as e:
-                path_to_try = self.path or ("uploads/indexes/qdrant_embedded" if self._env != "production" else "")
+                if self._env == "production":
+                    logger.critical(
+                        f"FATAL: Authoritative external Qdrant connection to {self.url} failed in production: {e}. "
+                        "Fallback to embedded or in-memory storage is strictly prohibited in production."
+                    )
+                    raise RuntimeError(
+                        f"FATAL: Cannot connect to authoritative Qdrant server at {self.url}: {e}. "
+                        "Service failing closed: production requires a healthy external Qdrant cluster."
+                    ) from e
+
+                path_to_try = self.path or "uploads/indexes/qdrant_embedded"
                 if path_to_try:
                     logger.warning(
                         f"Could not connect to Qdrant server at {self.url} ({e}). "
-                        f"Falling back to embedded disk Qdrant at {path_to_try}."
+                        f"Falling back to embedded disk Qdrant at {path_to_try} (development mode only)."
                     )
                     try:
                         os.makedirs(path_to_try, exist_ok=True)
@@ -67,10 +77,10 @@ class QdrantStore:
                         logger.warning(f"Embedded disk Qdrant fallback failed: {path_err}")
 
                 allow_fallback = os.getenv("ALLOW_IN_MEMORY_FALLBACK", "false").lower() == "true"
-                if allow_fallback and self._env != "production":
+                if allow_fallback:
                     logger.warning(
                         f"Could not connect to Qdrant server at {self.url} ({e}). "
-                        f"Falling back to embedded in-memory Qdrant (ALLOW_IN_MEMORY_FALLBACK=true)."
+                        f"Falling back to embedded in-memory Qdrant (ALLOW_IN_MEMORY_FALLBACK=true, development mode only)."
                     )
                     return QdrantClient(":memory:")
 
@@ -170,6 +180,7 @@ class QdrantStore:
                 "revision": chunk.get("revision"),
                 "identifierKeys": chunk.get("identifierKeys", []),
                 "text": chunk.get("text", ""),
+                "metadata": chunk.get("metadata", {}),
             }
             points.append(PointStruct(id=point_id, vector=vector, payload=payload))
 
@@ -259,6 +270,7 @@ class QdrantStore:
                 "identifierKeys": payload.get("identifierKeys", []),
                 "text": payload.get("text", ""),
                 "score": hit.score,
+                "metadata": payload.get("metadata", {}),
             })
         return results
 

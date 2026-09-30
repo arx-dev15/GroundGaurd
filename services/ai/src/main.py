@@ -50,8 +50,6 @@ logger = logging.getLogger("m2-ai-service")
 
 app = FastAPI(title="GroundGuard M2 AI Service", version="0.3.0")
 
-ML_SERVICE_URL = os.getenv("ML_SERVICE_URL", "http://localhost:8001")
-
 # Models for contracts
 class IndexStatus(BaseModel):
     qdrant: bool = False

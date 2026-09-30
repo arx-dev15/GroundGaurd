@@ -303,6 +303,18 @@ export interface EvidenceSufficiencySignals {
   topRerankScore: number;
   identifierMatched: boolean;
   sourceCoverage: string[];
+  conflictingEvidence?: boolean;
+  conflictType?: string;
+  conflictingDocumentIds?: string[];
+  conflictingChunkIds?: string[];
+  conflictSummary?: string;
+  scopeDecision?: string;
+  scopeReason?: string;
+  conflictConfidence?: number;
+  conflictDetectionMethod?: string;
+  revisionResolution?: string;
+  evidenceCoverageScore?: number;
+  topicSimilarityScore?: number;
 }
 
 export interface EvidenceSufficiency {

@@ -11,6 +11,11 @@ GroundGuard Phase 4 Test Suite:
 
 import os
 import sys
+
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -257,7 +262,7 @@ class TestPhase4EvidenceSufficiency(unittest.TestCase):
             sources=["qdrant_dense", "networkx_graph"]
         )
         route = route_query("What valve is upstream of P-101A?")
-        res = evaluate_sufficiency([c], route, threshold=0.20)
+        res = evaluate_sufficiency([c], route, threshold=SUFFICIENCY_THRESHOLD)
         self.assertTrue(res.sufficient)
         self.assertEqual(res.score, 0.85)
         self.assertTrue(res.signals.identifierMatched)
@@ -265,7 +270,7 @@ class TestPhase4EvidenceSufficiency(unittest.TestCase):
 
     def test_insufficient_when_zero_candidates(self):
         route = route_query("What is P-101A?")
-        res = evaluate_sufficiency([], route, threshold=0.20)
+        res = evaluate_sufficiency([], route, threshold=SUFFICIENCY_THRESHOLD)
         self.assertFalse(res.sufficient)
         self.assertEqual(res.score, 0.0)
         self.assertIn("Zero candidates", res.reason)
@@ -282,7 +287,7 @@ class TestPhase4EvidenceSufficiency(unittest.TestCase):
             sources=["qdrant_dense"]
         )
         route = route_query("Check operating limits for pump P-101A")
-        res = evaluate_sufficiency([c], route, threshold=0.20)
+        res = evaluate_sufficiency([c], route, threshold=SUFFICIENCY_THRESHOLD)
         self.assertFalse(res.sufficient)
         self.assertFalse(res.signals.identifierMatched)
         self.assertIn("P-101A", res.reason)
@@ -298,7 +303,7 @@ class TestPhase4EvidenceSufficiency(unittest.TestCase):
             sources=["qdrant_dense"]
         )
         route = route_query("What is the design temperature of P-101A?")
-        res = evaluate_sufficiency([c], route, threshold=0.20)
+        res = evaluate_sufficiency([c], route, threshold=SUFFICIENCY_THRESHOLD)
         self.assertFalse(res.sufficient)
         self.assertIn("below sufficiency threshold", res.reason)
 

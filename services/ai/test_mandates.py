@@ -19,6 +19,9 @@ import time
 import asyncio
 
 # Setup offline test environment variables
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['ENVIRONMENT'] = 'development'
 os.environ['ALLOW_MOCK_EMBEDDER'] = 'true'
 os.environ['ALLOW_OFFLINE_DB'] = 'true'

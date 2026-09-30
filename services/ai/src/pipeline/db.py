@@ -44,9 +44,16 @@ def validate_ready_documents(project_id: str, document_ids: List[str]) -> Set[st
     if not document_ids:
         return set()
 
+    raw_opt = os.getenv("ALLOW_OFFLINE_DB")
+    allow_offline = (raw_opt.lower() == "true") if raw_opt is not None else _ALLOW_OFFLINE_DB
+    env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
+
+    if allow_offline and env == "production":
+        raise RuntimeError("FATAL: ALLOW_OFFLINE_DB=true is strictly forbidden in production.")
+
     conn = get_connection()
     if conn is None:
-        if _ALLOW_OFFLINE_DB and _ENV != "production":
+        if allow_offline and env != "production":
             logger.warning(
                 "PostgreSQL unreachable with ALLOW_OFFLINE_DB=true. "
                 "Allowing candidate documents for offline unit testing only."
@@ -61,16 +68,19 @@ def validate_ready_documents(project_id: str, document_ids: List[str]) -> Set[st
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id FROM documents
-                WHERE id = ANY(%s) AND project_id = %s AND status = 'ready';
+                SELECT id, status FROM documents
+                WHERE id = ANY(%s) AND project_id = %s;
                 """,
                 (document_ids, project_id)
             )
             rows = cur.fetchall()
-            return {r[0] for r in rows}
+            if not rows and allow_offline and env != "production":
+                # Unit testing with synthetic documents not present in PostgreSQL
+                return set(document_ids)
+            return {r[0] for r in rows if r[1] == 'ready'}
     except Exception as e:
         logger.error(f"Error validating ready documents in PostgreSQL: {e}")
-        if _ALLOW_OFFLINE_DB and _ENV != "production":
+        if allow_offline and env != "production":
             return set(document_ids)
         raise RuntimeError(f"FATAL: PostgreSQL lifecycle validation failed: {e}") from e
     finally:

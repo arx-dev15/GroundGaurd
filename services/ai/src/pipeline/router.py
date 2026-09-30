@@ -32,6 +32,7 @@ class RouteDecision(BaseModel):
     extractedIdentifiers: List[str] = Field(default_factory=list)
     relationshipIntent: bool = False
     reasons: List[str] = Field(default_factory=list)
+    rawQuery: Optional[str] = None
 
 def route_query(query: str) -> RouteDecision:
     """
@@ -71,5 +72,6 @@ def route_query(query: str) -> RouteDecision:
         identifierQuery=is_identifier_query,
         extractedIdentifiers=extracted_tokens,
         relationshipIntent=has_relationship_intent,
-        reasons=reasons
+        reasons=reasons,
+        rawQuery=clean_query
     )

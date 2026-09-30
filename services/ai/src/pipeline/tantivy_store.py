@@ -92,7 +92,7 @@ class TantivyStore:
             return 0
 
         idx = self._get_index(project_id)
-        writer = idx.writer()
+        writer = idx.writer(heap_size=15_000_000, num_threads=1)
         try:
             writer.delete_documents_by_term("document_id", document_id)
 
@@ -125,6 +125,8 @@ class TantivyStore:
             ) from e
         finally:
             del writer
+            import gc
+            gc.collect()
 
     def delete_document(self, project_id: str, document_id: str) -> None:
         """
