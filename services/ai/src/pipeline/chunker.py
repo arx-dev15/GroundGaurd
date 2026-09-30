@@ -7,10 +7,30 @@ from src.pipeline.extractor import extract_identifiers, get_identifier_keys
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
 
+# Spec: CHUNK_OVERLAP must be < CHUNK_SIZE and must fail explicitly.
+# Validate at import time so misconfiguration is caught at service startup.
+if CHUNK_SIZE <= 0:
+    raise ValueError(
+        f"FATAL: CHUNK_SIZE must be a positive integer, got {CHUNK_SIZE}. "
+        f"Check the CHUNK_SIZE environment variable."
+    )
+if CHUNK_OVERLAP < 0:
+    raise ValueError(
+        f"FATAL: CHUNK_OVERLAP must be >= 0, got {CHUNK_OVERLAP}. "
+        f"Check the CHUNK_OVERLAP environment variable."
+    )
+if CHUNK_OVERLAP >= CHUNK_SIZE:
+    raise ValueError(
+        f"FATAL: CHUNK_OVERLAP ({CHUNK_OVERLAP}) must be strictly less than "
+        f"CHUNK_SIZE ({CHUNK_SIZE}). "
+        f"Fix CHUNK_OVERLAP or CHUNK_SIZE environment variables."
+    )
+
 HEADING_REGEX = re.compile(
     r'^(?:(?:Section|Chapter|Article|Appendix|\d+\.|\d+\.\d+)\s+([^\n\r]+)|([A-Z0-9\s-]{4,50}))(?:\n|$)',
     re.MULTILINE
 )
+
 
 def extract_heading_and_section(text: str) -> Tuple[Optional[str], Optional[str]]:
     """
@@ -22,11 +42,11 @@ def extract_heading_and_section(text: str) -> Tuple[Optional[str], Optional[str]
         heading_text = (match.group(1) or match.group(2) or "").strip()
         if not heading_text:
             return None, None
-        # Check if heading has section prefix like "Section 2" or "2.1"
         section_match = re.match(r'^(?:Section\s+)?(\d+(?:\.\d+)*)', heading_text, re.IGNORECASE)
         section = section_match.group(1) if section_match else None
         return section, heading_text[:100]
     return None, None
+
 
 def chunk_pages(
     pages_data: List[Dict[str, Any]],
@@ -35,15 +55,25 @@ def chunk_pages(
 ) -> List[Dict[str, Any]]:
     """
     Splits pages into overlapping text chunks enriched with structured lineage
-    and normalized identifiers. Validates chunk parameters against infinite iteration.
+    and normalized identifiers.
+
+    Parameters validated at module import time (see top-of-file guards).
+    Additional runtime guard in case called with explicit overrides.
     """
+    # Runtime parameter guard (covers direct calls with overridden values).
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+    if chunk_overlap < 0:
+        raise ValueError(f"chunk_overlap must be >= 0, got {chunk_overlap}")
+    if chunk_overlap >= chunk_size:
+        raise ValueError(
+            f"chunk_overlap ({chunk_overlap}) must be strictly less than "
+            f"chunk_size ({chunk_size})"
+        )
+
     chunks = []
     chunk_index = 0
-
-    # Guard against invalid or pathological chunk_overlap configurations
-    if chunk_overlap >= chunk_size:
-        chunk_overlap = max(0, chunk_size // 10)
-    step = max(1, chunk_size - chunk_overlap)
+    step = chunk_size - chunk_overlap  # Always >= 1 due to above guards.
 
     for page in pages_data:
         page_number = page["page_number"]

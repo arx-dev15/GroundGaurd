@@ -114,6 +114,7 @@ class RecoverRequest(BaseModel):
     failureReason: str
     existingEvidence: List[Dict[str, Any]] = []
     attempt: int = 1
+    useLangGraph: Optional[bool] = True
 
 class RecoverResponse(BaseModel):
     requestId: str
@@ -521,17 +522,30 @@ async def recover(payload: RecoverRequest, x_request_id: Optional[str] = Header(
     req_id = payload.requestId or x_request_id or f"req_{uuid.uuid4().hex[:12]}"
     logger.info(
         f"[/recover] claim_id={payload.claimId} req_id={req_id} "
-        f"attempt={payload.attempt} reason={payload.failureReason}"
+        f"attempt={payload.attempt} reason={payload.failureReason} "
+        f"useLangGraph={payload.useLangGraph}"
     )
-    from src.pipeline.recovery import execute_recovery
-    result = await execute_recovery(
-        project_id=payload.projectId,
-        claim_id=payload.claimId,
-        claim=payload.claim,
-        failure_reason=payload.failureReason,
-        attempt=payload.attempt,
-        request_id=req_id
-    )
+    if payload.useLangGraph:
+        from src.pipeline.recovery_graph import run_langgraph_recovery
+        result = await run_langgraph_recovery(
+            project_id=payload.projectId,
+            claim_id=payload.claimId,
+            claim=payload.claim,
+            failure_reason=payload.failureReason,
+            attempt=payload.attempt,
+            request_id=req_id
+        )
+    else:
+        from src.pipeline.recovery import execute_recovery
+        result = await execute_recovery(
+            project_id=payload.projectId,
+            claim_id=payload.claimId,
+            claim=payload.claim,
+            failure_reason=payload.failureReason,
+            attempt=payload.attempt,
+            request_id=req_id
+        )
+
     return RecoverResponse(
         requestId=req_id,
         claimId=payload.claimId,
@@ -544,5 +558,5 @@ async def recover(payload: RecoverRequest, x_request_id: Optional[str] = Header(
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("AI_SERVICE_PORT", os.getenv("AI_PORT", 8000)))
+    port = int(os.getenv("PORT", os.getenv("AI_SERVICE_PORT", 8000)))
     uvicorn.run(app, host="0.0.0.0", port=port)

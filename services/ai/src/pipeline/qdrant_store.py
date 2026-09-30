@@ -3,7 +3,6 @@ import uuid
 import logging
 from typing import List, Dict, Any, Optional
 from qdrant_client import QdrantClient
-from qdrant_client.http import models as rest_models
 from qdrant_client.http.models import (
     Distance,
     VectorParams,
@@ -11,78 +10,102 @@ from qdrant_client.http.models import (
     Filter,
     FieldCondition,
     MatchValue,
-    PayloadSchemaType
+    PayloadSchemaType,
 )
 
 from src.pipeline.embedder import EMBEDDING_DIM
+
 logger = logging.getLogger("m2-qdrant-store")
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-QDRANT_PATH = os.getenv("QDRANT_PATH", "")  # Optional disk-embedded path (fallback/offline only)
+QDRANT_URL = os.getenv("QDRANT_URL", "")
+QDRANT_PATH = os.getenv("QDRANT_PATH", "")  # Only valid when QDRANT_URL is not set.
 COLLECTION_NAME = "groundguard_chunks"
 VECTOR_DIM = EMBEDDING_DIM
 
+
 class QdrantStore:
+    """
+    Manages Qdrant dense vector indexing and retrieval for GroundGuard.
+
+    Initialization modes — determined at startup, never switched at runtime:
+      1. Remote server (QDRANT_URL set)       → production / docker mode.
+      2. Disk-embedded (QDRANT_PATH set, QDRANT_URL empty) → local offline dev only.
+      3. In-memory (:memory: explicit)         → unit tests only.
+
+    Invariants:
+    - No silent fallback from remote to embedded/memory at runtime.
+    - No ALLOW_IN_MEMORY_FALLBACK escape hatch.
+    - projectId filter is mandatory on every search.
+    - wait=True on all lifecycle-critical writes and deletes.
+    - 384-dim Cosine only.
+    """
+
     def __init__(self, url: str = QDRANT_URL, path: str = QDRANT_PATH):
-        self.url = url
-        self.path = path
+        self.url = url.strip()
+        self.path = path.strip()
+        self._env = os.getenv("ENVIRONMENT", "development").lower()
         self.client = self._init_client()
         self._ensure_collection()
 
     def _init_client(self) -> QdrantClient:
         """
-        Initializes Qdrant client with prioritized modes:
-        1. QDRANT_URL (Remote Docker server) → Authoritative development & production mode
-        2. QDRANT_PATH set without QDRANT_URL → Optional disk-backed embedded client (offline only)
-        3. QDRANT_URL == ':memory:' → explicit in-memory client
+        Determines Qdrant mode at startup based on configuration.
+        Fails fast on any misconfiguration — no silent runtime fallback.
         """
-        # Mode 1: Remote server (Authoritative production & local Docker mode)
+        # Mode 1: Remote server (Docker / production).
         if self.url and self.url != ":memory:":
+            logger.info(f"Connecting to Qdrant server at {self.url}...")
             try:
-                client = QdrantClient(url=self.url, timeout=3.0)
+                client = QdrantClient(url=self.url, timeout=5.0)
                 client.get_collections()
-                logger.info(f"Connected to authoritative Qdrant server at {self.url}")
+                logger.info(f"Connected to Qdrant server at {self.url}.")
                 return client
             except Exception as e:
-                # If path is explicitly provided as a fallback mode:
-                if self.path:
-                    logger.warning(f"Could not connect to Qdrant server at {self.url} ({e}). Falling back to embedded disk Qdrant at {self.path}.")
-                    try:
-                        os.makedirs(self.path, exist_ok=True)
-                        return QdrantClient(path=self.path)
-                    except Exception as path_err:
-                        raise RuntimeError(f"Both Qdrant server ({e}) and embedded fallback failed ({path_err})")
-                allow_fallback = os.getenv("ALLOW_IN_MEMORY_FALLBACK", "false").lower() == "true"
-                if allow_fallback:
-                    logger.warning(f"Could not connect to Qdrant server at {self.url} ({e}). Falling back to embedded in-memory Qdrant because ALLOW_IN_MEMORY_FALLBACK=true.")
-                    return QdrantClient(":memory:")
-                logger.error(f"FATAL: External Qdrant connection to {self.url} failed: {e}")
-                raise RuntimeError(f"External Qdrant server unavailable at {self.url}: {e}")
+                # Hard-fail — no fallback to disk or memory.
+                raise RuntimeError(
+                    f"FATAL: Cannot connect to Qdrant server at {self.url}: {e}. "
+                    f"Ensure Qdrant is running. "
+                    f"Do not set QDRANT_PATH as a fallback — fix the server connection."
+                ) from e
 
-        # Mode 2: Explicit optional disk-backed embedded Qdrant (when QDRANT_URL is not set or empty)
+        # Mode 2: Explicit in-memory (unit tests only, via QDRANT_URL=:memory:).
+        if self.url == ":memory:":
+            if self._env == "production":
+                raise RuntimeError(
+                    "FATAL: QDRANT_URL=:memory: is not permitted in production."
+                )
+            logger.info("Using explicit in-memory QdrantClient (test mode).")
+            return QdrantClient(":memory:")
+
+        # Mode 3: Disk-embedded (only when QDRANT_URL is not set at all).
         if self.path:
+            if self._env == "production":
+                raise RuntimeError(
+                    f"FATAL: QDRANT_PATH ({self.path}) disk-embedded mode is not permitted in production. "
+                    f"Set QDRANT_URL to an external Qdrant server."
+                )
             try:
                 os.makedirs(self.path, exist_ok=True)
                 client = QdrantClient(path=self.path)
-                logger.info(f"Using disk-backed embedded Qdrant at path={self.path}")
+                logger.info(f"Using disk-embedded Qdrant at {self.path} (offline dev only).")
                 return client
             except Exception as e:
-                logger.error(f"Failed to initialize disk-backed embedded Qdrant at {self.path}: {e}")
-                raise RuntimeError(f"Disk-backed embedded Qdrant failed at {self.path}: {e}")
+                raise RuntimeError(
+                    f"FATAL: Failed to initialize disk-embedded Qdrant at {self.path}: {e}"
+                ) from e
 
-        # Mode 3: Explicit in-memory
-        if self.url == ":memory:":
-            logger.info("Using explicit in-memory QdrantClient(':memory:')")
-            return QdrantClient(":memory:")
-
-        # Fallback if neither URL nor path provided
-        logger.error("FATAL: Neither QDRANT_URL nor QDRANT_PATH specified.")
-        raise RuntimeError("No Qdrant configuration found. Set QDRANT_URL for Docker or QDRANT_PATH for offline embedded.")
+        # Neither URL nor PATH configured.
+        raise RuntimeError(
+            "FATAL: Qdrant is not configured. "
+            "Set QDRANT_URL=http://... for Docker/production, "
+            "QDRANT_URL=:memory: for unit tests, "
+            "or QDRANT_PATH=/path for offline disk-embedded dev."
+        )
 
     def _ensure_collection(self) -> None:
         """
-        Ensures groundguard_chunks collection exists with 384-dim Cosine vector
-        and keyword payload indexes on projectId, documentId, and identifierKeys.
+        Ensures the groundguard_chunks collection exists with correct schema.
+        Raises on failure — a broken collection means the store is unusable.
         """
         try:
             collections = self.client.get_collections().collections
@@ -91,39 +114,46 @@ class QdrantStore:
                 logger.info(f"Creating Qdrant collection '{COLLECTION_NAME}' (dim={VECTOR_DIM}, Cosine)...")
                 self.client.create_collection(
                     collection_name=COLLECTION_NAME,
-                    vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE)
+                    vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
                 )
+                logger.info(f"Collection '{COLLECTION_NAME}' created.")
 
-            # Create required payload keyword indexes for fast, isolated filtering
+            # Create payload indexes for fast filtered ANN search.
             for field in ["projectId", "documentId", "identifierKeys"]:
                 try:
                     self.client.create_payload_index(
                         collection_name=COLLECTION_NAME,
                         field_name=field,
-                        field_schema=PayloadSchemaType.KEYWORD
+                        field_schema=PayloadSchemaType.KEYWORD,
                     )
-                except Exception:
-                    pass
+                except Exception as idx_err:
+                    # Indexes may already exist — log but don't fail.
+                    logger.warning(
+                        f"Could not create Qdrant payload index for field '{field}': {idx_err}. "
+                        f"Search will still work but may be slower (full scan)."
+                    )
         except Exception as e:
-            logger.error(f"Error ensuring Qdrant collection: {e}")
+            raise RuntimeError(
+                f"FATAL: Failed to ensure Qdrant collection '{COLLECTION_NAME}': {e}. "
+                f"Service cannot operate without a valid collection."
+            ) from e
 
     def upsert_chunks(
         self,
         project_id: str,
         document_id: str,
         chunks: List[Dict[str, Any]],
-        embeddings: List[List[float]]
+        embeddings: List[List[float]],
     ) -> int:
         """
-        Upserts dense points with deterministic UUIDv5 pointId and project/document metadata.
-        Executes with wait=True for lifecycle-critical consistency.
+        Upserts dense points with deterministic UUIDv5 pointId and full provenance payload.
+        Uses wait=True for lifecycle-critical consistency.
         """
         if not chunks or not embeddings:
             return 0
 
         points = []
         for chunk, vector in zip(chunks, embeddings):
-            # Deterministic UUIDv5 ensures exact point-level idempotency
             seed = f"{document_id}:{chunk.get('chunk_index', 0)}"
             point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
 
@@ -138,47 +168,53 @@ class QdrantStore:
                 "source": chunk.get("source"),
                 "revision": chunk.get("revision"),
                 "identifierKeys": chunk.get("identifierKeys", []),
-                "text": chunk.get("text", "")
+                "text": chunk.get("text", ""),
             }
-
             points.append(PointStruct(id=point_id, vector=vector, payload=payload))
 
         self.client.upsert(
             collection_name=COLLECTION_NAME,
             points=points,
-            wait=True
+            wait=True,
         )
-        logger.info(f"Successfully upserted {len(points)} points to Qdrant for document_id={document_id}")
+        logger.info(f"Upserted {len(points)} points to Qdrant for document_id={document_id}.")
         return len(points)
 
     def delete_document(self, project_id: str, document_id: str) -> None:
         """
         Purges all points belonging to documentId within projectId.
-        Executes with wait=True.
+        Both filters are mandatory — projectId ensures cross-project isolation.
+        Uses wait=True for lifecycle-critical consistency.
         """
         self.client.delete(
             collection_name=COLLECTION_NAME,
             points_selector=Filter(
                 must=[
                     FieldCondition(key="documentId", match=MatchValue(value=document_id)),
-                    FieldCondition(key="projectId", match=MatchValue(value=project_id))
+                    FieldCondition(key="projectId", match=MatchValue(value=project_id)),
                 ]
             ),
-            wait=True
+            wait=True,
         )
-        logger.info(f"Purged Qdrant points for document_id={document_id} in project_id={project_id}")
+        logger.info(f"Purged Qdrant points for document_id={document_id} in project_id={project_id}.")
 
     def search_dense(
         self,
         project_id: str,
         query_vector: List[float],
-        top_k: int = 5
+        top_k: int = 5,
     ) -> List[Dict[str, Any]]:
         """
-        Performs ANN vector search with mandatory projectId filtering during candidate generation.
+        Performs ANN vector search with mandatory projectId filtering.
+        projectId filter is applied during candidate generation, not post-search.
+
+        Raises RuntimeError if query_vector is empty or malformed.
         """
         if not query_vector:
-            return []
+            raise RuntimeError(
+                "search_dense called with empty query_vector. "
+                "Embedding model may have failed to produce a vector."
+            )
 
         search_filter = Filter(
             must=[
@@ -191,7 +227,7 @@ class QdrantStore:
                 collection_name=COLLECTION_NAME,
                 query=query_vector,
                 query_filter=search_filter,
-                limit=top_k
+                limit=top_k,
             )
             hits = response.points
         else:
@@ -199,40 +235,47 @@ class QdrantStore:
                 collection_name=COLLECTION_NAME,
                 query_vector=query_vector,
                 query_filter=search_filter,
-                limit=top_k
+                limit=top_k,
             )
 
         results = []
         for hit in hits:
             payload = hit.payload or {}
+            candidate_project = payload.get("projectId", "")
+            if candidate_project != project_id:
+                # Defensive guard: should never happen with filter, but log if it does.
+                logger.warning(
+                    f"Qdrant returned point with projectId={candidate_project!r}, "
+                    f"expected {project_id!r}. Point id={hit.id}. Skipping."
+                )
+                continue
             results.append({
                 "chunkId": payload.get("chunkId"),
                 "documentId": payload.get("documentId"),
-                "projectId": payload.get("projectId"),
+                "projectId": candidate_project,
                 "chunkIndex": payload.get("chunkIndex"),
                 "pageNumber": payload.get("pageNumber"),
                 "section": payload.get("section"),
                 "heading": payload.get("heading"),
                 "identifierKeys": payload.get("identifierKeys", []),
                 "text": payload.get("text", ""),
-                "score": hit.score
+                "score": hit.score,
             })
         return results
 
     def count_document_points(self, project_id: str, document_id: str) -> int:
-        """
-        Returns number of points for a document in Qdrant.
-        """
+        """Returns number of points for a document in Qdrant."""
         res = self.client.count(
             collection_name=COLLECTION_NAME,
             count_filter=Filter(
                 must=[
                     FieldCondition(key="documentId", match=MatchValue(value=document_id)),
-                    FieldCondition(key="projectId", match=MatchValue(value=project_id))
+                    FieldCondition(key="projectId", match=MatchValue(value=project_id)),
                 ]
-            )
+            ),
         )
         return res.count
 
-# Singleton store
+
+# Singleton store — initialized once at service startup.
 qdrant_store = QdrantStore()

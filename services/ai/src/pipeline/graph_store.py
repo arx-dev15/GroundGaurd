@@ -2,15 +2,20 @@ import os
 import re
 import json
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import networkx as nx
 from networkx.readwrite import json_graph
 
-from src.pipeline.extractor import extract_identifiers, Identifier
-
 logger = logging.getLogger("m2-graph-store")
 
-GRAPHS_PATH = os.getenv("GRAPHS_PATH", "uploads/graphs")
+GRAPHS_PATH = os.getenv("GRAPHS_PATH", "")
+_ENV = os.getenv("ENVIRONMENT", "development").lower()
+
+if not GRAPHS_PATH.strip():
+    raise RuntimeError(
+        "FATAL: GRAPHS_PATH is not configured. "
+        "Set GRAPHS_PATH to a valid directory path for project topology graphs."
+    )
 
 # Explicit directional predicate patterns connecting two identifiers
 # Example: "Valve V-204 is upstream of pump P-101A"
@@ -24,6 +29,7 @@ RELATIONAL_PATTERNS = [
     (re.compile(r'(\b[A-Z]{1,3}-\d{2,4}[A-Z]?\b)\s+(?:is\s+)?isolated\s+by\s+' + OPTIONAL_NOUNS + r'(\b[A-Z]{1,3}-\d{2,4}[A-Z]?\b)', re.IGNORECASE), "isolated_by")
 ]
 
+
 class GraphStore:
     def __init__(self, base_path: str = GRAPHS_PATH):
         self.base_path = base_path
@@ -36,7 +42,9 @@ class GraphStore:
 
     def load_graph(self, project_id: str) -> nx.DiGraph:
         """
-        Loads the project-scoped directed graph. If none exists, returns an empty DiGraph.
+        Loads the project-scoped directed graph.
+        If file exists but is corrupted, raises RuntimeError (does NOT silently wipe out prior graph).
+        If file does not exist, returns an empty DiGraph.
         """
         path = self._get_project_graph_path(project_id)
         if os.path.exists(path):
@@ -45,7 +53,11 @@ class GraphStore:
                     data = json.load(f)
                     return json_graph.node_link_graph(data, directed=True, multigraph=False)
             except Exception as e:
-                logger.warning(f"Could not load graph from {path} ({e}). Starting fresh.")
+                logger.error(f"FATAL: Failed to read project topology graph at {path}: {e}")
+                raise RuntimeError(
+                    f"Corrupted or unreadable topology graph at {path}: {e}. "
+                    f"Failing to prevent silent data loss or destructive overwrite."
+                ) from e
         return nx.DiGraph()
 
     def save_graph(self, project_id: str, graph: nx.DiGraph) -> None:
@@ -86,7 +98,6 @@ class GraphStore:
             return []
 
         extracted = []
-        # Split text into sentences to bound relations to a single sentence scope
         sentences = re.split(r'[.!?\n]', text)
         for sentence in sentences:
             s_clean = sentence.strip()
@@ -120,15 +131,9 @@ class GraphStore:
     ) -> int:
         """
         Processes chunks, extracts valid relationships, updates project graph, and persists.
-        Semantics:
-        - 0 valid edges found -> valid execution -> returns 0.
-        - valid edges found -> saved with provenance -> returns count.
-        - crash/error -> raises exception (ingestion failure).
         """
         try:
             graph = self.load_graph(project_id)
-
-            # Purge prior edges for this document if re-ingesting
             self._purge_document_elements(graph, document_id)
 
             edges_added = 0
@@ -181,7 +186,6 @@ class GraphStore:
         for u, v in edges_to_remove:
             graph.remove_edge(u, v)
 
-        # Remove isolated nodes that have no remaining edges
         nodes_to_remove = [n for n in graph.nodes if graph.degree(n) == 0]
         for n in nodes_to_remove:
             graph.remove_node(n)
@@ -202,6 +206,7 @@ class GraphStore:
     def query_relations(self, project_id: str, entity_name: str) -> List[Dict[str, Any]]:
         """
         Returns all relationships involving entity_name within project_id.
+        Enforces strict projectId boundary check on all returned edges.
         """
         graph = self.load_graph(project_id)
         token = entity_name.upper()
@@ -211,22 +216,25 @@ class GraphStore:
         results = []
         # Outgoing edges
         for _, neighbor, data in graph.out_edges(token, data=True):
-            results.append({
-                "source": token,
-                "target": neighbor,
-                "relation": data.get("relation"),
-                "provenance": data
-            })
+            if data.get("projectId") == project_id:
+                results.append({
+                    "source": token,
+                    "target": neighbor,
+                    "relation": data.get("relation"),
+                    "provenance": data
+                })
         # Incoming edges
         for predecessor, _, data in graph.in_edges(token, data=True):
-            results.append({
-                "source": predecessor,
-                "target": token,
-                "relation": data.get("relation"),
-                "provenance": data
-            })
+            if data.get("projectId") == project_id:
+                results.append({
+                    "source": predecessor,
+                    "target": token,
+                    "relation": data.get("relation"),
+                    "provenance": data
+                })
 
         return results
+
 
 # Singleton store
 graph_store = GraphStore()
