@@ -26,8 +26,8 @@ FINAL_TOP_K = int(os.getenv("FINAL_TOP_K", "5"))
 # Reciprocal Rank Fusion constant
 RRF_K = int(os.getenv("RRF_K", "60"))
 
-# Deterministic evidence sufficiency score threshold
-SUFFICIENCY_THRESHOLD = float(os.getenv("SUFFICIENCY_THRESHOLD", "0.20"))
+# Deterministic evidence sufficiency score threshold (S >= 0.35 per enterprise workflow)
+SUFFICIENCY_THRESHOLD = float(os.getenv("SUFFICIENCY_THRESHOLD", "0.35"))
 
 
 # Internal Canonical Candidate Representation
@@ -112,6 +112,7 @@ class RetrieveMetadata(BaseModel):
     finalCandidateCount: int
     latencyMs: float
     routeDecision: RouteDecision
+    rerankerBypassed: Optional[bool] = False
 
 
 class RetrieveResponse(BaseModel):
@@ -269,7 +270,7 @@ def retrieve_evidence(
             )
         except Exception as e:
             logger.error(f"Dense retrieval failed on Qdrant: {e}")
-            raise RuntimeError(f"Qdrant retrieval infrastructure failure: {e}")
+            raise RuntimeError(f"Qdrant retrieval infrastructure failure: {e}") from e
 
     # 2b. Tantivy Lexical Retrieval
     if route.lexical:
@@ -281,7 +282,7 @@ def retrieve_evidence(
             )
         except Exception as e:
             logger.error(f"Lexical retrieval failed on Tantivy: {e}")
-            raise RuntimeError(f"Tantivy retrieval infrastructure failure: {e}")
+            raise RuntimeError(f"Tantivy retrieval infrastructure failure: {e}") from e
 
     # 2c. NetworkX Graph Retrieval (conditionally activated for topology/relations)
     if route.graph:
@@ -315,7 +316,7 @@ def retrieve_evidence(
                     break
         except Exception as e:
             logger.error(f"Graph retrieval failed on NetworkX: {e}")
-            raise RuntimeError(f"NetworkX retrieval infrastructure failure: {e}")
+            raise RuntimeError(f"NetworkX retrieval infrastructure failure: {e}") from e
 
     # 3. Candidate Normalization & Multi-Source Merge
     # Invariant: If Qdrant and Tantivy both return chunkId = chk_123, exactly ONE candidate is stored with both contributions.
@@ -418,13 +419,24 @@ def retrieve_evidence(
         ready_doc_ids = validate_ready_documents(project_id, candidate_doc_ids)
     except Exception as e:
         logger.error(f"PostgreSQL lifecycle validation failed for project_id={project_id}: {e}")
-        raise RuntimeError(f"PostgreSQL canonical validation failure: {e}")
+        raise RuntimeError(f"PostgreSQL canonical validation failure: {e}") from e
 
     # Fail-closed filter: ensure candidate.projectId == project_id and document.status == 'ready'
-    valid_candidates: List[Candidate] = [
-        c for c in all_normalized
-        if c.projectId == project_id and c.documentId in ready_doc_ids
-    ]
+    valid_candidates: List[Candidate] = []
+    for c in all_normalized:
+        if c.projectId != project_id:
+            logger.warning(
+                f"[retrieval] Candidate chunk {c.chunkId} rejected: projectId mismatch "
+                f"(candidate='{c.projectId}', expected='{project_id}')"
+            )
+            continue
+        if c.documentId not in ready_doc_ids:
+            logger.info(
+                f"[retrieval] Candidate chunk {c.chunkId} excluded: document {c.documentId} "
+                f"not in READY state in project {project_id}"
+            )
+            continue
+        valid_candidates.append(c)
 
     # 5. Reciprocal Rank Fusion (RRF) on Valid READY Candidates
     for cand in valid_candidates:
@@ -449,9 +461,30 @@ def retrieve_evidence(
     # 6. Bounded Candidate Pool for Reranking (top 20 valid candidates)
     rrf_pool = valid_candidates[:RRF_POOL_K]
 
-    # 7. FlashRank Reranking
+    # 7. FlashRank Reranking with Adaptive Bypass on Exact Equipment Tags
+    exact_tag_matched = False
+    if route.extractedIdentifiers and rrf_pool:
+        top_cand = rrf_pool[0]
+        cand_idents = [i.upper() for i in top_cand.identifiers]
+        for tag in route.extractedIdentifiers:
+            if tag.upper() in cand_idents or tag.upper() in top_cand.text.upper():
+                exact_tag_matched = True
+                break
+
     reranked_pool: List[Candidate] = []
-    if rrf_pool and query:
+    if exact_tag_matched and os.getenv("ENABLE_RERANKER_BYPASS", "true").lower() == "true":
+        logger.info(
+            f"[retrieval] Adaptive reranker bypass on exact equipment tags: {route.extractedIdentifiers}"
+        )
+        for c in rrf_pool:
+            # When exact tag matches top candidate, assign high-confidence score above sufficiency threshold
+            matches_tag = any(
+                t.upper() in [i.upper() for i in c.identifiers] or t.upper() in c.text.upper()
+                for t in route.extractedIdentifiers
+            )
+            c.rerankScore = max(0.50, float(c.rrfScore * 20.0)) if matches_tag else float(c.rrfScore)
+            reranked_pool.append(c)
+    elif rrf_pool and query:
         try:
             passages = [
                 {"chunkId": c.chunkId, "text": c.text, "candidate": c}
@@ -464,7 +497,7 @@ def retrieve_evidence(
                 reranked_pool.append(cand)
         except Exception as e:
             logger.error(f"Reranking stage failed: {e}")
-            raise RuntimeError(f"FlashRank reranking infrastructure failure: {e}")
+            raise RuntimeError(f"FlashRank reranking infrastructure failure: {e}") from e
     else:
         reranked_pool = rrf_pool
 
@@ -516,7 +549,8 @@ def retrieve_evidence(
         rerankedCandidateCount=len(reranked_pool),
         finalCandidateCount=len(evidence_items),
         latencyMs=latency_ms,
-        routeDecision=route
+        routeDecision=route,
+        rerankerBypassed=bool(exact_tag_matched and os.getenv("ENABLE_RERANKER_BYPASS", "true").lower() == "true")
     )
 
     logger.info(

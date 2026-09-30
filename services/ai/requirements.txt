@@ -13,3 +13,6 @@ networkx>=3.0
 flashrank==0.2.10
 onnxruntime>=1.18.0
 requests>=2.31.0
+langgraph>=0.0.10
+pint>=0.24
+pytest>=7.0.0

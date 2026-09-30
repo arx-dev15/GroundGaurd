@@ -19,6 +19,10 @@ import uuid
 # Ensure services/ai is on sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
+os.environ.setdefault("QDRANT_URL", ":memory:")
+os.environ.setdefault("TANTIVY_PATH", ":memory:")
+os.environ.setdefault("ALLOW_OFFLINE_DB", "true")
+
 from src.pipeline.extractor import extract_identifiers
 from src.pipeline.qdrant_store import qdrant_store
 from src.pipeline.tantivy_store import tantivy_store

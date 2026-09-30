@@ -7,6 +7,7 @@ Implements bounded, claim-level, evidence-driven recovery:
 - Fail-closed deterministic parsing & abstention
 """
 
+import os
 import re
 import json
 import logging
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 from src.pipeline.retrieval import retrieve_evidence, EvidenceItem
 from src.pipeline.extractor import extract_identifiers
 from src.pipeline.llm import llm_runtime, LLMUnavailableError
+from src.pipeline.recovery_graph import run_langgraph_recovery, RecoveryGraphResult
 
 logger = logging.getLogger("m2-recovery")
 
@@ -151,6 +153,8 @@ class RecoveryResult(BaseModel):
     modelVersion: str = ""
     reason: str = ""
 
+MAX_RECOVERY_ATTEMPTS = int(os.getenv("MAX_RECOVERY_ATTEMPTS", "2"))
+
 async def execute_recovery(
     project_id: str,
     claim_id: str,
@@ -161,10 +165,16 @@ async def execute_recovery(
 ) -> RecoveryResult:
     """
     Executes a bounded recovery attempt for a failed claim:
-    1. Targeted retrieval query formulation
-    2. Phase 4 retrieve_evidence execution with project isolation
-    3. LLM-based constrained revision or abstention
+    1. Validates bounded attempt count against MAX_RECOVERY_ATTEMPTS
+    2. Targeted retrieval query formulation
+    3. Phase 4 retrieve_evidence execution with project isolation
+    4. LLM-based constrained revision or abstention
     """
+    if attempt > MAX_RECOVERY_ATTEMPTS:
+        raise ValueError(
+            f"Recovery attempt {attempt} exceeds MAX_RECOVERY_ATTEMPTS ({MAX_RECOVERY_ATTEMPTS})"
+        )
+
     logger.info(
         f"[execute_recovery] claim_id={claim_id} attempt={attempt} "
         f"reason={failure_reason} project_id={project_id}"

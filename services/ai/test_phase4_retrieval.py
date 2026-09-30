@@ -17,6 +17,10 @@ from unittest.mock import patch, MagicMock
 # Ensure services/ai is on sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
+os.environ.setdefault("QDRANT_URL", ":memory:")
+os.environ.setdefault("TANTIVY_PATH", ":memory:")
+os.environ.setdefault("ALLOW_OFFLINE_DB", "true")
+
 from src.pipeline.router import route_query, RouteDecision
 from src.pipeline.reranker import rerank, get_ranker
 from src.pipeline.retrieval import (

@@ -1,40 +1,61 @@
 import os
 import logging
-from typing import List, Set
+from typing import List, Set, Dict, Any
 
-logger = logging.getLogger("m2-ai-service")
+logger = logging.getLogger("m2-db")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/groundguard")
 
+# Explicit opt-in flag for offline unit testing only. Never enabled in production.
+_ALLOW_OFFLINE_DB = os.getenv("ALLOW_OFFLINE_DB", "false").lower() == "true"
+_ENV = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
+
+if _ALLOW_OFFLINE_DB and _ENV == "production":
+    raise RuntimeError("FATAL: ALLOW_OFFLINE_DB=true is strictly forbidden in production.")
+
+
 def get_connection():
+    """
+    Establishes connection to PostgreSQL canonical database.
+    Attempts modern psycopg (v3) first, falls back to psycopg2.
+    """
     try:
         import psycopg
-        return psycopg.connect(DATABASE_URL, connect_timeout=2)
+        return psycopg.connect(DATABASE_URL, connect_timeout=3)
     except Exception as e:
-        logger.debug(f"psycopg direct connection failed ({e}). Trying fallback.")
+        logger.warning(f"psycopg (v3) connection failed: {e}. Trying psycopg2 fallback...")
         try:
             import psycopg2
-            return psycopg2.connect(DATABASE_URL, connect_timeout=2)
-        except Exception:
+            return psycopg2.connect(DATABASE_URL, connect_timeout=3)
+        except Exception as e2:
+            logger.error(f"Both psycopg and psycopg2 failed to connect to {DATABASE_URL}: {e2}")
             return None
+
 
 def validate_ready_documents(project_id: str, document_ids: List[str]) -> Set[str]:
     """
     Validates candidate documentIds against PostgreSQL canonical lifecycle truth.
     Returns only documentIds that are currently in status = 'ready' for the authorized project.
-    Fails closed in production if canonical PostgreSQL database is unreachable.
+
+    INVARIANTS:
+    - Fails closed: If PostgreSQL is unreachable, raises RuntimeError.
+    - Never allows unverified documents to pass through unless ALLOW_OFFLINE_DB=true (unit test mode).
+    - Scope isolation: Only returns documents matching both id = ANY(...) AND project_id = project_id.
     """
     if not document_ids:
         return set()
 
     conn = get_connection()
     if conn is None:
-        env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
-        if env == "production":
-            raise RuntimeError(
-                f"Canonical PostgreSQL lifecycle verification failed: database unavailable at {DATABASE_URL}"
+        if _ALLOW_OFFLINE_DB and _ENV != "production":
+            logger.warning(
+                "PostgreSQL unreachable with ALLOW_OFFLINE_DB=true. "
+                "Allowing candidate documents for offline unit testing only."
             )
-        logger.warning("PostgreSQL unreachable in dev/test environment. Allowing candidates for offline testing.")
-        return set(document_ids)
+            return set(document_ids)
+        raise RuntimeError(
+            f"FATAL: Canonical PostgreSQL lifecycle verification failed: database unavailable at {DATABASE_URL}. "
+            f"Failing closed to prevent unauthorized or unready document retrieval."
+        )
 
     try:
         with conn.cursor() as cur:
@@ -49,20 +70,22 @@ def validate_ready_documents(project_id: str, document_ids: List[str]) -> Set[st
             return {r[0] for r in rows}
     except Exception as e:
         logger.error(f"Error validating ready documents in PostgreSQL: {e}")
-        env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
-        if env == "production":
-            raise RuntimeError(f"PostgreSQL lifecycle validation failed: {e}")
-        return set(document_ids)
+        if _ALLOW_OFFLINE_DB and _ENV != "production":
+            return set(document_ids)
+        raise RuntimeError(f"FATAL: PostgreSQL lifecycle validation failed: {e}") from e
     finally:
         conn.close()
 
-def get_project_knowledge_summary(project_id: str) -> dict:
+
+def get_project_knowledge_summary(project_id: str) -> Dict[str, Any]:
     """
     Retrieves ready document count and file names for project metadata and routing context.
     """
     conn = get_connection()
     if conn is None:
-        return {"readyCount": 0, "filenames": []}
+        if _ENV == "production":
+            raise RuntimeError(f"FATAL: PostgreSQL unavailable at {DATABASE_URL} when querying project knowledge.")
+        return {"readyCount": -1, "filenames": [], "error": "database_unavailable"}
 
     try:
         with conn.cursor() as cur:
@@ -82,7 +105,9 @@ def get_project_knowledge_summary(project_id: str) -> dict:
             }
     except Exception as e:
         logger.error(f"Error fetching project knowledge summary: {e}")
-        return {"readyCount": 0, "filenames": []}
+        if _ENV == "production":
+            raise RuntimeError(f"FATAL: Failed to query project knowledge summary: {e}") from e
+        return {"readyCount": -1, "filenames": [], "error": str(e)}
     finally:
         conn.close()
 

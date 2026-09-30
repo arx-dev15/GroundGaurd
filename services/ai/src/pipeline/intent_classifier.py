@@ -4,7 +4,7 @@ from typing import Literal, Tuple, Optional, Dict, Any, List
 
 logger = logging.getLogger("m2-intent-classifier")
 
-IntentType = Literal["conversational", "product_help", "grounded_query"]
+IntentType = Literal["conversational", "product_help", "grounded_query", "unsupported_query"]
 
 # 1. Conversational Patterns (Greetings, Thanks, Farewells, Acknowledgments)
 GREETING_PATTERNS = [
@@ -29,11 +29,17 @@ HELP_PATTERNS = [
     re.compile(r'^(?:how\s+to\s+use|features|instructions|usage)[\s!.,?]*$', re.IGNORECASE),
 ]
 
+# 3. Off-Topic / Unsupported Query Patterns (Sports, Celebrities, Politics, General Trivia)
+OFF_TOPIC_PATTERNS = [
+    re.compile(r'\b(?:football|cricket|sports|match|virat|kohli|messi|ronaldo|president\s+of\s+france|prime\s+minister\s+of|weather\s+in|recipe|movie|actor|actress|celebrity)\b', re.IGNORECASE),
+]
+
 def classify_intent(query: str) -> Tuple[IntentType, Optional[str]]:
     """
     Early routes ONLY:
     - conversational (greetings, thanks, goodbyes, acknowledgments)
     - product_help (how to use, capabilities, document inventory)
+    - unsupported_query (obvious off-topic world trivia / sports / celebrities)
     All other substantive queries enter the grounded retrieval pipeline.
     """
     clean = (query or "").strip()
@@ -59,6 +65,10 @@ def classify_intent(query: str) -> Tuple[IntentType, Optional[str]]:
     for pat in HELP_PATTERNS:
         if pat.match(clean):
             return ("product_help", "help")
+
+    for pat in OFF_TOPIC_PATTERNS:
+        if pat.search(clean):
+            return ("unsupported_query", "off_topic")
 
     return ("grounded_query", None)
 

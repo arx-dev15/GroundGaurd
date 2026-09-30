@@ -6,6 +6,7 @@ dist/
 scratch/
 build/
 .venv/
+temp-services/
 venv/
 __pycache__/
 *.pyc
@@ -13,7 +14,7 @@ __pycache__/
 .env.local
 *.log
 .DS_Store
-.vscode/
+.vscode/    
 Deployment_Details.md
 .idea/
 coverage/

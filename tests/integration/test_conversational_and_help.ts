@@ -6,8 +6,24 @@ import { userRepository } from '../../apps/api/src/repositories/user.repository'
 import { documentRepository } from '../../apps/api/src/repositories/document.repository';
 import { generateId } from '../../apps/api/src/utils/id';
 
+import { newDb } from 'pg-mem';
+import { runMigrations } from '../../infra/scripts/migrate';
+
 async function runTest() {
   console.log('--- Starting Conversational & Product Help Integration Verification ---');
+  const liveHealth = await dbManager.checkHealth();
+  if (!liveHealth.ok) {
+    const memDb = newDb();
+    memDb.public.interceptQueries((q: string) => {
+      if (q.includes('CREATE EXTENSION')) return [];
+      return null;
+    });
+    const memPool = memDb.adapters.createPg().Pool;
+    const testPool = new memPool();
+    dbManager.setTestPool(testPool);
+  }
+  await runMigrations(dbManager.getPool());
+
   const app = await buildApp();
   await app.ready();
 

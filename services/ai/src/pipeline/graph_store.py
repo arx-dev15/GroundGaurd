@@ -10,7 +10,7 @@ from src.pipeline.extractor import extract_identifiers, Identifier
 
 logger = logging.getLogger("m2-graph-store")
 
-GRAPHS_PATH = os.getenv("GRAPHS_PATH", "uploads/graphs")
+GRAPHS_PATH = os.getenv("GRAPHS_PATH", "uploads/graphs").strip()
 
 # Explicit directional predicate patterns connecting two identifiers
 # Example: "Valve V-204 is upstream of pump P-101A"
@@ -24,9 +24,10 @@ RELATIONAL_PATTERNS = [
     (re.compile(r'(\b[A-Z]{1,3}-\d{2,4}[A-Z]?\b)\s+(?:is\s+)?isolated\s+by\s+' + OPTIONAL_NOUNS + r'(\b[A-Z]{1,3}-\d{2,4}[A-Z]?\b)', re.IGNORECASE), "isolated_by")
 ]
 
+
 class GraphStore:
     def __init__(self, base_path: str = GRAPHS_PATH):
-        self.base_path = base_path
+        self.base_path = (base_path or "uploads/graphs").strip()
         os.makedirs(self.base_path, exist_ok=True)
 
     def _get_project_graph_path(self, project_id: str) -> str:
@@ -36,7 +37,9 @@ class GraphStore:
 
     def load_graph(self, project_id: str) -> nx.DiGraph:
         """
-        Loads the project-scoped directed graph. If none exists, returns an empty DiGraph.
+        Loads the project-scoped directed graph.
+        If file exists but is corrupted, raises RuntimeError (does NOT silently wipe out prior graph).
+        If file does not exist, returns an empty DiGraph.
         """
         path = self._get_project_graph_path(project_id)
         if os.path.exists(path):
@@ -45,7 +48,11 @@ class GraphStore:
                     data = json.load(f)
                     return json_graph.node_link_graph(data, directed=True, multigraph=False)
             except Exception as e:
-                logger.warning(f"Could not load graph from {path} ({e}). Starting fresh.")
+                logger.error(f"FATAL: Failed to read project topology graph at {path}: {e}")
+                raise RuntimeError(
+                    f"Corrupted or unreadable topology graph at {path}: {e}. "
+                    f"Failing to prevent silent data loss or destructive overwrite."
+                ) from e
         return nx.DiGraph()
 
     def save_graph(self, project_id: str, graph: nx.DiGraph) -> None:
@@ -211,22 +218,25 @@ class GraphStore:
         results = []
         # Outgoing edges
         for _, neighbor, data in graph.out_edges(token, data=True):
-            results.append({
-                "source": token,
-                "target": neighbor,
-                "relation": data.get("relation"),
-                "provenance": data
-            })
+            if data.get("projectId") == project_id:
+                results.append({
+                    "source": token,
+                    "target": neighbor,
+                    "relation": data.get("relation"),
+                    "provenance": data
+                })
         # Incoming edges
         for predecessor, _, data in graph.in_edges(token, data=True):
-            results.append({
-                "source": predecessor,
-                "target": token,
-                "relation": data.get("relation"),
-                "provenance": data
-            })
+            if data.get("projectId") == project_id:
+                results.append({
+                    "source": predecessor,
+                    "target": token,
+                    "relation": data.get("relation"),
+                    "provenance": data
+                })
 
         return results
+
 
 # Singleton store
 graph_store = GraphStore()

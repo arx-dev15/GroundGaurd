@@ -14,6 +14,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+os.environ.setdefault("QDRANT_URL", ":memory:")
+os.environ.setdefault("TANTIVY_PATH", ":memory:")
+os.environ.setdefault("ALLOW_OFFLINE_DB", "true")
+
 from src.pipeline.recovery import (
     construct_recovery_query,
     execute_recovery,
