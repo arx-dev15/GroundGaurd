@@ -38,13 +38,22 @@ logger = logging.getLogger("groundguard-ml-service")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Pre-warms the neural cross-encoder at server startup."""
+    env = os.getenv("ENVIRONMENT", "development").lower()
     if USE_NEURAL_ENGINE:
         logger.info(f"Pre-warming DeBERTa Cross-Encoder ({MODEL_NAME})...")
         try:
             neural_predictor.load_model()
             logger.info("DeBERTa Cross-Encoder loaded and ready!")
         except Exception as e:
-            logger.warning(f"Could not load neural model into memory ({e}). Using deterministic mock engine for local development.")
+            if env == "production":
+                raise RuntimeError(
+                    f"FATAL: Neural NLI model '{MODEL_NAME}' failed to load in production: {e}. "
+                    "M1 cannot operate with mock fallback in production."
+                ) from e
+            logger.warning(
+                f"Could not load neural model into memory ({e}). "
+                "Using deterministic mock engine for local development only."
+            )
     yield
     logger.info("Shutting down GroundGuard ML Service...")
 

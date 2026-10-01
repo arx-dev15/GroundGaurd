@@ -24,14 +24,16 @@ export class DocumentRepository {
     fileSize: number;
     mimeType: string;
     filePath: string;
+    status?: DocumentStatus;
   }): Promise<DBDocument> {
     const pool = dbManager.getPool();
     const id = data.id || generateId('doc');
+    const status = data.status || 'uploaded';
     const now = new Date();
 
     const query = `
       INSERT INTO documents (id, project_id, filename, file_size, mime_type, file_path, status, error_message, chunks_count, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, 'uploaded', NULL, 0, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, 0, $8, $9)
       RETURNING id, project_id AS "projectId", filename, file_size AS "fileSize", mime_type AS "mimeType", file_path AS "filePath", status, error_message AS "errorMessage", chunks_count AS "chunksCount", created_at AS "createdAt", updated_at AS "updatedAt";
     `;
 
@@ -42,6 +44,7 @@ export class DocumentRepository {
       data.fileSize,
       data.mimeType,
       data.filePath,
+      status,
       now,
       now,
     ]);

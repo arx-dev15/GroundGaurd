@@ -4,6 +4,7 @@ import { aiClient } from '../clients/ai.client';
 import { verificationOrchestrator } from './verification.orchestrator';
 import { recoveryOrchestrator } from './recovery.orchestrator';
 import { generationEvents } from './generation-events';
+import { logger } from '../utils/logger';
 
 export class GenerationOrchestrator {
   private activeControllers = new Map<string, AbortController>();
@@ -37,7 +38,10 @@ export class GenerationOrchestrator {
     // Fire and forget: the route returns "queued" immediately, this runs in the background.
     this.runPipeline(generation.id).catch((err) => {
       // Reached only if runPipeline's own try/catch failed to write a status, e.g. the DB itself is down.
-      console.error(`[generation ${generation.id}] unhandled pipeline error`, err?.message || err);
+      logger.error('Unhandled pipeline error in generation', {
+        generationId: generation.id,
+        error: err?.message || err,
+      });
     });
 
     return generation;
@@ -68,14 +72,20 @@ export class GenerationOrchestrator {
 
   private static readonly FLAGGED = new Set(['flagged', 'needs_review']);
 
-  private async emitClaimEvents(generationId: string, onlyIds?: Set<string>): Promise<Set<string>> {
+  private async emitClaimEvents(generationId: string, onlyIds?: Set<string>, isRecovery: boolean = false): Promise<Set<string>> {
     const claims = await verificationOrchestrator.getHydratedClaims(generationId);
     const flagged = new Set<string>();
     for (const c of claims) {
       if (onlyIds && !onlyIds.has(c.claimId)) continue;
       const isFlagged = GenerationOrchestrator.FLAGGED.has(c.status);
       if (isFlagged) flagged.add(c.claimId);
-      generationEvents.publish(generationId, isFlagged ? 'sentence.flagged' : 'sentence.verified', {
+
+      let eventName = isFlagged ? 'sentence.flagged' : 'sentence.verified';
+      if (isRecovery) {
+        eventName = isFlagged ? 'sentence.fallback' : 'sentence.recovered';
+      }
+
+      generationEvents.publish(generationId, eventName, {
         claimId: c.claimId,
         text: c.text,
         status: c.status,
@@ -166,7 +176,7 @@ export class GenerationOrchestrator {
         }
         await recoveryOrchestrator.recoverGenerationClaims(generationId, generation.requestId);
         if (flagged.size > 0) {
-          await this.emitClaimEvents(generationId, flagged);
+          await this.emitClaimEvents(generationId, flagged, true);
           generationEvents.publish(generationId, 'recovery.completed', { claims: [...flagged] });
         }
       }
@@ -206,7 +216,10 @@ export class GenerationOrchestrator {
         code: 'GENERATION_FAILED',
         message: err?.message || 'Generation service unavailable',
       });
-      console.error(`[generation ${generationId}] pipeline failed`, err?.message || err);
+      logger.error('Pipeline execution failed for generation', {
+        generationId,
+        error: err?.message || err,
+      });
     } finally {
       this.activeControllers.delete(generationId);
     }
@@ -439,7 +452,7 @@ export class GenerationOrchestrator {
         }
         await recoveryOrchestrator.recoverGenerationClaims(generation.id, requestId);
         if (flagged.size > 0) {
-          await this.emitClaimEvents(generation.id, flagged);
+          await this.emitClaimEvents(generation.id, flagged, true);
           generationEvents.publish(generation.id, 'recovery.completed', { claims: [...flagged] });
         }
       }

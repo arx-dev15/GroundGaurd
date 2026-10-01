@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { authenticate } from '../middleware/auth';
 import { projectRepository } from '../repositories/project.repository';
+import { aiClient } from '../clients/ai.client';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 import { Project } from '@groundguard/contracts';
 
@@ -119,5 +120,39 @@ export async function projectRoutes(fastify: FastifyInstance) {
     return reply.status(200).send({
       message: 'Project deleted successfully',
     });
+  });
+
+  // POST /v1/projects/:projectId/retrieve
+  fastify.post('/v1/projects/:projectId/retrieve', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const userId = request.user!.id;
+
+    const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
+    if (!project) {
+      throw new NotFoundError('Project not found');
+    }
+
+    const body = (request.body || {}) as {
+      query?: unknown;
+      topK?: unknown;
+      metadataFilter?: unknown;
+    };
+
+    if (!body || typeof body !== 'object' || typeof body.query !== 'string' || body.query.trim().length === 0) {
+      throw new BadRequestError('query is required and must be a non-empty string');
+    }
+
+    const topK = typeof body.topK === 'number' && Number.isInteger(body.topK) && body.topK > 0 ? body.topK : undefined;
+
+    const retrieveResult = await aiClient.retrieve(
+      {
+        projectId,
+        query: body.query.trim(),
+        topK,
+      },
+      request.requestId
+    );
+
+    return reply.status(200).send(retrieveResult);
   });
 }

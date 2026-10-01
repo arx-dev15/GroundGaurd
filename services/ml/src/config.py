@@ -7,10 +7,11 @@ SERVICE_NAME = "ml"
 
 # Phase 4 Fine-Tuned Model Checkpoint Path
 FINETUNED_PATH = Path(__file__).resolve().parent.parent / "models" / "groundguard-deberta-v1"
-HAS_FINETUNED = (FINETUNED_PATH / "model.safetensors").exists()
+HAS_FINETUNED = (FINETUNED_PATH / "model.safetensors").exists() or (FINETUNED_PATH / "pytorch_model.bin").exists()
 
-DEFAULT_MODEL = str(FINETUNED_PATH)
-DEFAULT_VERSION = "groundguard-deberta-v1-finetuned"
+# If friend's fine-tuned weights exist locally, use them; otherwise use base cross-encoder from HuggingFace
+DEFAULT_MODEL = str(FINETUNED_PATH) if HAS_FINETUNED else "cross-encoder/nli-deberta-v3-small"
+DEFAULT_VERSION = "groundguard-deberta-v1-finetuned" if HAS_FINETUNED else "cross-encoder/nli-deberta-v3-small"
 
 USE_NEURAL_ENGINE = os.getenv("USE_NEURAL_ENGINE", "true").lower() == "true"
 MODEL_NAME = os.getenv("MODEL_NAME", DEFAULT_MODEL)

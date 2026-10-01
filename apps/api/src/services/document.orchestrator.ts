@@ -4,6 +4,7 @@ import { aiClient } from '../clients/ai.client';
 import { saveUploadedFile, deleteStoredFile } from '../utils/storage';
 import { generateId } from '../utils/id';
 import { BadRequestError, NotFoundError, ServiceUnavailableError } from '../utils/errors';
+import { logger } from '../utils/logger';
 import { Document } from '@groundguard/contracts';
 
 function toPublicDocument(dbDoc: DBDocument): Document {
@@ -43,7 +44,7 @@ export class DocumentOrchestrator {
     const docId = generateId('doc');
     const filePath = await saveUploadedFile(data.projectId, docId, data.fileBuffer);
 
-    // Insert initial document record in PostgreSQL ('uploaded') with real filePath
+    // Atomically insert document record with status 'processing'
     const tempDoc = await documentRepository.createDocument({
       id: docId,
       projectId: data.projectId,
@@ -51,10 +52,8 @@ export class DocumentOrchestrator {
       fileSize: data.fileSize,
       mimeType: data.mimeType,
       filePath: filePath,
+      status: 'processing',
     });
-
-    // Update with status 'processing'
-    await documentRepository.updateStatus(tempDoc.id, 'processing');
 
     // 3. Invoke M2 AI Service HTTP Ingestion
     let m2IndexingSucceeded = false;
@@ -89,12 +88,22 @@ export class DocumentOrchestrator {
       );
       return toPublicDocument(readyDoc!);
     } catch (err: any) {
+      logger.error('Error during document ingestion pipeline', {
+        documentId: tempDoc.id,
+        projectId: data.projectId,
+        error: err?.message || err,
+      });
+
       // Compensating cleanup: If M2 indexing succeeded but M3 canonical persistence failed, purge M2 derived stores
       if (m2IndexingSucceeded) {
         try {
           await aiClient.deleteDocument(tempDoc.id, data.projectId);
-        } catch (_) {
-          // Compensating cleanup attempt completed
+        } catch (purgeErr: any) {
+          logger.error('Compensating purge failed for document in M2', {
+            documentId: tempDoc.id,
+            projectId: data.projectId,
+            error: purgeErr?.message || purgeErr,
+          });
         }
       }
 
@@ -116,14 +125,23 @@ export class DocumentOrchestrator {
       try {
         await aiClient.deleteDocument(documentId, projectId);
       } catch (err: any) {
+        logger.error('AI Service derived index purge failed', {
+          documentId,
+          projectId,
+          error: err?.message || err,
+        });
         throw new ServiceUnavailableError('AI Service derived index purge failed');
       }
     } else {
       // If failed or uploaded, attempt cleanup in M2 if reachable
       try {
         await aiClient.deleteDocument(documentId, projectId);
-      } catch (_) {
-        // Safe to proceed since unready documents never indexed derived data
+      } catch (err: any) {
+        logger.warn('Cleanup for unready document in M2 completed with warning', {
+          documentId,
+          projectId,
+          error: err?.message || err,
+        });
       }
     }
 

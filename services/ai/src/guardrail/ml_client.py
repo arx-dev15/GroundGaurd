@@ -65,8 +65,12 @@ class MLServiceClient:
             headers["X-Request-ID"] = request_id
 
         payload = {
-            "premise": evidence_text,
-            "hypothesis": conditioned_claim
+            "requestId": request_id,
+            "claimId": f"claim_{int(time.time() * 1000)}",
+            "claim": conditioned_claim,
+            "evidence": [
+                {"chunkId": "ev_chunk_1", "text": evidence_text}
+            ]
         }
 
         try:
