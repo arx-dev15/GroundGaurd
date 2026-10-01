@@ -68,6 +68,10 @@ function toPublicEvidence(e: DBEvidence): Evidence {
 }
 
 function toPublicRecoveryAttempt(r: DBRecoveryAttempt): RecoveryAttempt {
+  let ev: any = undefined;
+  if (r.recoveryEvidence) {
+    ev = typeof r.recoveryEvidence === 'string' ? JSON.parse(r.recoveryEvidence) : r.recoveryEvidence;
+  }
   return {
     id: r.id,
     claimId: r.claimId,
@@ -83,6 +87,7 @@ function toPublicRecoveryAttempt(r: DBRecoveryAttempt): RecoveryAttempt {
     groundingScore: r.groundingScore,
     modelVersion: r.modelVersion,
     recoveryModelVersion: r.recoveryModelVersion,
+    recoveryEvidence: ev,
     createdAt: r.createdAt.toISOString(),
   };
 }

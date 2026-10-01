@@ -27,7 +27,8 @@ User
        │
        ├── Generations
        │      └── Claims
-       │             └── Evidence
+       │             ├── Evidence
+       │             └── Recovery Attempts (claim_recovery_attempts)
        │
        ├── Evaluations
        │
@@ -288,7 +289,51 @@ Claim 1 ─── N Evidence
 
 ---
 
-# 12. Evaluation
+# 12. Claim Recovery Attempt
+
+```text
+ClaimRecoveryAttempt (claim_recovery_attempts)
+```
+
+Introduced in migration `008_claim_recovery_attempts.sql` and enhanced in migration `011_recovery_attempt_evidence.sql`.
+
+Fields:
+
+```text
+id (VARCHAR(64), PK)
+claim_id (VARCHAR(64), FK -> claims.id ON DELETE CASCADE)
+attempt_number (INTEGER, NOT NULL)
+failure_reason (VARCHAR(64), NOT NULL)
+action (VARCHAR(32), NOT NULL)
+original_text (TEXT, NOT NULL)
+candidate_text (TEXT, NULLABLE)
+verification_label (VARCHAR(32), NULLABLE)
+entailment_score (DOUBLE PRECISION, NULLABLE)
+contradiction_score (DOUBLE PRECISION, NULLABLE)
+neutral_score (DOUBLE PRECISION, NULLABLE)
+grounding_score (DOUBLE PRECISION, NULLABLE)
+model_version (VARCHAR(64), NULLABLE)
+recovery_model_version (VARCHAR(64), NULLABLE)
+recovery_evidence (JSONB, NULLABLE) -- Added in migration 011: recovery-specific evidence chunks [{ chunkId, documentId, text, score }]
+created_at (TIMESTAMPTZ, NOT NULL)
+```
+
+Constraints:
+
+```text
+UNIQUE (claim_id, attempt_number)
+INDEX idx_claim_recovery_attempts_claim_id (claim_id)
+```
+
+Relationship:
+
+```text
+Claim 1 ─── N ClaimRecoveryAttempt (ON DELETE CASCADE)
+```
+
+---
+
+# 13. Evaluation
 
 ```text
 Evaluation
@@ -307,7 +352,7 @@ completedAt
 
 ---
 
-# 13. APIKey
+# 14. APIKey
 
 ```text
 APIKey
@@ -327,7 +372,7 @@ revokedAt
 
 ---
 
-# 14. Important Indexes
+# 15. Important Indexes
 
 At minimum:
 
@@ -341,6 +386,7 @@ Generation.projectId
 Generation.requestId
 Generation.conversationId
 Claim.generationId
+ClaimRecoveryAttempt.claimId
 Evidence.claimId
 Evidence.chunkId
 Evaluation.projectId
@@ -349,7 +395,7 @@ APIKey.projectId
 
 ---
 
-# 15. Authorization Rule
+# 16. Authorization Rule
 
 Every project-owned entity must ultimately be traceable to:
 
@@ -361,7 +407,7 @@ M3 must verify ownership before access.
 
 ---
 
-# 16. Important Storage Rule
+# 17. Important Storage Rule
 
 Do not store the entire answer only as one JSON blob.
 
@@ -374,13 +420,14 @@ Claims
  ↓
 Evidence
  ↓
-Verification
+Recovery Attempts (with recovery-specific evidence)
 ```
 
 This enables:
 
 * claim-level UI
 * evidence inspection
+* recovery playback and verification audit
 * metrics
 * retries
 * debugging
@@ -390,7 +437,7 @@ This structured claim/evidence approach is part of the original project design.
 
 ---
 
-# 17. Knowledge & Vector Storage
+# 18. Knowledge & Vector Storage
 
 PostgreSQL is the single canonical source of truth for all persistent application state and canonical chunk text (owned by M3).
 

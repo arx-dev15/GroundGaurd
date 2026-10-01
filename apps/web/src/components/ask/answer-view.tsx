@@ -21,6 +21,7 @@ import {
 import { GroundingRail } from './grounding-rail';
 import { CitationPill } from './citation-pill';
 import { TrustSummary } from './trust-summary';
+import { GroundGuardAnalysis } from './groundguard-analysis';
 import { StatusBadge } from '@/components/trust/status-badge';
 import { CLAIM_STATE_CONFIG } from '@/lib/trust-utils';
 import { Button } from '@/components/ui/button';
@@ -99,35 +100,30 @@ export function AnswerView({
     const isAbstention =
       answerText.includes('does not contain sufficient evidence') ||
       answerText.includes('scoped strictly to') ||
-      answerText.includes('No supported answer');
+      answerText.includes('No supported answer') ||
+      answerText.includes("couldn't answer that from this project") ||
+      answerText.includes('keeps project answers grounded in uploaded evidence');
 
     if (isAbstention) {
       return (
-        <div className={cn('py-2 space-y-3', className)}>
-          <div className="p-4 rounded-xl border border-border/60 bg-muted/20 space-y-2.5">
-            <div className="flex items-start gap-2.5">
-              <div className="p-1.5 rounded-md bg-muted text-muted-foreground shrink-0 mt-0.5">
-                <SearchX className="h-4 w-4" />
-              </div>
-              <div className="space-y-1 flex-1">
-                <h4 className="text-xs font-semibold text-foreground tracking-tight">
-                  Evidence Boundary Notice
-                </h4>
-                <p className="text-xs text-foreground/90 leading-relaxed font-sans">
-                  {answerText}
-                </p>
-              </div>
-            </div>
+        <div className={cn('py-1 space-y-2.5', className)}>
+          <div className="p-4 rounded-xl border border-border/70 bg-card/60 space-y-2">
+            <p className="text-xs sm:text-sm text-foreground font-medium leading-relaxed font-sans">
+              I couldn&apos;t answer that from this project&apos;s sources.
+            </p>
+            <p className="text-xs text-muted-foreground leading-relaxed font-sans">
+              GroundGuard keeps project answers grounded in uploaded evidence.
+            </p>
 
-            <div className="flex items-center gap-2 pt-1 pl-8">
+            <div className="flex items-center gap-2 pt-1">
               {onAskAnother && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={onAskAnother}
-                  className="h-7 text-[11px] px-2.5 gap-1.5"
+                  className="h-7 text-xs px-2.5 font-sans"
                 >
-                  <span>Ask another question</span>
+                  <span>Ask about this project</span>
                 </Button>
               )}
 
@@ -135,12 +131,12 @@ export function AnswerView({
                 asChild
                 variant="ghost"
                 size="sm"
-                className="h-7 text-[11px] px-2.5 gap-1 text-muted-foreground hover:text-foreground"
+                className="h-7 text-xs px-2.5 gap-1.5 text-muted-foreground hover:text-foreground font-sans"
               >
                 <Link href={`/projects/${projectId}/knowledge`}>
-                  <BookOpen className="h-3 w-3" />
-                  <span>View Knowledge Base</span>
-                  <ArrowRight className="h-2.5 w-2.5 ml-0.5" />
+                  <BookOpen className="h-3.5 w-3.5" />
+                  <span>View project knowledge</span>
+                  <ArrowRight className="h-3 w-3 ml-0.5" />
                 </Link>
               </Button>
             </div>
@@ -321,6 +317,14 @@ export function AnswerView({
           })}
         </div>
       </div>
+
+      {/* 3. Completed Analysis Summary: How GroundGuard worked */}
+      <GroundGuardAnalysis
+        mode="completed"
+        claims={claims}
+        evidence={evidencePool}
+        generationStatus={generationStatus}
+      />
     </div>
   );
 }

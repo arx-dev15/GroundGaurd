@@ -68,6 +68,7 @@ export interface DBRecoveryAttempt {
   groundingScore: number | null;
   modelVersion: string | null;
   recoveryModelVersion: string | null;
+  recoveryEvidence?: any;
   createdAt: Date;
 }
 
@@ -106,6 +107,7 @@ const RECOVERY_ATTEMPT_COLS = `id, claim_id AS "claimId", attempt_number AS "att
   entailment_score AS "entailmentScore", contradiction_score AS "contradictionScore",
   neutral_score AS "neutralScore", grounding_score AS "groundingScore",
   model_version AS "modelVersion", recovery_model_version AS "recoveryModelVersion",
+  recovery_evidence AS "recoveryEvidence",
   created_at AS "createdAt"`;
 
 export class GenerationRepository {
@@ -547,6 +549,7 @@ export class GenerationRepository {
     groundingScore?: number | null;
     modelVersion?: string | null;
     recoveryModelVersion?: string | null;
+    recoveryEvidence?: any;
   }): Promise<DBRecoveryAttempt> {
     const pool = dbManager.getPool();
     const id = generateId('rcv');
@@ -556,8 +559,8 @@ export class GenerationRepository {
       `INSERT INTO claim_recovery_attempts
         (id, claim_id, attempt_number, failure_reason, action, original_text, candidate_text,
          verification_label, entailment_score, contradiction_score, neutral_score, grounding_score,
-         model_version, recovery_model_version, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         model_version, recovery_model_version, recovery_evidence, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        ON CONFLICT (claim_id, attempt_number) DO UPDATE
          SET action = EXCLUDED.action,
              candidate_text = EXCLUDED.candidate_text,
@@ -567,13 +570,16 @@ export class GenerationRepository {
              neutral_score = EXCLUDED.neutral_score,
              grounding_score = EXCLUDED.grounding_score,
              model_version = EXCLUDED.model_version,
-             recovery_model_version = EXCLUDED.recovery_model_version
+             recovery_model_version = EXCLUDED.recovery_model_version,
+             recovery_evidence = EXCLUDED.recovery_evidence
        RETURNING ${RECOVERY_ATTEMPT_COLS};`,
       [
         id, data.claimId, data.attemptNumber, data.failureReason, data.action, data.originalText,
         data.candidateText ?? null, data.verificationLabel ?? null, data.entailmentScore ?? null,
         data.contradictionScore ?? null, data.neutralScore ?? null, data.groundingScore ?? null,
-        data.modelVersion ?? null, data.recoveryModelVersion ?? null, now,
+        data.modelVersion ?? null, data.recoveryModelVersion ?? null,
+        data.recoveryEvidence ? JSON.stringify(data.recoveryEvidence) : null,
+        now,
       ]
     );
     return res.rows[0];

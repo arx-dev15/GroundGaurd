@@ -81,7 +81,9 @@ class GenerateRequest(BaseModel):
     generationId: Optional[str] = None
     projectId: str
     query: str
+    conversationId: Optional[str] = None
     options: Optional[Dict[str, Any]] = None
+    conversationContext: Optional[List[Dict[str, Any]]] = None
 
 class ClaimItem(BaseModel):
     claimId: str
@@ -396,10 +398,27 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         )
 
     # Step 1: Internal Phase 4 Retrieval Reuse (direct Python function call)
+    retrieval_query = payload.query
+    if payload.conversationContext and len(payload.conversationContext) > 0:
+        anaphoric_triggers = [
+            "the second", "the first", "which one", "its", "it", "they",
+            "this one", "that one", "the former", "the latter", "both", "either"
+        ]
+        lower_q = payload.query.lower()
+        if any(trig in lower_q for trig in anaphoric_triggers):
+            recent_turns = [t.get("content", "") for t in payload.conversationContext[-2:]]
+            recent_context_str = " ".join(recent_turns)
+            import re
+            tags = re.findall(r'\b(?:[A-Z]{1,4}-[0-9]{1,4}[A-Z]?|[A-Z]{2,}\d+)\b', recent_context_str)
+            if tags:
+                retrieval_query = f"{payload.query} {' '.join(set(tags))}"
+            elif len(recent_turns) > 0:
+                retrieval_query = f"{payload.query} {recent_turns[0][:100]}"
+
     try:
         retrieval_res = retrieve_evidence(
             project_id=payload.projectId,
-            query=payload.query,
+            query=retrieval_query,
             top_k=top_k,
             request_id=req_id
         )
@@ -435,7 +454,11 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
 
     # Step 3: Context Building & Prompt Construction
     context_text, included_items, omitted_items = context_builder.build_context(retrieval_res.results)
-    user_prompt = build_grounded_user_prompt(payload.query, context_text)
+    user_prompt = build_grounded_user_prompt(
+        payload.query,
+        context_text,
+        conversation_context=payload.conversationContext
+    )
 
     # Step 4: Real LLM Inference
     try:

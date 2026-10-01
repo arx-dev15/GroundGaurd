@@ -2,6 +2,8 @@
 GroundGuard Phase 5: Grounded RAG Prompt Construction & Untrusted Boundary
 Implements safe instruction boundaries and engineering-grounded system prompts.
 """
+from typing import Optional, List, Dict, Any
+
 
 UNTRUSTED_CONTEXT_HEADER = "=== BEGIN UNTRUSTED EVIDENCE CONTEXT ==="
 UNTRUSTED_CONTEXT_FOOTER = "=== END UNTRUSTED EVIDENCE CONTEXT ==="
@@ -19,16 +21,33 @@ OPERATIONAL INVARIANTS:
 5. CONCISE & FACTUAL: Keep your response direct, structured, and factual. Do not output conversational filler.
 """
 
-def build_grounded_user_prompt(query: str, evidence_context: str) -> str:
+def build_grounded_user_prompt(
+    query: str,
+    evidence_context: str,
+    conversation_context: Optional[List[Dict[str, Any]]] = None
+) -> str:
     """
     Constructs the user message payload with strict delimitation between query and untrusted evidence.
+    Includes bounded previous conversation turns if provided for pronoun and referent interpretation.
     """
+    context_section = ""
+    if conversation_context and len(conversation_context) > 0:
+        turns_text = "\n".join([
+            f"{turn.get('role', 'user').upper()}: {turn.get('content', '')}"
+            for turn in conversation_context
+        ])
+        context_section = (
+            f"PREVIOUS CONVERSATION CONTEXT (for pronoun/referent resolution only; NOT evidence):\n"
+            f"{turns_text}\n\n"
+        )
+
     return (
+        f"{context_section}"
         f"USER QUESTION:\n"
         f"{query.strip()}\n\n"
         f"RETRIEVED DOCUMENT EVIDENCE:\n"
         f"{evidence_context}\n\n"
-        f"INSTRUCTION: Answer the question above using ONLY facts established in the RETRIEVED DOCUMENT EVIDENCE."
+        f"INSTRUCTION: Answer the question above using ONLY facts established in the RETRIEVED DOCUMENT EVIDENCE. Use previous conversation context only to understand ambiguous references (such as 'the second one' or pronouns), but do not treat conversation history as evidence."
     )
 
 

@@ -354,7 +354,59 @@ DELETE /documents/:documentId
 }
 ```
 
-### Recover Request
+### Generate Request (M3 → M2)
+
+```json
+{
+  "projectId": "project_123",
+  "query": "What voltage does the first one require?",
+  "conversationId": "conv_123",
+  "conversationContext": [
+    {
+      "role": "user",
+      "content": "Compare the DHT11 and BMP280 sensors."
+    },
+    {
+      "role": "assistant",
+      "content": "The DHT11 sensor monitors humidity and ambient temperature, while the BMP280 is a barometric sensor."
+    }
+  ],
+  "topK": 5
+}
+```
+
+#### Conversation Context Semantics:
+- **Ownership**: M3 owns conversation history and message persistence. M2 does not independently read database conversation tables.
+- **Bounded Size**: M3 passes only a bounded recent window (maximum 2 full dialogue turns / 4 messages, capped at 1,000 characters).
+- **Referent Resolution Only**: `conversationContext` is strictly used to resolve anaphoric references, pronouns, and comparative frames during query expansion and prompt generation.
+- **Strict Evidence Isolation**: Conversation history is **NOT** factual evidence. LLM prompts strictly segregate dialogue history from retrieved project evidence blocks. All claims must be entailed by retrieved project chunks.
+
+### Generate Response (M2 → M3)
+
+```json
+{
+  "requestId": "req_123",
+  "answer": "Based on the provided documentation, the DHT11 sensor requires an operating voltage of 3.5V to 5.5V DC.",
+  "claims": [
+    {
+      "claimId": "claim_0",
+      "text": "The DHT11 sensor requires an operating voltage of 3.5V to 5.5V DC.",
+      "status": "pending",
+      "ordinal": 0,
+      "sourceText": "The DHT11 sensor requires an operating voltage of 3.5V to 5.5V DC.",
+      "evidence": [
+        {
+          "chunkId": "chunk_1",
+          "text": "The DHT11 sensor operating voltage is 3.5V to 5.5V DC.",
+          "score": 0.94
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Recover Request (M3 → M2)
 
 ```json
 {
@@ -365,6 +417,32 @@ DELETE /documents/:documentId
   "failureReason": "contradiction"
 }
 ```
+
+### Recover Response (M2 → M3)
+
+```json
+{
+  "requestId": "req_123",
+  "claimId": "claim_1",
+  "status": "recovered",
+  "action": "rephrase",
+  "candidate": "Revenue was ₹50 Cr in 2024.",
+  "recoveryEvidence": [
+    {
+      "chunkId": "chunk_rec_1",
+      "documentId": "doc_123",
+      "text": "Annual revenue reached ₹50 Cr in FY 2024.",
+      "score": 0.89
+    }
+  ]
+}
+```
+
+#### Recovery Evidence Semantics:
+- **Provenance**: `recoveryEvidence` contains candidate chunks specifically retrieved during the recovery workflow.
+- **Separation**: Distinct from baseline original claim evidence.
+- **Persistence & Auditability**: M3 persists `recoveryEvidence` in `claim_recovery_attempts.recovery_evidence` and exposes it in recovery attempt payloads for the frontend `RecoveryPlayback` component.
+- **Verification Rule**: Recovery candidates must still be independently reverified by M1 NLI cross-encoder before the claim can transition to `recovered`.
 
 M2 owns these internal AI contracts.
 

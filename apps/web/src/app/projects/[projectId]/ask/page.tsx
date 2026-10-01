@@ -19,12 +19,15 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import { useShell } from '@/components/layout/shell-context';
+import { useAuth } from '@/lib/auth-context';
 import { useGenerationEvents } from '@/lib/use-generation-events';
 import { Button } from '@/components/ui/button';
 import { AskComposer } from '@/components/ask/ask-composer';
 import { ZeroKnowledgeState } from '@/components/ask/zero-knowledge-state';
 import { AnswerView } from '@/components/ask/answer-view';
 import { AskInspector } from '@/components/ask/ask-inspector';
+import { GroundGuardAnalysis } from '@/components/ask/groundguard-analysis';
 import { ConversationSidebar } from '@/components/ask/conversation-sidebar';
 import { useProjectDocuments } from '@/lib/documents-query';
 import {
@@ -50,6 +53,29 @@ export default function AskPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const shouldReduceMotion = useReducedMotion();
+  const { currentProject } = useShell();
+  const { user } = useAuth();
+
+  const [isStackDegraded, setIsStackDegraded] = React.useState(false);
+
+  const checkReadiness = React.useCallback(async () => {
+    try {
+      const res = await apiClient.get<any>('/health/readiness');
+      if (res?.status === 'degraded' || res?.status === 'error') {
+        setIsStackDegraded(true);
+      } else {
+        setIsStackDegraded(false);
+      }
+    } catch {
+      setIsStackDegraded(true);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    checkReadiness();
+    const interval = setInterval(checkReadiness, 15000);
+    return () => clearInterval(interval);
+  }, [checkReadiness]);
 
   const projectId = (params?.projectId as string) || '';
   const convParam = searchParams.get('c');
@@ -350,13 +376,41 @@ export default function AskPage() {
     setInspectorOpen(true);
   };
 
-  const isHeroState = !activeConversationId && messages.length === 0;
+  const cleanMessages = React.useMemo(() => {
+    return messages.filter((m) => {
+      if (m.role === 'assistant') {
+        const c = m.content.toLowerCase();
+        if (
+          c.includes('groundguard was unable to complete grounded verification') ||
+          c.includes('generation service unavailable') ||
+          c.includes('service is temporarily unreachable')
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [messages]);
+
+  const isHeroState = !activeConversationId || cleanMessages.length === 0;
+
+  const displayName = user?.name || (user as any)?.displayName || null;
+  const projectName = currentProject?.name || 'this project';
+  const greetingHeading = displayName
+    ? `Hey, ${displayName} — what do you want to verify in ${projectName}?`
+    : `Welcome back. What do you want to explore in ${projectName}?`;
+
+  const docNames = readyDocuments.slice(0, 2).map((d) => d.filename);
+  let greetingSub = `${readyDocuments.length} project ${readyDocuments.length === 1 ? 'document is' : 'documents are'} ready for grounded questions.`;
+  if (docNames.length > 0 && docNames.length <= 2) {
+    greetingSub = `${docNames.join(' and ')} ${docNames.length === 1 ? 'is' : 'are'} ready.`;
+  }
 
   // Auto-scroll messages container to bottom on update
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, isSubmitting, generationError]);
+  }, [cleanMessages.length, isSubmitting, generationError]);
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
@@ -395,7 +449,7 @@ export default function AskPage() {
           </div>
         ) : isHeroState ? (
           // ============================================================
-          // NEW CONVERSATION STATE (Clean Composer Surface)
+          // NEW CONVERSATION STATE (Personalized Hero Entry Experience)
           // ============================================================
           <div className="flex-1 flex flex-col justify-center items-center p-6 sm:p-12 overflow-y-auto">
             <motion.div
@@ -410,13 +464,32 @@ export default function AskPage() {
               </div>
 
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground font-sans">
-                Ask your knowledge
+                {greetingHeading}
               </h1>
 
               <p className="text-xs sm:text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
-                GroundGuard retrieves evidence from this project&apos;s ready knowledge and verifies factual claims in the response.
+                {readyDocuments.length > 0
+                  ? greetingSub
+                  : 'GroundGuard answers from evidence in this project once documents are uploaded.'}
               </p>
+
+              <div className="text-[11px] text-muted-foreground/75 font-mono">
+                Ask a question, compare sources, verify a claim, or trace the evidence.
+              </div>
             </motion.div>
+
+            {/* Degraded service notice if AI/ML stack unavailable */}
+            {isStackDegraded && (
+              <div className="w-full max-w-xl mb-4 p-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>GroundGuard is temporarily unavailable for new answers.</span>
+                </div>
+                <Button variant="ghost" size="sm" onClick={checkReadiness} className="h-6 text-[11px] px-2">
+                  Check again
+                </Button>
+              </div>
+            )}
 
             {/* Dominant Hero Composer */}
             <AskComposer
@@ -426,6 +499,7 @@ export default function AskPage() {
               onSubmit={() => handleSubmit()}
               isLoading={isSubmitting}
               readyDocuments={readyDocuments}
+              disabled={isStackDegraded}
               onSelectExample={(text) => {
                 setInputValue(text);
                 handleSubmit(text);
@@ -485,7 +559,15 @@ export default function AskPage() {
             {/* Transcript Messages Scroll Area: Centered Reading Column */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin">
               <div className="max-w-[760px] mx-auto w-full space-y-6">
-                {messages.map((msg, index) => {
+                {cleanMessages.length > 0 && (
+                  <div className="flex justify-center pb-2">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 bg-muted/30 border border-border/30 px-2.5 py-0.5 rounded-full select-none">
+                      Continue where you left off
+                    </span>
+                  </div>
+                )}
+
+                {cleanMessages.map((msg, index) => {
                   const isUser = msg.role === 'user';
                   const assistantClaims = msg.generationId ? generationClaimsMap[msg.generationId] || [] : [];
 
@@ -553,11 +635,10 @@ export default function AskPage() {
                         <span>Cancel</span>
                       </Button>
                     </div>
-                    <div className="p-4 rounded-xl border border-border/60 bg-card/30 space-y-2">
-                      <div className="h-4 w-3/4 rounded bg-muted/60 animate-pulse" />
-                      <div className="h-4 w-5/6 rounded bg-muted/40 animate-pulse" />
-                      <div className="h-4 w-2/3 rounded bg-muted/30 animate-pulse" />
-                    </div>
+                    <GroundGuardAnalysis
+                      mode="live"
+                      currentStage={statusLabel}
+                    />
                   </div>
                 )}
 
@@ -568,10 +649,10 @@ export default function AskPage() {
                       <AlertCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
                       <div className="space-y-1 flex-1">
                         <h4 className="text-sm font-semibold text-foreground">
-                          We couldn&apos;t generate this answer.
+                          GroundGuard can&apos;t generate a grounded answer right now.
                         </h4>
                         <p className="text-xs text-muted-foreground leading-relaxed">
-                          {generationError.message}
+                          Your question is safe. Try again in a moment.
                         </p>
                       </div>
                     </div>
@@ -593,7 +674,7 @@ export default function AskPage() {
                           onClick={() => setShowErrorDetails(!showErrorDetails)}
                           className="text-[11px] font-mono text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors"
                         >
-                          <span>{showErrorDetails ? 'Hide details' : 'View details'}</span>
+                          <span>{showErrorDetails ? 'Hide advanced details' : 'Advanced details'}</span>
                           {showErrorDetails ? (
                             <ChevronUp className="h-3 w-3" />
                           ) : (
@@ -626,7 +707,18 @@ export default function AskPage() {
 
             {/* Persistent Compact Bottom Composer */}
             <div className="p-3 sm:p-4 border-t border-border/60 bg-background/95 backdrop-blur-sm shrink-0">
-              <div className="max-w-[760px] mx-auto w-full">
+              <div className="max-w-[760px] mx-auto w-full space-y-2">
+                {isStackDegraded && (
+                  <div className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      <span>GroundGuard is temporarily unavailable for new answers.</span>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={checkReadiness} className="h-6 text-[11px] px-2">
+                      Check again
+                    </Button>
+                  </div>
+                )}
                 <AskComposer
                   mode="compact"
                   value={inputValue}
@@ -634,6 +726,7 @@ export default function AskPage() {
                   onSubmit={() => handleSubmit()}
                   isLoading={isSubmitting}
                   readyDocuments={readyDocuments}
+                  disabled={isStackDegraded}
                 />
               </div>
             </div>

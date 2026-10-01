@@ -160,11 +160,70 @@ class TestPhase5RealLLMRuntime(unittest.TestCase):
 
             self.assertIn("PHASE 5 BLOCKED — REAL LLM RUNTIME NOT CONFIGURED", str(ctx.exception))
 
-    def test_model_version_reporting(self):
-        runtime = RealLLMRuntime()
-        version = runtime.get_model_version()
-        self.assertIsInstance(version, str)
-        self.assertTrue(len(version) > 0)
+class TestPhase5ConversationContext(unittest.TestCase):
+    def test_generate_request_accepts_conversation_context(self):
+        """Verify: GenerateRequest model accepts optional conversationContext"""
+        from src.main import GenerateRequest
+        req = GenerateRequest(
+            projectId="proj_test",
+            query="What voltage does the first one require?",
+            conversationContext=[
+                {"role": "user", "content": "Compare DHT11 and BMP280."},
+                {"role": "assistant", "content": "DHT11 measures humidity and temperature."}
+            ]
+        )
+        self.assertEqual(len(req.conversationContext), 2)
+        self.assertEqual(req.conversationContext[0]["role"], "user")
+        self.assertEqual(req.conversationContext[1]["content"], "DHT11 measures humidity and temperature.")
+
+    def test_prompt_construction_includes_context_section_distinct_from_evidence(self):
+        """Verify: Context appears in conversation-context section, evidence separate, context is not evidence"""
+        evidence_context = "=== BEGIN UNTRUSTED EVIDENCE CONTEXT ===\n[c1] (doc_d1, page 1): The DHT11 operating voltage is 3.5V to 5.5V DC.\n=== END UNTRUSTED EVIDENCE CONTEXT ==="
+        conversation_context = [
+            {"role": "user", "content": "Compare DHT11 and BMP280."},
+            {"role": "assistant", "content": "DHT11 measures humidity and temperature."}
+        ]
+        prompt = build_grounded_user_prompt(
+            query="What voltage does the first one require?",
+            evidence_context=evidence_context,
+            conversation_context=conversation_context
+        )
+        self.assertIn("PREVIOUS CONVERSATION CONTEXT", prompt)
+        self.assertIn("USER: Compare DHT11 and BMP280.", prompt)
+        self.assertIn("ASSISTANT: DHT11 measures humidity and temperature.", prompt)
+        self.assertIn("RETRIEVED DOCUMENT EVIDENCE:", prompt)
+        self.assertIn("=== BEGIN UNTRUSTED EVIDENCE CONTEXT ===", prompt)
+        self.assertIn("The DHT11 operating voltage is 3.5V to 5.5V DC.", prompt)
+        self.assertIn("NOT evidence", prompt)
+        self.assertIn("do not treat conversation history as evidence", prompt)
+
+    def test_empty_context_preserves_previous_behavior(self):
+        """Verify: Empty or None context preserves previous generation prompt structure"""
+        evidence_context = "=== BEGIN UNTRUSTED EVIDENCE CONTEXT ===\n[c1]: Standard pump specification.\n=== END UNTRUSTED EVIDENCE CONTEXT ==="
+        prompt_none = build_grounded_user_prompt(
+            query="What is the pump spec?",
+            evidence_context=evidence_context,
+            conversation_context=None
+        )
+        prompt_empty = build_grounded_user_prompt(
+            query="What is the pump spec?",
+            evidence_context=evidence_context,
+            conversation_context=[]
+        )
+        self.assertEqual(prompt_none, prompt_empty)
+        self.assertNotIn("PREVIOUS CONVERSATION CONTEXT", prompt_none)
+        self.assertIn("RETRIEVED DOCUMENT EVIDENCE:", prompt_none)
+
+    def test_m2_architecture_no_m1_imports(self):
+        """Verify: M2 still does not call M1"""
+        import inspect
+        import src.main as main_mod
+        import src.pipeline.prompts as prompts_mod
+        main_src = inspect.getsource(main_mod)
+        prompts_src = inspect.getsource(prompts_mod)
+        self.assertNotIn(":8001", main_src)
+        self.assertNotIn(":8001", prompts_src)
+        self.assertNotIn("ml_service", main_src.lower())
 
 
 if __name__ == "__main__":

@@ -174,6 +174,11 @@ export interface Claim {
 export type ClaimItem = Claim;
 
 // Request & Response Payload Contracts
+export interface ConversationContextTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface GenerationRequestOptions {
   stream?: boolean;
   maxRecoveryAttempts?: number;
@@ -183,6 +188,7 @@ export interface GenerationRequest {
   query: string;
   conversationId?: string;
   options?: GenerationRequestOptions;
+  conversationContext?: ConversationContextTurn[];
 }
 
 export interface GenerationMetadata {
@@ -394,6 +400,12 @@ export interface RecoveryAttempt {
   groundingScore?: number | null;
   modelVersion?: string | null;
   recoveryModelVersion?: string | null;
+  recoveryEvidence?: Array<{
+    chunkId: string;
+    documentId?: string;
+    text: string;
+    score?: number;
+  }>;
   createdAt: string;
 }
 

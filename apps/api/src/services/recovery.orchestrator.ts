@@ -215,6 +215,7 @@ export class RecoveryOrchestrator {
         groundingScore: decision.groundingScore,
         modelVersion: m1ModelVersion,
         recoveryModelVersion,
+        recoveryEvidence,
       });
 
       // 5. Section 19 & 20: Only if final result is entailment -> status = recovered

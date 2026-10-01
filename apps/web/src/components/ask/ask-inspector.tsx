@@ -30,6 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatusBadge } from '@/components/trust/status-badge';
+import { SelectedClaimHero } from '@/components/trust/selected-claim-hero';
 import { useClaimRecoveryAttempts, useRetryClaim } from '@/lib/conversations-query';
 import { CLAIM_STATE_CONFIG, formatGroundingScore } from '@/lib/trust-utils';
 import { cn } from '@/lib/utils';
@@ -242,183 +243,18 @@ export function AskInspector({
           {/* ============================================================ */}
           {/* Tab 1: Claim Overview + Central Editorial Comparison         */}
           {/* ============================================================ */}
-          <TabsContent value="claim" className="flex-1 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin">
-            {/* Accepted Claim Statement */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                Claim Statement
-              </span>
-              <div className="p-3 rounded-lg border border-border/70 bg-background/80 text-xs text-foreground leading-relaxed font-sans select-text">
-                {claim.text}
-              </div>
-            </div>
-
-            {/* CENTRAL EDITORIAL COMPARISON: Prominently compare Claim vs Evidence */}
-            {(isContradicted || isNeedsReview || primaryEvidence) && (
-              <div className="space-y-2 p-3 rounded-lg border border-border/80 bg-muted/15">
-                <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <SplitSquareVertical className="h-3 w-3 text-primary" />
-                    <span>Evidence Comparison</span>
-                  </span>
-                  <span
-                    className={cn(
-                      'font-semibold',
-                      isContradicted
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : isNeedsReview
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-emerald-600 dark:text-emerald-400'
-                    )}
-                  >
-                    {isContradicted
-                      ? 'Contradiction detected'
-                      : isNeedsReview
-                      ? 'Inconclusive alignment'
-                      : 'Direct entailment'}
-                  </span>
-                </div>
-
-                <div className="space-y-2 pt-1">
-                  {/* Left/Top: Claim says */}
-                  <div className="p-2 rounded bg-background/60 border border-border/50 text-xs space-y-1">
-                    <div className="text-[10px] font-mono uppercase text-muted-foreground">
-                      Claim statement:
-                    </div>
-                    <p className="text-foreground leading-relaxed">
-                      &ldquo;{claim.text}&rdquo;
-                    </p>
-                  </div>
-
-                  {/* Right/Bottom: Evidence says */}
-                  {primaryEvidence ? (
-                    <div className="p-2 rounded bg-background/60 border border-border/50 text-xs space-y-1">
-                      <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-                        <span className="uppercase">Retrieved evidence says:</span>
-                        <span>
-                          {(primaryEvidence.metadata?.filename as string) ||
-                            (primaryEvidence.metadata?.documentFilename as string) ||
-                            'Source Document'}
-                          {primaryEvidence.pageNumber ? ` · Page ${primaryEvidence.pageNumber}` : ''}
-                        </span>
-                      </div>
-                      <p className="text-foreground/90 italic leading-relaxed select-text">
-                        &ldquo;{primaryEvidence.text}&rdquo;
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="p-2 rounded bg-background/40 border border-dashed border-border/60 text-xs text-muted-foreground italic">
-                      No matching factual premise found in project knowledge.
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Quick Status / Ordinal Grid */}
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-1">
-                <span className="text-[10px] font-mono text-muted-foreground">Verification State</span>
-                <div>
-                  <StatusBadge status={claim.status} size="sm" />
-                </div>
-              </div>
-
-              <div className="p-2.5 rounded-lg border border-border/60 bg-muted/20 space-y-1">
-                <span className="text-[10px] font-mono text-muted-foreground">Sequence Ordinal</span>
-                <div className="text-xs font-mono font-medium text-foreground">
-                  #{((claim.ordinal ?? 0) + 1)} in answer
-                </div>
-              </div>
-            </div>
-
-            {claim.sourceText && claim.sourceText !== claim.text && (
-              <div className="space-y-1.5">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  Candidate Statement (Pre-Recovery)
-                </span>
-                <div className="p-2.5 rounded-lg border border-border/50 bg-muted/30 text-xs text-muted-foreground italic leading-relaxed select-text">
-                  {claim.sourceText}
-                </div>
-              </div>
-            )}
-
-            {/* Retry Action Banner for Flagged / Needs Review claims */}
-            {isEligibleForRetry && (
-              <div className="p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 space-y-2">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  <span>Action Required</span>
-                </div>
-                <p className="text-[11px] text-foreground/80 leading-relaxed">
-                  This claim did not satisfy canonical entailment. You can request targeted re-verification and bounded recovery against project knowledge.
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRetry}
-                  disabled={retryMutation.isPending}
-                  className="w-full h-7 text-xs gap-1.5 border-amber-500/40 hover:bg-amber-500/20"
-                >
-                  {retryMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-3 w-3 animate-spin text-amber-600" />
-                      <span>Recovering claim...</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-                      <span>Retry recovery</span>
-                    </>
-                  )}
-                </Button>
-                {retryError && (
-                  <div className="text-[10px] text-rose-600 dark:text-rose-400 font-mono">
-                    {retryError}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Quick Sources Summary */}
-            {evidenceList.length > 0 && (
-              <div className="space-y-2 pt-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                    Supporting Evidence ({evidenceList.length})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('evidence')}
-                    className="text-[11px] text-primary hover:underline font-mono"
-                  >
-                    View all
-                  </button>
-                </div>
-                <div className="space-y-1.5">
-                  {evidenceList.map((ev, i) => (
-                    <button
-                      key={ev.chunkId || i}
-                      type="button"
-                      onClick={() => setActiveTab('evidence')}
-                      className="w-full text-left p-2 rounded border border-border/50 bg-muted/20 hover:bg-muted/50 transition-colors flex items-center justify-between text-xs"
-                    >
-                      <span className="truncate font-medium text-foreground flex items-center gap-1.5">
-                        <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
-                        <span className="truncate">
-                          {(ev.metadata?.filename as string) || (ev.metadata?.documentFilename as string) || 'Knowledge Document'}
-                        </span>
-                      </span>
-                      {(ev.pageNumber || (ev.metadata?.pageNumber as number)) && (
-                        <span className="text-[10px] font-mono text-muted-foreground shrink-0 ml-2">
-                          p. {ev.pageNumber ?? (ev.metadata?.pageNumber as number)}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+          <TabsContent value="claim" className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 m-0 scrollbar-thin">
+            <SelectedClaimHero
+              claim={claim}
+              selectedEvidence={selectedEvidence || primaryEvidence}
+              recoveryAttempts={recoveryAttempts}
+              projectId={projectId}
+              generationId={generationId}
+              generationMetadata={generationMetadata}
+              onRetry={handleRetry}
+              isRetrying={retryMutation.isPending}
+              onOpenAnswer={onOpenAnswer}
+            />
           </TabsContent>
 
           {/* ============================================================ */}

@@ -38,6 +38,17 @@ export class ProjectRepository {
     return res.rows;
   }
 
+  public async findProjectById(id: string): Promise<DBProject | null> {
+    const pool = dbManager.getPool();
+    const query = `
+      SELECT id, user_id AS "userId", name, description, created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM projects
+      WHERE id = $1;
+    `;
+    const res = await pool.query(query, [id]);
+    return res.rows[0] || null;
+  }
+
   public async findProjectByIdAndUserId(id: string, userId: string): Promise<DBProject | null> {
     const pool = dbManager.getPool();
     const query = `

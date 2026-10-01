@@ -264,13 +264,27 @@ export class GenerationOrchestrator {
     const HELP_REGEX = /^\s*(?:what\s+(?:can|should|to)\s+(?:i|we)\s+ask(?:\s+you)?|what\s+to\s+ask|how\s+(?:do\s+i\s+use\s+this|does\s+(?:this|groundguard)\s+work)|what\s+can\s+you\s+do|what\s+are\s+your\s+capabilities|how\s+can\s+you\s+help|what\s+documents\s+do\s+i\s+have|what\s+is\s+groundguard|help|help\s+me|explain\s+groundguard)[\s!.,?]*$/i;
 
     if (GREETING_REGEX.test(cleanQuery) || THANKS_REGEX.test(cleanQuery) || FAREWELL_REGEX.test(cleanQuery) || ACK_REGEX.test(cleanQuery)) {
-      let reply = "Hey! What would you like to explore in this project? I can help you ask questions from your uploaded knowledge, compare sources, or find evidence for a claim.";
+      const { projectRepository } = await import('../repositories/project.repository');
+      const { documentRepository } = await import('../repositories/document.repository');
+      const project = await projectRepository.findProjectById(data.projectId);
+      const docs = await documentRepository.listDocumentsByProjectId(data.projectId);
+      const readyDocs = docs.filter((d) => d.status === 'ready');
+      const readyCount = readyDocs.length;
+      const projectName = project?.name || 'this project';
+
+      let reply: string;
       if (THANKS_REGEX.test(cleanQuery)) {
         reply = "You're welcome! Let me know if you need any more evidence-backed answers from your project knowledge.";
       } else if (FAREWELL_REGEX.test(cleanQuery)) {
         reply = "Goodbye! Whenever you need to investigate technical claims or documentation, I'll be here.";
       } else if (ACK_REGEX.test(cleanQuery)) {
         reply = "Sounds good! Whenever you're ready, ask a question about your project documents.";
+      } else {
+        if (readyCount > 0) {
+          reply = `Ask anything about ${projectName}. ${readyCount} project ${readyCount === 1 ? 'document is' : 'documents are'} ready for grounded questions.`;
+        } else {
+          reply = `Ask anything about ${projectName}. GroundGuard will answer from the evidence in this project once documents are uploaded.`;
+        }
       }
 
       const totalLatencyMs = Date.now() - startedAt;
@@ -358,12 +372,39 @@ export class GenerationOrchestrator {
 
     // 3. Substantive Question: Invoke M2 Grounded Pipeline (Retrieval -> Sufficiency -> Generation -> Claims -> Verification)
     try {
+      // Fetch bounded recent conversation history for interpretation context (last 4 turns, max 1000 chars)
+      let conversationContext: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+      try {
+        const priorMessages = await conversationRepository.listMessagesByConversationId(data.conversationId);
+        const validPrior = priorMessages
+          .filter(
+            (m) =>
+              m.id !== userMsg.id &&
+              !m.content.startsWith('GroundGuard was unable') &&
+              !m.content.startsWith('Generation service unavailable')
+          )
+          .slice(-4);
+
+        let totalChars = 0;
+        for (const m of validPrior) {
+          if (totalChars + m.content.length > 1000) break;
+          conversationContext.push({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          });
+          totalChars += m.content.length;
+        }
+      } catch (_) {
+        // Fallback: continue without context if prior message fetch fails
+      }
+
       const result = await aiClient.generate({
         projectId: data.projectId,
         query: data.query,
         requestId,
         generationId: generation.id,
         conversationId: data.conversationId,
+        conversationContext: conversationContext.length > 0 ? conversationContext : undefined,
       });
 
       const totalLatencyMs = Date.now() - startedAt;
@@ -381,14 +422,9 @@ export class GenerationOrchestrator {
           completedAt: new Date(),
         });
 
-        const fallbackText =
-          result.error?.message ||
-          'GroundGuard was unable to generate an answer for this question. Please try rephrasing or check your knowledge base.';
-        const assistantMsg = await conversationRepository.createMessage({
-          conversationId: data.conversationId,
-          role: 'assistant',
-          content: fallbackText,
-          generationId: generation.id,
+        generationEvents.publish(generation.id, 'generation.failed', {
+          code,
+          message,
         });
 
         return {
@@ -396,7 +432,6 @@ export class GenerationOrchestrator {
           generationId: generation.id,
           conversationId: data.conversationId,
           status: 'failed' as const,
-          answer: fallbackText,
           evidence: result.evidence ?? [],
           sufficiency: result.sufficiency,
           modelVersion: result.modelVersion,
@@ -412,14 +447,7 @@ export class GenerationOrchestrator {
             content: userMsg.content,
             createdAt: userMsg.createdAt.toISOString(),
           },
-          message: {
-            id: assistantMsg.id,
-            conversationId: assistantMsg.conversationId,
-            role: assistantMsg.role,
-            content: assistantMsg.content,
-            generationId: assistantMsg.generationId ?? undefined,
-            createdAt: assistantMsg.createdAt.toISOString(),
-          },
+          message: null as any,
         };
       }
 
@@ -488,11 +516,23 @@ export class GenerationOrchestrator {
         message: persisted.assistantMessage,
       };
     } catch (err: any) {
+      const errStr = (err.message || '').toLowerCase();
+      let code = 'SERVICE_UNAVAILABLE';
+      if (errStr.includes('ai') || errStr.includes('inference') || errStr.includes('8000')) {
+        code = 'AI_SERVICE_UNAVAILABLE';
+      } else if (errStr.includes('ml') || errStr.includes('verif') || errStr.includes('8001') || errStr.includes('deberta')) {
+        code = 'VERIFICATION_SERVICE_UNAVAILABLE';
+      } else if (errStr.includes('retriev') || errStr.includes('qdrant') || errStr.includes('tantivy')) {
+        code = 'RETRIEVAL_UNAVAILABLE';
+      } else if (errStr.includes('gemini') || errStr.includes('provider')) {
+        code = 'GENERATION_PROVIDER_UNAVAILABLE';
+      }
+
       const totalLatencyMs = Date.now() - startedAt;
       await generationRepository
         .updateGeneration(generation.id, {
           status: 'failed',
-          errorCode: 'SERVICE_UNAVAILABLE',
+          errorCode: code,
           errorMessage: err.message || 'Generation service unavailable',
           totalLatencyMs,
           completedAt: new Date(),
@@ -500,18 +540,8 @@ export class GenerationOrchestrator {
         .catch(() => {});
 
       generationEvents.publish(generation.id, 'generation.failed', {
-        code: 'SERVICE_UNAVAILABLE',
+        code,
         message: err.message || 'Generation service unavailable',
-      });
-
-      const fallbackText =
-        'GroundGuard was unable to complete grounded verification because the AI inference service is temporarily unreachable. Please check that the service is running, or retry your question.';
-
-      const assistantMsg = await conversationRepository.createMessage({
-        conversationId: data.conversationId,
-        role: 'assistant',
-        content: fallbackText,
-        generationId: generation.id,
       });
 
       return {
@@ -519,11 +549,10 @@ export class GenerationOrchestrator {
         generationId: generation.id,
         conversationId: data.conversationId,
         status: 'failed' as const,
-        answer: fallbackText,
         evidence: [],
         claims: [],
         error: {
-          code: 'SERVICE_UNAVAILABLE',
+          code,
           message: err.message || 'Generation service unavailable',
         },
         userMessage: {
@@ -533,14 +562,7 @@ export class GenerationOrchestrator {
           content: userMsg.content,
           createdAt: userMsg.createdAt.toISOString(),
         },
-        message: {
-          id: assistantMsg.id,
-          conversationId: assistantMsg.conversationId,
-          role: assistantMsg.role,
-          content: assistantMsg.content,
-          generationId: assistantMsg.generationId ?? undefined,
-          createdAt: assistantMsg.createdAt.toISOString(),
-        },
+        message: null as any,
       };
     }
   }
