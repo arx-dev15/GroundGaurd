@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate } from '../middleware/auth';
+import { authenticate, assertProjectAuthorized } from '../middleware/auth';
+import { generationRateLimiter, claimRetryRateLimiter } from '../middleware/rate-limit';
 import { projectRepository } from '../repositories/project.repository';
 import { conversationRepository } from '../repositories/conversation.repository';
 import {
@@ -90,12 +91,13 @@ export async function generationRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authenticate);
 
   // POST /v1/projects/:projectId/generations
-  fastify.post('/v1/projects/:projectId/generations', async (request, reply) => {
+  fastify.post('/v1/projects/:projectId/generations', { preHandler: [generationRateLimiter] }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
     const userId = request.user!.id;
 
     const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
 
     const body = request.body as {
       query?: unknown;
@@ -146,6 +148,7 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const generation = await generationRepository.findGenerationByIdAndUserId(generationId, userId);
     if (!generation) throw new NotFoundError('Generation not found');
+    assertProjectAuthorized(request, generation.projectId);
 
     return reply.status(200).send(toGenerationResult(generation));
   });
@@ -157,6 +160,7 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const generation = await generationRepository.findGenerationByIdAndUserId(generationId, userId);
     if (!generation) throw new NotFoundError('Generation not found');
+    assertProjectAuthorized(request, generation.projectId);
 
     const claims = await generationRepository.listClaimsByGenerationId(generationId);
     const withEvidence = await Promise.all(
@@ -173,6 +177,8 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const claim = await generationRepository.findClaimByIdAndUserId(claimId, userId);
     if (!claim) throw new NotFoundError('Claim not found');
+    const gen = await generationRepository.findGenerationById(claim.generationId);
+    if (gen) assertProjectAuthorized(request, gen.projectId);
 
     const evidence = await generationRepository.listEvidenceByClaimId(claim.id);
     return reply.status(200).send({ claim: toPublicClaim(claim, evidence) });
@@ -185,6 +191,8 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const claim = await generationRepository.findClaimByIdAndUserId(claimId, userId);
     if (!claim) throw new NotFoundError('Claim not found');
+    const gen = await generationRepository.findGenerationById(claim.generationId);
+    if (gen) assertProjectAuthorized(request, gen.projectId);
 
     const evidence = await generationRepository.listEvidenceByClaimId(claim.id);
     return reply.status(200).send({ evidence: evidence.map(toPublicEvidence) });
@@ -197,6 +205,8 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const claim = await generationRepository.findClaimByIdAndUserId(claimId, userId);
     if (!claim) throw new NotFoundError('Claim not found');
+    const gen = await generationRepository.findGenerationById(claim.generationId);
+    if (gen) assertProjectAuthorized(request, gen.projectId);
 
     const attempts = await generationRepository.listRecoveryAttemptsByClaimId(claim.id);
     return reply.status(200).send({ recoveryAttempts: attempts.map(toPublicRecoveryAttempt) });
@@ -216,6 +226,7 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const generation = await generationRepository.findGenerationById(claim.generationId);
     if (!generation) throw new NotFoundError('Generation not found');
+    assertProjectAuthorized(request, generation.projectId);
 
     const existingEvidence = await generationRepository.listEvidenceByClaimId(claim.id);
     const existingAttempts = await generationRepository.listRecoveryAttemptsByClaimId(claim.id);
@@ -253,6 +264,7 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const generation = await generationRepository.findGenerationByIdAndUserId(generationId, userId);
     if (!generation) throw new NotFoundError('Generation not found');
+    assertProjectAuthorized(request, generation.projectId);
 
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -273,7 +285,12 @@ export async function generationRoutes(fastify: FastifyInstance) {
     if (generationEvents.isTerminal(generationId) || generation.status === 'completed' || generation.status === 'failed' || generation.status === 'cancelled') {
       if (history.length === 0) {
         const terminalEvent = generation.status === 'completed' ? 'generation.completed' : 'generation.failed';
-        reply.raw.write(`id: 1\nevent: ${terminalEvent}\ndata: ${JSON.stringify({ generationId, answer: generation.answer })}\n\n`);
+        const terminalData: Record<string, unknown> = { generationId, answer: generation.answer };
+        if (generation.status === 'cancelled') {
+          terminalData.code = 'GENERATION_CANCELLED';
+          terminalData.message = 'Generation was cancelled by user';
+        }
+        reply.raw.write(`id: 1\nevent: ${terminalEvent}\ndata: ${JSON.stringify(terminalData)}\n\n`);
       }
       reply.raw.end();
       return;
@@ -298,6 +315,7 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     const generation = await generationRepository.findGenerationByIdAndUserId(generationId, userId);
     if (!generation) throw new NotFoundError('Generation not found');
+    assertProjectAuthorized(request, generation.projectId);
 
     const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
     if (TERMINAL_STATUSES.has(generation.status)) {

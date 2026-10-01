@@ -13,16 +13,30 @@ export interface AuthenticatedUserContext {
   name: string;
 }
 
+export interface ApiKeyContext {
+  id: string;
+  projectId: string | null;
+}
+
 declare module 'fastify' {
   interface FastifyRequest {
     user?: AuthenticatedUserContext;
+    apiKey?: ApiKeyContext;
+  }
+}
+
+export function assertProjectAuthorized(request: FastifyRequest, projectId: string): void {
+  if (request.apiKey && request.apiKey.projectId && request.apiKey.projectId !== projectId) {
+    throw new AppError('FORBIDDEN', 'API key is not authorized to access this project', 403);
   }
 }
 
 export async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const authHeader = request.headers.authorization;
+  const isBearerKey = authHeader?.startsWith('Bearer gg_');
   const rawApiKey = (request.headers['x-api-key'] as string | undefined) ||
-    (authHeader?.startsWith('ApiKey ') ? authHeader.substring(7).trim() : undefined);
+    (authHeader?.startsWith('ApiKey ') ? authHeader.substring(7).trim() : undefined) ||
+    (isBearerKey ? authHeader?.substring(7).trim() : undefined);
 
   if (rawApiKey) {
     const keyHash = crypto.createHash('sha256').update(rawApiKey.trim()).digest('hex');
@@ -42,6 +56,10 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
       id: dbUser.id,
       email: dbUser.email,
       name: dbUser.name,
+    };
+    request.apiKey = {
+      id: apiKey.id,
+      projectId: apiKey.projectId,
     };
     return;
   }

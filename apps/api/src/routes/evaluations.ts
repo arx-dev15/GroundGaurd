@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate } from '../middleware/auth';
+import { authenticate, assertProjectAuthorized } from '../middleware/auth';
 import { evaluationRepository, DBEvaluation, DBEvaluationResult } from '../repositories/evaluation.repository';
 import { projectRepository } from '../repositories/project.repository';
 import { mlClient } from '../clients/ml.client';
@@ -81,6 +81,7 @@ export async function evaluationRoutes(fastify: FastifyInstance) {
 
     const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
 
     const metrics = await evaluationRepository.computeProjectMetrics(projectId);
     const res: ProjectMetricsResponse = {
@@ -107,6 +108,7 @@ export async function evaluationRoutes(fastify: FastifyInstance) {
 
     const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
 
     const evaluations = await evaluationRepository.listEvaluationsByProjectId(projectId, userId);
     return reply.status(200).send({ evaluations: evaluations.map(toPublicEvaluation) });
@@ -119,6 +121,7 @@ export async function evaluationRoutes(fastify: FastifyInstance) {
 
     const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
 
     const body = request.body as { name?: unknown; dataset?: unknown };
     if (!body || typeof body !== 'object') {
@@ -126,6 +129,9 @@ export async function evaluationRoutes(fastify: FastifyInstance) {
     }
     if (typeof body.name !== 'string' || body.name.trim().length === 0) {
       throw new BadRequestError('name is required and must be a non-empty string');
+    }
+    if (body.name.length > 255) {
+      throw new BadRequestError('name must not exceed 255 characters');
     }
 
     const evalRecord = await evaluationRepository.createEvaluation({
@@ -231,6 +237,7 @@ export async function evaluationRoutes(fastify: FastifyInstance) {
 
     const evaluation = await evaluationRepository.findEvaluationByIdAndUserId(evaluationId, userId);
     if (!evaluation) throw new NotFoundError('Evaluation not found');
+    assertProjectAuthorized(request, evaluation.projectId);
 
     return reply.status(200).send({ evaluation: toPublicEvaluation(evaluation) });
   });
@@ -242,6 +249,7 @@ export async function evaluationRoutes(fastify: FastifyInstance) {
 
     const evaluation = await evaluationRepository.findEvaluationByIdAndUserId(evaluationId, userId);
     if (!evaluation) throw new NotFoundError('Evaluation not found');
+    assertProjectAuthorized(request, evaluation.projectId);
 
     const results = await evaluationRepository.listResultsByEvaluationId(evaluationId, userId);
     return reply.status(200).send({ results: results.map(toPublicEvaluationResult) });

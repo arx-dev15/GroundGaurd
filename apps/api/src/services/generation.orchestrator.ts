@@ -44,6 +44,8 @@ export class GenerationOrchestrator {
   }
 
   public async cancelGeneration(generationId: string): Promise<DBGeneration> {
+    generationEvents.markCancelled(generationId);
+
     const controller = this.activeControllers.get(generationId);
     if (controller) {
       controller.abort();
@@ -91,6 +93,8 @@ export class GenerationOrchestrator {
     const generation = await generationRepository.findGenerationById(generationId);
     if (!generation) return; // shouldn't happen, we just created it
 
+    if (await generationEvents.isCancelled(generationId)) return;
+
     const abortController = new AbortController();
     this.activeControllers.set(generationId, abortController);
 
@@ -114,6 +118,7 @@ export class GenerationOrchestrator {
       );
 
       // Check if cancelled while M2 /generate was running
+      if (await generationEvents.isCancelled(generationId) || abortController.signal.aborted) return;
       const postGen = await generationRepository.findGenerationById(generationId);
       if (postGen?.status === 'cancelled') return;
 
@@ -147,6 +152,7 @@ export class GenerationOrchestrator {
       });
 
       // Check if cancelled before verification
+      if (await generationEvents.isCancelled(generationId) || abortController.signal.aborted) return;
       const postPersist = await generationRepository.findGenerationById(generationId);
       if (postPersist?.status === 'cancelled') return;
 
@@ -155,6 +161,7 @@ export class GenerationOrchestrator {
       const flagged = await this.emitClaimEvents(generationId);
 
       // Check if cancelled before recovery
+      if (await generationEvents.isCancelled(generationId) || abortController.signal.aborted) return;
       const postVerify = await generationRepository.findGenerationById(generationId);
       if (postVerify?.status === 'cancelled') return;
 
@@ -172,6 +179,7 @@ export class GenerationOrchestrator {
       }
 
       // Final check if cancelled
+      if (await generationEvents.isCancelled(generationId) || abortController.signal.aborted) return;
       const preComplete = await generationRepository.findGenerationById(generationId);
       if (preComplete?.status === 'cancelled') return;
 
@@ -187,8 +195,9 @@ export class GenerationOrchestrator {
         totalLatencyMs: Date.now() - startedAt,
       });
     } catch (err: any) {
+      if (await generationEvents.isCancelled(generationId) || abortController.signal.aborted || err?.name === 'AbortError') return;
       const checkCancelled = await generationRepository.findGenerationById(generationId);
-      if (checkCancelled?.status === 'cancelled' || abortController.signal.aborted || err?.name === 'AbortError') return;
+      if (checkCancelled?.status === 'cancelled') return;
 
       const totalLatencyMs = Date.now() - startedAt;
       await generationRepository

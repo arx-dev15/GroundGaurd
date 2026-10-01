@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate } from '../middleware/auth';
+import { authenticate, assertProjectAuthorized } from '../middleware/auth';
 import { projectRepository } from '../repositories/project.repository';
 import { documentRepository, DBDocument } from '../repositories/document.repository';
 import { documentOrchestrator } from '../services/document.orchestrator';
@@ -35,6 +35,7 @@ export async function documentRoutes(fastify: FastifyInstance) {
     if (!project) {
       throw new NotFoundError('Project not found');
     }
+    assertProjectAuthorized(request, projectId);
 
     // 2. Validate multipart payload
     if (!request.isMultipart()) {
@@ -55,6 +56,14 @@ export async function documentRoutes(fastify: FastifyInstance) {
     }
     if (fileBuffer.length === 0) {
       throw new BadRequestError('Uploaded file is empty');
+    }
+
+    const rawFilename = data.filename || 'document.pdf';
+    if (rawFilename.length > 255) {
+      throw new BadRequestError('Filename must not exceed 255 characters');
+    }
+    if (rawFilename.includes('..') || rawFilename.includes('/') || rawFilename.includes('\\')) {
+      throw new BadRequestError('Filename contains illegal path traversal characters');
     }
 
     // 3. Orchestrate ingestion workflow
@@ -80,6 +89,7 @@ export async function documentRoutes(fastify: FastifyInstance) {
     if (!project) {
       throw new NotFoundError('Project not found');
     }
+    assertProjectAuthorized(request, projectId);
 
     const dbDocs = await documentRepository.listDocumentsByProjectId(projectId);
     return reply.status(200).send({
@@ -102,6 +112,7 @@ export async function documentRoutes(fastify: FastifyInstance) {
     if (!project) {
       throw new NotFoundError('Document not found');
     }
+    assertProjectAuthorized(request, dbDoc.projectId);
 
     return reply.status(200).send({
       document: toPublicDocument(dbDoc),
@@ -122,6 +133,7 @@ export async function documentRoutes(fastify: FastifyInstance) {
     if (!project) {
       throw new NotFoundError('Document not found');
     }
+    assertProjectAuthorized(request, dbDoc.projectId);
 
     return reply.status(200).send({
       documentId: dbDoc.id,
@@ -145,6 +157,7 @@ export async function documentRoutes(fastify: FastifyInstance) {
     if (!project) {
       throw new NotFoundError('Document not found');
     }
+    assertProjectAuthorized(request, dbDoc.projectId);
 
     await documentOrchestrator.deleteDocument(documentId, dbDoc.projectId);
 

@@ -152,14 +152,14 @@ M3 → PostgreSQL
 M3 → Redis
 ```
 
-AI:
+AI (M2):
 
 ```text
 M2 → Qdrant (Dense Vector)
 M2 → Tantivy (Lexical BM25)
 M2 → NetworkX (Entity Graph)
-M2 → LLM
-M2 → M1
+M2 → LLM (Gemini)
+(M2 has NO dependency on M1; M3 calls M1 for verification)
 ```
 
 The browser must never directly access:
@@ -177,34 +177,27 @@ Redis
 # 5. Main Generation Architecture
 
 ```text
-M4
+M4 (Client)
  ↓
-M3
- ↓
-M2 Retrieval
- ↓
-M2 LLM
- ↓
-Claim Processor
- ↓
-M1 Verification
- ↓
- ┌──────────────┐
- │              │
-PASS           FAIL
- │              │
- │              ▼
- │          M2 Recovery
- │              │
- │              ▼
- │          M1 Verify
- │              │
- └───────┬──────┘
-         ▼
-       M3
-         ↓
-       M4
+M3 (Orchestrator)
+ │
+ ├──> M2 (/generate: Retrieval + LLM Claims & Evidence)
+ │      ↓
+ │    M3 (Claim Orchestration)
+ │      ↓
+ ├──> M1 (/predict: Grounding Verification)
+ │      ↓
+ │    M3 (State Management)
+ │      ├── PASS (verified)
+ │      └── FAIL (flagged) ──> M2 (/recover: LangGraph Recovery)
+ │                               ↓
+ │                             M1 (/predict: Reverification)
+ │                               ↓
+ │                             M3 (recovered / needs_review)
+ │
+ └──> M4 (Stream / Return Final Verified Output)
 ```
+
 
 ---
 

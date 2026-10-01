@@ -4,11 +4,12 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/env';
 import { userRepository } from '../repositories/user.repository';
 import { authenticate } from '../middleware/auth';
+import { authRateLimiter } from '../middleware/rate-limit';
 import { AppError, BadRequestError } from '../utils/errors';
 
 export async function authRoutes(fastify: FastifyInstance) {
   // POST /v1/auth/register
-  fastify.post('/v1/auth/register', async (request, reply) => {
+  fastify.post('/v1/auth/register', { preHandler: [authRateLimiter] }, async (request, reply) => {
     const { email, password, name } = (request.body || {}) as {
       email?: string;
       password?: string;
@@ -54,7 +55,7 @@ export async function authRoutes(fastify: FastifyInstance) {
   });
 
   // POST /v1/auth/login
-  fastify.post('/v1/auth/login', async (request, reply) => {
+  fastify.post('/v1/auth/login', { preHandler: [authRateLimiter] }, async (request, reply) => {
     const { email, password } = (request.body || {}) as {
       email?: string;
       password?: string;

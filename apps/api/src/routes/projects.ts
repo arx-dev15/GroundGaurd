@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate } from '../middleware/auth';
+import { authenticate, assertProjectAuthorized } from '../middleware/auth';
 import { projectRepository } from '../repositories/project.repository';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 import { Project } from '@groundguard/contracts';
@@ -20,6 +20,10 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
   // POST /v1/projects
   fastify.post('/v1/projects', async (request, reply) => {
+    if (request.apiKey && request.apiKey.projectId) {
+      throw new BadRequestError('Project-scoped API keys cannot create new projects');
+    }
+
     const { name, description } = (request.body || {}) as {
       name?: string;
       description?: string;
@@ -44,8 +48,11 @@ export async function projectRoutes(fastify: FastifyInstance) {
   // GET /v1/projects
   fastify.get('/v1/projects', async (request, reply) => {
     const userId = request.user!.id;
-    const dbProjects = await projectRepository.listProjectsByUserId(userId);
-    
+    let dbProjects = await projectRepository.listProjectsByUserId(userId);
+    if (request.apiKey && request.apiKey.projectId) {
+      dbProjects = dbProjects.filter((p) => p.id === request.apiKey!.projectId);
+    }
+
     return reply.status(200).send({
       projects: dbProjects.map(toPublicProject),
     });
@@ -56,6 +63,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const { projectId } = request.params as { projectId: string };
     const userId = request.user!.id;
 
+    assertProjectAuthorized(request, projectId);
     const dbProject = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!dbProject) {
       throw new NotFoundError('Project not found');
@@ -71,6 +79,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const { projectId } = request.params as { projectId: string };
     const userId = request.user!.id;
 
+    assertProjectAuthorized(request, projectId);
     const body = (request.body || {}) as Record<string, unknown>;
     const bodyKeys = Object.keys(body);
 
@@ -111,6 +120,7 @@ export async function projectRoutes(fastify: FastifyInstance) {
     const { projectId } = request.params as { projectId: string };
     const userId = request.user!.id;
 
+    assertProjectAuthorized(request, projectId);
     const deleted = await projectRepository.deleteProject(projectId, userId);
     if (!deleted) {
       throw new NotFoundError('Project not found');

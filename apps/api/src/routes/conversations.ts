@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { authenticate } from '../middleware/auth';
+import { authenticate, assertProjectAuthorized } from '../middleware/auth';
 import { projectRepository } from '../repositories/project.repository';
 import {
   conversationRepository,
@@ -61,6 +61,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
 
     const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
 
     const title = parseTitle(request.body);
     const conversation = await conversationRepository.createConversation({ projectId, title });
@@ -75,6 +76,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
 
     const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
 
     const rows = await conversationRepository.listConversationsByProjectId(projectId);
     return reply.status(200).send({ conversations: rows.map(toPublicConversation) });
@@ -87,6 +89,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
 
     const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
 
     const conversation = await conversationRepository.findConversationByIdAndUserId(conversationId, userId);
     if (!conversation || conversation.projectId !== projectId) throw new NotFoundError('Conversation not found');
@@ -101,6 +104,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
 
     const conversation = await conversationRepository.findConversationByIdAndUserId(conversationId, userId);
     if (!conversation) throw new NotFoundError('Conversation not found');
+    assertProjectAuthorized(request, conversation.projectId);
 
     return reply.status(200).send({ conversation: toPublicConversation(conversation) });
   });
@@ -112,6 +116,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
 
     const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
 
     const conversation = await conversationRepository.findConversationByIdAndUserId(conversationId, userId);
     if (!conversation || conversation.projectId !== projectId) throw new NotFoundError('Conversation not found');
@@ -127,6 +132,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
 
     const conversation = await conversationRepository.findConversationByIdAndUserId(conversationId, userId);
     if (!conversation) throw new NotFoundError('Conversation not found');
+    assertProjectAuthorized(request, conversation.projectId);
 
     const rows = await conversationRepository.listMessagesByConversationId(conversationId);
     return reply.status(200).send({ messages: rows.map(toPublicMessage) });
@@ -139,6 +145,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
 
     const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
     if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
 
     const conversation = await conversationRepository.findConversationByIdAndUserId(conversationId, userId);
     if (!conversation || conversation.projectId !== projectId) throw new NotFoundError('Conversation not found');

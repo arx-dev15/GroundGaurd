@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
-import { authenticate } from '../middleware/auth';
+import { authenticate, assertProjectAuthorized } from '../middleware/auth';
 import { apiKeyRepository, DBApiKey } from '../repositories/api-key.repository';
 import { projectRepository } from '../repositories/project.repository';
 import { BadRequestError, NotFoundError } from '../utils/errors';
@@ -38,6 +38,9 @@ export async function apiKeyRoutes(fastify: FastifyInstance) {
     if (typeof body.name !== 'string' || body.name.trim().length === 0) {
       throw new BadRequestError('name is required and must be a non-empty string');
     }
+    if (body.name.length > 255) {
+      throw new BadRequestError('name must not exceed 255 characters');
+    }
 
 
     let projectId: string | undefined;
@@ -45,6 +48,7 @@ export async function apiKeyRoutes(fastify: FastifyInstance) {
       if (typeof body.projectId !== 'string') {
         throw new BadRequestError('projectId must be a string');
       }
+      assertProjectAuthorized(request, body.projectId);
       const project = await projectRepository.findProjectByIdAndUserId(body.projectId, userId);
       if (!project) {
         throw new NotFoundError('Project not found');

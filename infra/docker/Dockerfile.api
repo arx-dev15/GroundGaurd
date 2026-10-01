@@ -5,9 +5,13 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY packages ./packages
 COPY apps/api ./apps/api
+COPY infra/migrations ./infra/migrations
 
 RUN npm install
+RUN npm --prefix packages/contracts run build
+RUN npm --prefix packages/types run build
+RUN npm --prefix apps/api run build
 
 EXPOSE 4000
 
-CMD ["npm", "--prefix", "apps/api", "run", "dev"]
+CMD ["npm", "--prefix", "apps/api", "run", "start"]

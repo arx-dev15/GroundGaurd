@@ -1,17 +1,17 @@
 {
-  "timestamp": "2026-09-30T18:07:33Z",
+  "timestamp": "2026-10-01T07:19:34Z",
   "totalCases": 126,
   "answerableCount": 71,
   "notAnswerableCount": 55,
   "separationAnalysis": {
     "min_pos": 0.5,
-    "max_pos": 0.9999144077301025,
-    "mean_pos": 0.7475895165075024,
-    "min_neg": 2.0644007236114703e-05,
-    "max_neg": 0.11135677993297577,
-    "mean_neg": 0.004375154263826793,
-    "margin": 0.38864322006702423,
-    "midpoint": 0.3056783899664879
+    "max_pos": 0.999961256980896,
+    "mean_pos": 0.7477211327976888,
+    "min_neg": 9.746036994329188e-06,
+    "max_neg": 0.09069100022315979,
+    "mean_neg": 0.004561456856702969,
+    "margin": 0.4093089997768402,
+    "midpoint": 0.2953455001115799
   },
   "selectedThreshold": 0.35,
   "thresholdSweep": [
@@ -31,15 +31,15 @@
     {
       "threshold": 0.1,
       "tp": 71,
-      "fp": 1,
-      "tn": 54,
+      "fp": 0,
+      "tn": 55,
       "fn": 0,
-      "precision": 0.9861111111111112,
+      "precision": 1.0,
       "recall": 1.0,
-      "f1": 0.993006993006993,
-      "fpr": 0.01818181818181818,
+      "f1": 1.0,
+      "fpr": 0.0,
       "fnr": 0.0,
-      "bal_acc": 0.990909090909091
+      "bal_acc": 1.0
     },
     {
       "threshold": 0.15,
@@ -258,7 +258,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9999,
+      "score": 1.0,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -273,7 +273,7 @@
         "chk_alpha_08",
         "chk_alpha_07"
       ],
-      "latencyMs": 627.22,
+      "latencyMs": 875.19,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -283,7 +283,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9997,
+      "score": 0.9999,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -298,7 +298,7 @@
         "chk_alpha_03",
         "chk_alpha_06"
       ],
-      "latencyMs": 66.98,
+      "latencyMs": 144.83,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -308,7 +308,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9997,
+      "score": 0.9999,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -323,7 +323,7 @@
         "chk_alpha_03",
         "chk_alpha_07"
       ],
-      "latencyMs": 83.15,
+      "latencyMs": 170.45,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -333,7 +333,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9988,
+      "score": 0.9994,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -348,7 +348,7 @@
         "chk_alpha_08",
         "chk_alpha_03"
       ],
-      "latencyMs": 78.23,
+      "latencyMs": 135.96,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -373,7 +373,7 @@
         "chk_alpha_06",
         "chk_alpha_05"
       ],
-      "latencyMs": 62.33,
+      "latencyMs": 75.9,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -398,7 +398,7 @@
         "chk_alpha_09",
         "chk_alpha_06"
       ],
-      "latencyMs": 79.07,
+      "latencyMs": 76.26,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -423,7 +423,7 @@
         "chk_alpha_07",
         "chk_alpha_04"
       ],
-      "latencyMs": 67.88,
+      "latencyMs": 102.0,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -448,7 +448,7 @@
         "chk_alpha_07",
         "chk_alpha_04"
       ],
-      "latencyMs": 56.8,
+      "latencyMs": 110.66,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -473,7 +473,7 @@
         "chk_alpha_03",
         "chk_alpha_04"
       ],
-      "latencyMs": 61.89,
+      "latencyMs": 126.54,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -498,7 +498,7 @@
         "chk_alpha_07",
         "chk_alpha_02"
       ],
-      "latencyMs": 68.65,
+      "latencyMs": 114.2,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -523,7 +523,7 @@
         "chk_alpha_05",
         "chk_alpha_03"
       ],
-      "latencyMs": 79.03,
+      "latencyMs": 121.76,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -548,7 +548,7 @@
         "chk_alpha_05",
         "chk_alpha_04"
       ],
-      "latencyMs": 60.41,
+      "latencyMs": 114.34,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -558,7 +558,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9912,
+      "score": 0.9933,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -573,7 +573,7 @@
         "chk_alpha_01",
         "chk_alpha_10"
       ],
-      "latencyMs": 65.71,
+      "latencyMs": 132.19,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -583,7 +583,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9992,
+      "score": 0.9996,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -598,7 +598,7 @@
         "chk_alpha_03",
         "chk_alpha_04"
       ],
-      "latencyMs": 65.17,
+      "latencyMs": 177.69,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -608,7 +608,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.997,
+      "score": 0.9981,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -623,7 +623,7 @@
         "chk_alpha_04",
         "chk_alpha_03"
       ],
-      "latencyMs": 78.81,
+      "latencyMs": 171.89,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -648,7 +648,7 @@
         "chk_alpha_03",
         "chk_alpha_04"
       ],
-      "latencyMs": 82.97,
+      "latencyMs": 109.91,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -671,9 +671,9 @@
       "topEvidenceChunkIds": [
         "chk_alpha_10",
         "chk_alpha_03",
-        "chk_alpha_05"
+        "chk_alpha_09"
       ],
-      "latencyMs": 67.96,
+      "latencyMs": 98.09,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -698,7 +698,7 @@
         "chk_alpha_09",
         "chk_alpha_04"
       ],
-      "latencyMs": 74.22,
+      "latencyMs": 94.3,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -723,7 +723,7 @@
         "chk_alpha_07",
         "chk_alpha_06"
       ],
-      "latencyMs": 62.71,
+      "latencyMs": 134.63,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -748,7 +748,7 @@
         "chk_alpha_07",
         "chk_alpha_04"
       ],
-      "latencyMs": 86.08,
+      "latencyMs": 119.46,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -773,7 +773,7 @@
         "chk_alpha_10",
         "chk_alpha_07"
       ],
-      "latencyMs": 72.58,
+      "latencyMs": 107.75,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -798,7 +798,7 @@
         "chk_alpha_06",
         "chk_alpha_09"
       ],
-      "latencyMs": 58.38,
+      "latencyMs": 81.66,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -823,7 +823,7 @@
         "chk_alpha_10",
         "chk_alpha_07"
       ],
-      "latencyMs": 76.4,
+      "latencyMs": 132.34,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -848,7 +848,7 @@
         "chk_alpha_04",
         "chk_alpha_05"
       ],
-      "latencyMs": 55.65,
+      "latencyMs": 87.86,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -873,7 +873,7 @@
         "chk_alpha_10",
         "chk_alpha_04"
       ],
-      "latencyMs": 56.06,
+      "latencyMs": 80.57,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -898,7 +898,7 @@
         "chk_alpha_07",
         "chk_alpha_08"
       ],
-      "latencyMs": 57.87,
+      "latencyMs": 124.48,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -923,7 +923,7 @@
         "chk_alpha_10",
         "chk_alpha_06"
       ],
-      "latencyMs": 69.78,
+      "latencyMs": 37.03,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -948,7 +948,7 @@
         "chk_alpha_04",
         "chk_alpha_05"
       ],
-      "latencyMs": 53.89,
+      "latencyMs": 36.45,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -973,7 +973,7 @@
         "chk_alpha_05",
         "chk_alpha_10"
       ],
-      "latencyMs": 75.6,
+      "latencyMs": 45.46,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -996,7 +996,7 @@
       "topEvidenceChunkIds": [
         "chk_beta_01"
       ],
-      "latencyMs": 57.18,
+      "latencyMs": 52.01,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1006,7 +1006,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9998,
+      "score": 0.9999,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1021,7 +1021,7 @@
         "chk_alpha_08",
         "chk_alpha_10"
       ],
-      "latencyMs": 65.16,
+      "latencyMs": 68.64,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1031,7 +1031,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9992,
+      "score": 0.9996,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1046,7 +1046,7 @@
         "chk_alpha_08",
         "chk_alpha_07"
       ],
-      "latencyMs": 68.4,
+      "latencyMs": 117.51,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1071,7 +1071,7 @@
         "chk_alpha_06",
         "chk_alpha_03"
       ],
-      "latencyMs": 87.0,
+      "latencyMs": 86.6,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1096,7 +1096,7 @@
         "chk_alpha_03",
         "chk_alpha_07"
       ],
-      "latencyMs": 66.99,
+      "latencyMs": 84.23,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1121,7 +1121,7 @@
         "chk_alpha_05",
         "chk_alpha_06"
       ],
-      "latencyMs": 65.7,
+      "latencyMs": 75.44,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1146,7 +1146,7 @@
         "chk_alpha_09",
         "chk_alpha_03"
       ],
-      "latencyMs": 66.53,
+      "latencyMs": 99.84,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1171,7 +1171,7 @@
         "chk_alpha_03",
         "chk_alpha_09"
       ],
-      "latencyMs": 59.91,
+      "latencyMs": 79.54,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1196,7 +1196,7 @@
         "chk_alpha_03",
         "chk_alpha_10"
       ],
-      "latencyMs": 71.93,
+      "latencyMs": 67.73,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1221,7 +1221,7 @@
         "chk_alpha_05",
         "chk_alpha_03"
       ],
-      "latencyMs": 63.81,
+      "latencyMs": 72.82,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1246,7 +1246,7 @@
         "chk_alpha_03",
         "chk_alpha_06"
       ],
-      "latencyMs": 65.24,
+      "latencyMs": 77.79,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1256,7 +1256,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9999,
+      "score": 1.0,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1271,7 +1271,7 @@
         "chk_alpha_08",
         "chk_alpha_02"
       ],
-      "latencyMs": 65.96,
+      "latencyMs": 93.5,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1281,7 +1281,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9997,
+      "score": 0.9999,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1296,7 +1296,7 @@
         "chk_alpha_08",
         "chk_alpha_06"
       ],
-      "latencyMs": 63.76,
+      "latencyMs": 99.45,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1321,7 +1321,7 @@
         "chk_alpha_09",
         "chk_alpha_08"
       ],
-      "latencyMs": 72.41,
+      "latencyMs": 119.73,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1346,7 +1346,7 @@
         "chk_alpha_09",
         "chk_alpha_06"
       ],
-      "latencyMs": 166.74,
+      "latencyMs": 68.65,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1371,7 +1371,7 @@
         "chk_alpha_04",
         "chk_alpha_10"
       ],
-      "latencyMs": 62.55,
+      "latencyMs": 65.48,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1396,7 +1396,7 @@
         "chk_alpha_04",
         "chk_alpha_07"
       ],
-      "latencyMs": 61.61,
+      "latencyMs": 109.42,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1406,7 +1406,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9959,
+      "score": 0.9972,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1421,7 +1421,7 @@
         "chk_alpha_01",
         "chk_alpha_02"
       ],
-      "latencyMs": 69.01,
+      "latencyMs": 133.65,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1431,7 +1431,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.999,
+      "score": 0.9995,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1446,7 +1446,7 @@
         "chk_alpha_01",
         "chk_alpha_06"
       ],
-      "latencyMs": 75.93,
+      "latencyMs": 114.63,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1471,7 +1471,7 @@
         "chk_alpha_04",
         "chk_alpha_05"
       ],
-      "latencyMs": 68.57,
+      "latencyMs": 66.07,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1494,7 +1494,7 @@
       "topEvidenceChunkIds": [
         "chk_beta_01"
       ],
-      "latencyMs": 63.91,
+      "latencyMs": 99.89,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1504,7 +1504,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9997,
+      "score": 0.9999,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1519,7 +1519,7 @@
         "chk_alpha_08",
         "chk_alpha_06"
       ],
-      "latencyMs": 85.29,
+      "latencyMs": 93.46,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1544,7 +1544,7 @@
         "chk_alpha_09",
         "chk_alpha_06"
       ],
-      "latencyMs": 60.96,
+      "latencyMs": 106.7,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1569,7 +1569,7 @@
         "chk_alpha_06",
         "chk_alpha_09"
       ],
-      "latencyMs": 67.09,
+      "latencyMs": 119.49,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1594,7 +1594,7 @@
         "chk_alpha_10",
         "chk_alpha_04"
       ],
-      "latencyMs": 78.28,
+      "latencyMs": 90.32,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1619,7 +1619,7 @@
         "chk_alpha_10",
         "chk_alpha_03"
       ],
-      "latencyMs": 78.91,
+      "latencyMs": 137.17,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1644,7 +1644,7 @@
         "chk_alpha_05",
         "chk_alpha_06"
       ],
-      "latencyMs": 76.01,
+      "latencyMs": 82.12,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1654,7 +1654,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.998,
+      "score": 0.9989,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1669,7 +1669,7 @@
         "chk_alpha_01",
         "chk_alpha_02"
       ],
-      "latencyMs": 88.35,
+      "latencyMs": 134.96,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1679,7 +1679,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9988,
+      "score": 0.9994,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1688,13 +1688,13 @@
       "conflictConfidence": 1.0,
       "conflictDetectionMethod": "deterministic",
       "revisionResolution": "not_applicable",
-      "evidenceCoverageScore": 1.0,
+      "evidenceCoverageScore": 0.95,
       "topEvidenceChunkIds": [
         "chk_alpha_09",
         "chk_alpha_04",
-        "chk_alpha_02"
+        "chk_alpha_08"
       ],
-      "latencyMs": 66.79,
+      "latencyMs": 94.9,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1717,7 +1717,7 @@
       "topEvidenceChunkIds": [
         "chk_beta_01"
       ],
-      "latencyMs": 61.92,
+      "latencyMs": 91.72,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1742,7 +1742,7 @@
         "chk_alpha_03",
         "chk_alpha_04"
       ],
-      "latencyMs": 64.55,
+      "latencyMs": 91.33,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1752,7 +1752,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9994,
+      "score": 0.9997,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1767,7 +1767,7 @@
         "chk_alpha_07",
         "chk_alpha_03"
       ],
-      "latencyMs": 68.79,
+      "latencyMs": 158.63,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1792,7 +1792,7 @@
         "chk_alpha_10",
         "chk_alpha_08"
       ],
-      "latencyMs": 76.08,
+      "latencyMs": 120.84,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1802,7 +1802,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9996,
+      "score": 0.9998,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1817,7 +1817,7 @@
         "chk_alpha_08",
         "chk_alpha_06"
       ],
-      "latencyMs": 76.63,
+      "latencyMs": 121.62,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1842,7 +1842,7 @@
         "chk_alpha_10",
         "chk_alpha_06"
       ],
-      "latencyMs": 61.8,
+      "latencyMs": 74.99,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1867,7 +1867,7 @@
         "chk_alpha_09",
         "chk_alpha_10"
       ],
-      "latencyMs": 176.57,
+      "latencyMs": 103.83,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1892,7 +1892,7 @@
         "chk_alpha_04",
         "chk_alpha_07"
       ],
-      "latencyMs": 98.35,
+      "latencyMs": 96.81,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1917,7 +1917,7 @@
         "chk_alpha_04",
         "chk_alpha_10"
       ],
-      "latencyMs": 77.42,
+      "latencyMs": 103.61,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1942,7 +1942,7 @@
         "chk_alpha_07",
         "chk_alpha_02"
       ],
-      "latencyMs": 74.43,
+      "latencyMs": 61.16,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1967,7 +1967,7 @@
         "chk_alpha_05",
         "chk_alpha_10"
       ],
-      "latencyMs": 68.36,
+      "latencyMs": 89.74,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -1977,7 +1977,7 @@
       "expectedAnswerable": true,
       "actualDecision": true,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.9996,
+      "score": 0.9998,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -1992,7 +1992,7 @@
         "chk_alpha_01",
         "chk_alpha_06"
       ],
-      "latencyMs": 90.87,
+      "latencyMs": 107.51,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -2017,7 +2017,7 @@
         "chk_alpha_04",
         "chk_alpha_02"
       ],
-      "latencyMs": 78.07,
+      "latencyMs": 82.75,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2027,7 +2027,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.0002,
+      "score": 0.0001,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -2042,8 +2042,8 @@
         "chk_alpha_04",
         "chk_alpha_03"
       ],
-      "latencyMs": 81.73,
-      "reason": "Top evidence score (0.0002) below sufficiency threshold (0.3500)"
+      "latencyMs": 147.48,
+      "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
     },
     {
       "caseId": "CASE-073",
@@ -2067,7 +2067,7 @@
         "chk_alpha_09",
         "chk_alpha_02"
       ],
-      "latencyMs": 85.44,
+      "latencyMs": 137.06,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2077,7 +2077,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.1114,
+      "score": 0.0907,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -2092,8 +2092,8 @@
         "chk_alpha_03",
         "chk_alpha_06"
       ],
-      "latencyMs": 72.39,
-      "reason": "Top evidence score (0.1114) below sufficiency threshold (0.3500)"
+      "latencyMs": 125.8,
+      "reason": "Top evidence score (0.0907) below sufficiency threshold (0.3500)"
     },
     {
       "caseId": "CASE-075",
@@ -2102,7 +2102,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.0001,
+      "score": 0.0,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -2117,8 +2117,8 @@
         "chk_alpha_02",
         "chk_alpha_06"
       ],
-      "latencyMs": 74.45,
-      "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
+      "latencyMs": 112.89,
+      "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
       "caseId": "CASE-076",
@@ -2127,7 +2127,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.0001,
+      "score": 0.0,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -2142,8 +2142,8 @@
         "chk_alpha_03",
         "chk_alpha_08"
       ],
-      "latencyMs": 72.29,
-      "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
+      "latencyMs": 123.48,
+      "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
       "caseId": "CASE-077",
@@ -2167,7 +2167,7 @@
         "chk_alpha_08",
         "chk_alpha_03"
       ],
-      "latencyMs": 69.11,
+      "latencyMs": 129.78,
       "reason": "Top evidence score (0.0214) below sufficiency threshold (0.3500)"
     },
     {
@@ -2192,7 +2192,7 @@
         "chk_alpha_08",
         "chk_alpha_05"
       ],
-      "latencyMs": 187.59,
+      "latencyMs": 130.47,
       "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
     },
     {
@@ -2202,7 +2202,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.0001,
+      "score": 0.0,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -2215,10 +2215,10 @@
       "topEvidenceChunkIds": [
         "chk_alpha_06",
         "chk_alpha_07",
-        "chk_alpha_02"
+        "chk_alpha_10"
       ],
-      "latencyMs": 85.71,
-      "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
+      "latencyMs": 127.7,
+      "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
       "caseId": "CASE-080",
@@ -2242,7 +2242,7 @@
         "chk_alpha_10",
         "chk_alpha_07"
       ],
-      "latencyMs": 189.18,
+      "latencyMs": 120.07,
       "reason": "Top evidence score (0.0005) below sufficiency threshold (0.3500)"
     },
     {
@@ -2252,7 +2252,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.0001,
+      "score": 0.0,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2263,11 +2263,11 @@
       "revisionResolution": null,
       "evidenceCoverageScore": null,
       "topEvidenceChunkIds": [
-        "chk_alpha_03",
         "chk_alpha_02",
+        "chk_alpha_03",
         "chk_alpha_04"
       ],
-      "latencyMs": 87.98,
+      "latencyMs": 152.18,
       "reason": "Target identifier(s) ['ISO-9001'] not supported by retrieved evidence"
     },
     {
@@ -2290,9 +2290,9 @@
       "topEvidenceChunkIds": [
         "chk_alpha_02",
         "chk_alpha_04",
-        "chk_alpha_03"
+        "chk_alpha_05"
       ],
-      "latencyMs": 109.23,
+      "latencyMs": 107.73,
       "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
     },
     {
@@ -2314,10 +2314,10 @@
       "evidenceCoverageScore": 0.4,
       "topEvidenceChunkIds": [
         "chk_alpha_03",
-        "chk_alpha_02",
-        "chk_alpha_10"
+        "chk_alpha_10",
+        "chk_alpha_02"
       ],
-      "latencyMs": 90.55,
+      "latencyMs": 122.22,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2342,7 +2342,7 @@
         "chk_alpha_03",
         "chk_alpha_02"
       ],
-      "latencyMs": 84.66,
+      "latencyMs": 142.99,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2364,10 +2364,10 @@
       "evidenceCoverageScore": 0.7667,
       "topEvidenceChunkIds": [
         "chk_alpha_02",
-        "chk_alpha_07",
-        "chk_alpha_03"
+        "chk_alpha_03",
+        "chk_alpha_07"
       ],
-      "latencyMs": 80.62,
+      "latencyMs": 124.93,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2389,10 +2389,10 @@
       "evidenceCoverageScore": 0.7375,
       "topEvidenceChunkIds": [
         "chk_alpha_02",
-        "chk_alpha_03",
-        "chk_alpha_04"
+        "chk_alpha_10",
+        "chk_alpha_03"
       ],
-      "latencyMs": 92.84,
+      "latencyMs": 197.99,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2402,7 +2402,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "IN_SCOPE",
-      "score": 0.0001,
+      "score": 0.0,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": true,
@@ -2415,10 +2415,10 @@
       "topEvidenceChunkIds": [
         "chk_alpha_10",
         "chk_alpha_03",
-        "chk_alpha_04"
+        "chk_alpha_05"
       ],
-      "latencyMs": 82.92,
-      "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
+      "latencyMs": 148.17,
+      "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
       "caseId": "CASE-088",
@@ -2439,10 +2439,10 @@
       "evidenceCoverageScore": 0.7667,
       "topEvidenceChunkIds": [
         "chk_alpha_03",
-        "chk_alpha_08",
-        "chk_alpha_06"
+        "chk_alpha_06",
+        "chk_alpha_08"
       ],
-      "latencyMs": 80.08,
+      "latencyMs": 175.77,
       "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
     },
     {
@@ -2467,7 +2467,7 @@
         "chk_alpha_04",
         "chk_alpha_05"
       ],
-      "latencyMs": 97.79,
+      "latencyMs": 134.84,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2489,10 +2489,10 @@
       "evidenceCoverageScore": 0.4,
       "topEvidenceChunkIds": [
         "chk_alpha_10",
-        "chk_alpha_03",
-        "chk_alpha_04"
+        "chk_alpha_07",
+        "chk_alpha_03"
       ],
-      "latencyMs": 90.59,
+      "latencyMs": 133.33,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2502,7 +2502,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.0056,
+      "score": 0.0058,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2517,7 +2517,7 @@
         "chk_alpha_03",
         "chk_alpha_06"
       ],
-      "latencyMs": 82.35,
+      "latencyMs": 92.84,
       "reason": "Target identifier(s) ['C-900'] not supported by retrieved evidence"
     },
     {
@@ -2527,7 +2527,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.0031,
+      "score": 0.0067,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2539,10 +2539,10 @@
       "evidenceCoverageScore": null,
       "topEvidenceChunkIds": [
         "chk_alpha_01",
-        "chk_alpha_06",
-        "chk_alpha_08"
+        "chk_alpha_08",
+        "chk_alpha_06"
       ],
-      "latencyMs": 89.34,
+      "latencyMs": 125.83,
       "reason": "Target identifier(s) ['P-888'] not supported by retrieved evidence"
     },
     {
@@ -2552,7 +2552,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.003,
+      "score": 0.0069,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2567,7 +2567,7 @@
         "chk_alpha_08",
         "chk_alpha_02"
       ],
-      "latencyMs": 102.51,
+      "latencyMs": 114.84,
       "reason": "Target identifier(s) ['T-300'] not supported by retrieved evidence"
     },
     {
@@ -2577,7 +2577,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.0123,
+      "score": 0.0103,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2592,7 +2592,7 @@
         "chk_alpha_01",
         "chk_alpha_05"
       ],
-      "latencyMs": 86.46,
+      "latencyMs": 95.85,
       "reason": "Target identifier(s) ['R-701'] not supported by retrieved evidence"
     },
     {
@@ -2602,7 +2602,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.0001,
+      "score": 0.0,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2617,7 +2617,7 @@
         "chk_alpha_04",
         "chk_alpha_03"
       ],
-      "latencyMs": 106.06,
+      "latencyMs": 108.45,
       "reason": "Target identifier(s) ['FE-405'] not supported by retrieved evidence"
     },
     {
@@ -2627,7 +2627,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.0073,
+      "score": 0.0147,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2640,9 +2640,9 @@
       "topEvidenceChunkIds": [
         "chk_alpha_01",
         "chk_alpha_08",
-        "chk_alpha_07"
+        "chk_alpha_10"
       ],
-      "latencyMs": 89.44,
+      "latencyMs": 120.86,
       "reason": "Target identifier(s) ['RD-101'] not supported by retrieved evidence"
     },
     {
@@ -2652,7 +2652,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.001,
+      "score": 0.0012,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2667,7 +2667,7 @@
         "chk_alpha_01",
         "chk_alpha_07"
       ],
-      "latencyMs": 78.02,
+      "latencyMs": 85.96,
       "reason": "Target identifier(s) ['C-201'] not supported by retrieved evidence"
     },
     {
@@ -2677,7 +2677,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.0274,
+      "score": 0.0419,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2692,7 +2692,7 @@
         "chk_alpha_08",
         "chk_alpha_03"
       ],
-      "latencyMs": 170.03,
+      "latencyMs": 101.62,
       "reason": "Target identifier(s) ['P-999'] not supported by retrieved evidence"
     },
     {
@@ -2702,7 +2702,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.0031,
+      "score": 0.0041,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2717,7 +2717,7 @@
         "chk_alpha_06",
         "chk_alpha_10"
       ],
-      "latencyMs": 62.96,
+      "latencyMs": 126.61,
       "reason": "Target identifier(s) ['PSH-304'] not supported by retrieved evidence"
     },
     {
@@ -2727,7 +2727,7 @@
       "expectedAnswerable": false,
       "actualDecision": false,
       "scopeDecision": "OUT_OF_SCOPE",
-      "score": 0.0031,
+      "score": 0.0041,
       "threshold": 0.35,
       "candidateCount": 5,
       "identifierMatched": false,
@@ -2742,7 +2742,7 @@
         "chk_alpha_08",
         "chk_alpha_06"
       ],
-      "latencyMs": 85.18,
+      "latencyMs": 107.59,
       "reason": "Target identifier(s) ['S-101'] not supported by retrieved evidence"
     },
     {
@@ -2767,7 +2767,7 @@
         "chk_alpha_03",
         "chk_alpha_10"
       ],
-      "latencyMs": 65.09,
+      "latencyMs": 120.31,
       "reason": "Out of project scope: Query addresses external domain 'capital expenditure of the European Union' without project equipment grounding"
     },
     {
@@ -2792,7 +2792,7 @@
         "chk_alpha_07",
         "chk_alpha_02"
       ],
-      "latencyMs": 83.49,
+      "latencyMs": 120.35,
       "reason": "Out of project scope: Query addresses external domain 'weather forecast' without project equipment grounding"
     },
     {
@@ -2817,7 +2817,7 @@
         "chk_alpha_02",
         "chk_alpha_08"
       ],
-      "latencyMs": 78.77,
+      "latencyMs": 102.49,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2842,7 +2842,7 @@
         "chk_alpha_05",
         "chk_alpha_04"
       ],
-      "latencyMs": 67.88,
+      "latencyMs": 103.45,
       "reason": "Out of project scope: Query addresses external domain 'GDP growth' without project equipment grounding"
     },
     {
@@ -2863,11 +2863,11 @@
       "revisionResolution": null,
       "evidenceCoverageScore": 0.0,
       "topEvidenceChunkIds": [
-        "chk_alpha_07",
         "chk_alpha_10",
+        "chk_alpha_07",
         "chk_alpha_05"
       ],
-      "latencyMs": 71.24,
+      "latencyMs": 111.84,
       "reason": "Out of project scope: Query addresses external domain 'World Cup' without project equipment grounding"
     },
     {
@@ -2892,7 +2892,7 @@
         "chk_alpha_05",
         "chk_alpha_10"
       ],
-      "latencyMs": 82.54,
+      "latencyMs": 96.68,
       "reason": "Out of project scope: Query addresses external domain 'capital city of' without project equipment grounding"
     },
     {
@@ -2917,7 +2917,7 @@
         "chk_alpha_07",
         "chk_alpha_02"
       ],
-      "latencyMs": 75.16,
+      "latencyMs": 115.93,
       "reason": "Out of project scope: Query addresses external domain 'cryptocurrency' without project equipment grounding"
     },
     {
@@ -2942,7 +2942,7 @@
         "chk_alpha_05",
         "chk_alpha_10"
       ],
-      "latencyMs": 63.41,
+      "latencyMs": 99.5,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -2967,7 +2967,7 @@
         "chk_alpha_07",
         "chk_alpha_04"
       ],
-      "latencyMs": 77.58,
+      "latencyMs": 101.36,
       "reason": "Out of project scope: Query addresses external domain 'movie review' without project equipment grounding"
     },
     {
@@ -2990,9 +2990,9 @@
       "topEvidenceChunkIds": [
         "chk_alpha_05",
         "chk_alpha_04",
-        "chk_alpha_07"
+        "chk_alpha_06"
       ],
-      "latencyMs": 73.06,
+      "latencyMs": 126.76,
       "reason": "Out of project scope: Query addresses external domain 'inflation rate' without project equipment grounding"
     },
     {
@@ -3016,7 +3016,7 @@
         "chk_conf_num_02",
         "chk_conf_num_01"
       ],
-      "latencyMs": 57.85,
+      "latencyMs": 75.58,
       "reason": "Conflicting evidence detected across retrieved project sources: Conflicting measurements on P-101A (doc_pid_revB: 16.0 BAR vs doc_pid_01: 15.2 BAR)"
     },
     {
@@ -3040,8 +3040,8 @@
         "chk_conf_rel_01",
         "chk_conf_rel_02"
       ],
-      "latencyMs": 63.57,
-      "reason": "Conflicting evidence detected across retrieved project sources: Conflicting topological relations or flow direction for P-101A (doc_pid_01 vs doc_top_revC)"
+      "latencyMs": 88.18,
+      "reason": "Conflicting evidence detected across retrieved project sources: Conflicting topological relations or flow direction for V-204 (doc_pid_01 vs doc_top_revC)"
     },
     {
       "caseId": "CASE-113",
@@ -3064,7 +3064,7 @@
         "chk_conf_state_01",
         "chk_conf_state_02"
       ],
-      "latencyMs": 80.25,
+      "latencyMs": 87.09,
       "reason": "Conflicting evidence detected across retrieved project sources: Conflicting operational state for V-204 (doc_sop_08: open vs doc_sop_err: closed/shut)"
     },
     {
@@ -3088,7 +3088,7 @@
         "chk_conf_proc_02",
         "chk_conf_proc_01"
       ],
-      "latencyMs": 65.67,
+      "latencyMs": 70.06,
       "reason": "Conflicting evidence detected across retrieved project sources: Conflicting procedural isolation mode for PSV-102 (doc_iso_auto: automatic vs doc_iso_man: manual)"
     },
     {
@@ -3112,7 +3112,7 @@
         "chk_conf_sem_01",
         "chk_conf_sem_02"
       ],
-      "latencyMs": 64.59,
+      "latencyMs": 80.72,
       "reason": "Conflicting evidence detected across retrieved project sources: Direct semantic modal contradiction on P-101A (doc_std_01 vs doc_std_02)"
     },
     {
@@ -3136,8 +3136,8 @@
         "chk_conf_num_02",
         "chk_conf_num_01"
       ],
-      "latencyMs": 64.25,
-      "reason": "Conflicting evidence detected across retrieved project sources: Conflicting measurements on P-101A (doc_pid_revB: 16.0 BAR vs doc_pid_01: 15.2 BAR)"
+      "latencyMs": 62.75,
+      "reason": "Conflicting evidence detected across retrieved project sources: Conflicting measurements on ECN-402 (doc_pid_revB: 16.0 BAR vs doc_pid_01: 15.2 BAR)"
     },
     {
       "caseId": "CASE-117",
@@ -3161,7 +3161,7 @@
         "chk_alpha_05",
         "chk_alpha_03"
       ],
-      "latencyMs": 72.12,
+      "latencyMs": 116.61,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -3183,10 +3183,10 @@
       "evidenceCoverageScore": 0.575,
       "topEvidenceChunkIds": [
         "chk_alpha_05",
-        "chk_alpha_10",
-        "chk_alpha_09"
+        "chk_alpha_09",
+        "chk_alpha_10"
       ],
-      "latencyMs": 76.48,
+      "latencyMs": 117.92,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -3211,7 +3211,7 @@
         "chk_alpha_09",
         "chk_alpha_08"
       ],
-      "latencyMs": 84.32,
+      "latencyMs": 130.96,
       "reason": "Top evidence score (0.0005) below sufficiency threshold (0.3500)"
     },
     {
@@ -3233,10 +3233,10 @@
       "evidenceCoverageScore": 0.5639,
       "topEvidenceChunkIds": [
         "chk_alpha_07",
-        "chk_alpha_04",
-        "chk_alpha_10"
+        "chk_alpha_10",
+        "chk_alpha_04"
       ],
-      "latencyMs": 76.81,
+      "latencyMs": 119.21,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -3257,11 +3257,11 @@
       "revisionResolution": "not_applicable",
       "evidenceCoverageScore": 0.4,
       "topEvidenceChunkIds": [
-        "chk_alpha_03",
         "chk_alpha_10",
+        "chk_alpha_03",
         "chk_alpha_05"
       ],
-      "latencyMs": 193.66,
+      "latencyMs": 115.49,
       "reason": "Top evidence score (0.0000) below sufficiency threshold (0.3500)"
     },
     {
@@ -3286,7 +3286,7 @@
         "chk_alpha_08",
         "chk_alpha_10"
       ],
-      "latencyMs": 81.55,
+      "latencyMs": 112.86,
       "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
     },
     {
@@ -3310,7 +3310,7 @@
         "chk_conf_mproc_01",
         "chk_conf_mproc_02"
       ],
-      "latencyMs": 69.16,
+      "latencyMs": 99.62,
       "reason": "Conflicting evidence detected across retrieved project sources: Conflicting operational state for V-204 (doc_sop_mproc_revA: open vs doc_sop_mproc_revB: closed/shut)"
     },
     {
@@ -3334,8 +3334,8 @@
         "chk_conf_mrel_02",
         "chk_conf_mrel_01"
       ],
-      "latencyMs": 61.79,
-      "reason": "Conflicting evidence detected across retrieved project sources: Conflicting topological relations or flow direction for P-101A (doc_pid_mrel_revB vs doc_pid_mrel_revA)"
+      "latencyMs": 82.83,
+      "reason": "Conflicting evidence detected across retrieved project sources: Conflicting topological relations or flow direction for E-210 (doc_pid_mrel_revB vs doc_pid_mrel_revA)"
     },
     {
       "caseId": "CASE-125",
@@ -3357,7 +3357,7 @@
       "topEvidenceChunkIds": [
         "chk_rev_res_02"
       ],
-      "latencyMs": 70.98,
+      "latencyMs": 81.42,
       "reason": "Evidence sufficient for generation"
     },
     {
@@ -3381,7 +3381,7 @@
         "chk_conf_num_02",
         "chk_conf_num_01"
       ],
-      "latencyMs": 78.54,
+      "latencyMs": 95.2,
       "reason": "Conflicting evidence detected across retrieved project sources: Conflicting measurements on P-101A (doc_pid_revB: 16.0 BAR vs doc_pid_01: 15.2 BAR)"
     }
   ]

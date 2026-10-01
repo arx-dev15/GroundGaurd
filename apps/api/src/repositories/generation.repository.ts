@@ -199,12 +199,19 @@ export class GenerationRepository {
     values.push(new Date());
     i++;
     values.push(id);
+    const isCancelling = updates.status === 'cancelled';
+    const whereClause = isCancelling
+      ? `WHERE id = $${i}`
+      : `WHERE id = $${i} AND status != 'cancelled'`;
 
     const res = await pool.query(
-      `UPDATE generations SET ${sets.join(', ')} WHERE id = $${i} RETURNING ${GEN_COLS};`,
+      `UPDATE generations SET ${sets.join(', ')} ${whereClause} RETURNING ${GEN_COLS};`,
       values
     );
-    return res.rows[0] || null;
+    if (!res.rows[0]) {
+      return this.findGenerationById(id);
+    }
+    return res.rows[0];
   }
 
   // ---------- Claims ----------
@@ -400,6 +407,7 @@ export class GenerationRepository {
       const completedAt = targetStatus === 'completed' ? new Date() : null;
 
       // 1. Update generation to target status (default 'verifying')
+      // Cancellation invariant: do not overwrite cancelled status
       const genRes = await client.query(
         `UPDATE generations
          SET status = $1,
@@ -410,7 +418,7 @@ export class GenerationRepository {
              generation_latency_ms = $5,
              completed_at = $6,
              updated_at = $7
-         WHERE id = $8
+         WHERE id = $8 AND status != 'cancelled'
          RETURNING ${GEN_COLS};`,
         [
           targetStatus,
@@ -423,6 +431,14 @@ export class GenerationRepository {
           data.generationId,
         ]
       );
+      if (genRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        const existing = await this.findGenerationById(data.generationId);
+        return {
+          generation: existing!,
+          claims: [],
+        };
+      }
       const generation: DBGeneration = genRes.rows[0];
 
       // 2. Persist assistant message if conversationId and answer provided

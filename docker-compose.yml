@@ -28,7 +28,6 @@ services:
       - "8000:8000"
     environment:
       PORT: 8000
-      ML_SERVICE_URL: http://ml:8001
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/groundguard
       QDRANT_URL: http://qdrant:6333
       TANTIVY_PATH: /app/uploads/indexes/tantivy

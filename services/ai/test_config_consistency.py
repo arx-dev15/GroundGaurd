@@ -818,9 +818,9 @@ class TestArchitecturalCorrectness(unittest.TestCase):
 
     def test_f_canonical_claim_states_in_contracts(self):
         import pathlib
-        contracts_src = pathlib.Path(
-            r"d:\Rakshith\Code Playback\GroundGaurd\packages\contracts\src\index.ts"
-        ).read_text()
+        repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
+        contracts_path = repo_root / "packages" / "contracts" / "src" / "index.ts"
+        contracts_src = contracts_path.read_text(encoding="utf-8")
         for state in ("pending", "verified", "flagged", "recovered", "needs_review"):
             self.assertIn(f"'{state}'", contracts_src,
                           f"Canonical claim state '{state}' must be in contracts")

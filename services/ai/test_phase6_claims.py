@@ -261,10 +261,12 @@ class TestPhase6ClaimExtraction(unittest.TestCase):
 
 
 class TestPhase6RealGeminiIntegration(unittest.TestCase):
-    def test_real_gemini_claim_extraction(self):
-        """Executes real Gemini inference to prove real structured claim extraction."""
+    def setUp(self):
         if not llm_runtime.is_configured():
             self.skipTest("LLM runtime not configured with real API key")
+
+    def test_real_gemini_claim_extraction(self):
+        """Executes real Gemini inference to prove real structured claim extraction."""
 
         evidence = create_sample_evidence()
         answer = (

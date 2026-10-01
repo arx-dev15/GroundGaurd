@@ -1275,7 +1275,7 @@ def evaluate_retrieval_stack_ablation(results: List[Dict[str, Any]]):
     print("\n" + "=" * 90)
     print("5. RETRIEVAL STACK ABLATION")
     print("=" * 90)
-    print(f"{'Retrieval Stage / Channel':<32} | {'Recall@5':<12} | {'MRR':<10} | {'Answerability Acc':<18} | {'False Suff Rate':<16}")
+    print(f"{'Retrieval Stage / Channel':<32} | {'Channel Hit Rate':<18} | {'Answerability Acc':<18} | {'False Suff Rate':<16}")
     print("-" * 90)
 
     stages = [
@@ -1290,7 +1290,6 @@ def evaluate_retrieval_stack_ablation(results: List[Dict[str, Any]]):
 
     for stage_name, mode in stages:
         hits_at_k = 0
-        mrr_sum = 0.0
         correct_ans = 0
         fp_count = 0
         tn_count = 0
@@ -1319,9 +1318,6 @@ def evaluate_retrieval_stack_ablation(results: List[Dict[str, Any]]):
             if expected:
                 if len(active) > 0:
                     hits_at_k += 1
-                    mrr_sum += 1.0  # Top rank in active pool
-                else:
-                    mrr_sum += 0.0
             else:
                 top_s = active[0].rerankScore if active and active[0].rerankScore is not None else 0.0
                 if top_s >= 0.35 and not r["conflicting_evidence"] and r["scope_decision"] != ScopeDecision.OUT_OF_SCOPE.value:
@@ -1332,12 +1328,11 @@ def evaluate_retrieval_stack_ablation(results: List[Dict[str, Any]]):
         total_pos = sum(1 for r in results if r["case"]["expected"])
         total_neg = sum(1 for r in results if not r["case"]["expected"])
 
-        rec_k = hits_at_k / total_pos if total_pos > 0 else 0.0
-        mrr = mrr_sum / total_pos if total_pos > 0 else 0.0
+        hit_rate = hits_at_k / total_pos if total_pos > 0 else 0.0
         ans_acc = (hits_at_k + tn_count) / len(results) if results else 0.0
         fpr = fp_count / total_neg if total_neg > 0 else 0.0
 
-        print(f"{stage_name:<32} | {rec_k:<12.3f} | {mrr:<10.3f} | {ans_acc:<18.3f} | {fpr:<16.3f}")
+        print(f"{stage_name:<32} | {hit_rate:<18.3f} | {ans_acc:<18.3f} | {fpr:<16.3f}")
 
 
 def benchmark_latency(results: List[Dict[str, Any]]):

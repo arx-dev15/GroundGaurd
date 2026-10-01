@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "timestamp": "2026-09-28T09:03:34Z",
+    "timestamp": "2026-10-01T07:04:11Z",
     "service": "ml",
     "modelVersion": "groundguard-deberta-v1-finetuned",
     "engineType": "deberta-cross-encoder",
@@ -267,12 +267,12 @@
     }
   },
   "latencyStats": {
-    "meanMs": 36.521,
-    "p50Ms": 34.218,
-    "p95Ms": 77.898,
-    "p99Ms": 109.264,
-    "minMs": 1.443,
-    "maxMs": 124.779
+    "meanMs": 179.766,
+    "p50Ms": 223.14,
+    "p95Ms": 268.028,
+    "p99Ms": 727.403,
+    "minMs": 1.556,
+    "maxMs": 786.916
   },
   "invarianceStability": {
     "batchInvariancePassed": true,
@@ -321,7 +321,7 @@
         "neutral": 0.0362
       },
       "groundingScore": 0.0,
-      "latencyMs": 76.909
+      "latencyMs": 226.935
     },
     {
       "caseId": "UNIT-C-02",
@@ -348,7 +348,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.609
+      "latencyMs": 2.733
     },
     {
       "caseId": "DATE-N-01",
@@ -375,7 +375,7 @@
         "neutral": 0.0047
       },
       "groundingScore": 0.0,
-      "latencyMs": 42.766
+      "latencyMs": 220.884
     },
     {
       "caseId": "QUANT-E-01",
@@ -402,7 +402,7 @@
         "neutral": 0.1533
       },
       "groundingScore": 0.5762,
-      "latencyMs": 35.037
+      "latencyMs": 230.422
     },
     {
       "caseId": "MULTI-E-03",
@@ -437,7 +437,7 @@
         "neutral": 0.0179
       },
       "groundingScore": 0.5626,
-      "latencyMs": 109.264
+      "latencyMs": 786.916
     },
     {
       "caseId": "CONFL-C-01",
@@ -468,7 +468,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.581
+      "latencyMs": 2.23
     }
   ],
   "allResults": [
@@ -498,7 +498,7 @@
         "neutral": 0.0086
       },
       "groundingScore": 0.9875,
-      "latencyMs": 76.152
+      "latencyMs": 231.429
     },
     {
       "caseId": "BASIC-E-02",
@@ -526,7 +526,7 @@
         "neutral": 0.0083
       },
       "groundingScore": 0.9897,
-      "latencyMs": 75.246
+      "latencyMs": 266.685
     },
     {
       "caseId": "BASIC-C-01",
@@ -554,7 +554,7 @@
         "neutral": 0.0032
       },
       "groundingScore": 0.0,
-      "latencyMs": 56.026
+      "latencyMs": 198.167
     },
     {
       "caseId": "BASIC-C-02",
@@ -582,7 +582,7 @@
         "neutral": 0.0019
       },
       "groundingScore": 0.0,
-      "latencyMs": 69.523
+      "latencyMs": 265.681
     },
     {
       "caseId": "BASIC-N-01",
@@ -610,7 +610,7 @@
         "neutral": 0.0362
       },
       "groundingScore": 0.0,
-      "latencyMs": 76.909
+      "latencyMs": 226.935
     },
     {
       "caseId": "BASIC-N-02",
@@ -638,7 +638,7 @@
         "neutral": 0.9977
       },
       "groundingScore": 0.0007,
-      "latencyMs": 72.027
+      "latencyMs": 240.092
     },
     {
       "caseId": "UNADD-E-01",
@@ -665,7 +665,7 @@
         "neutral": 0.0108
       },
       "groundingScore": 0.9839,
-      "latencyMs": 59.12
+      "latencyMs": 209.017
     },
     {
       "caseId": "UNADD-N-01",
@@ -693,7 +693,7 @@
         "neutral": 0.9985
       },
       "groundingScore": 0.0007,
-      "latencyMs": 62.187
+      "latencyMs": 232.781
     },
     {
       "caseId": "UNADD-N-02",
@@ -721,7 +721,7 @@
         "neutral": 0.9986
       },
       "groundingScore": 0.0005,
-      "latencyMs": 77.752
+      "latencyMs": 235.565
     },
     {
       "caseId": "UNADD-C-01",
@@ -748,7 +748,7 @@
         "neutral": 0.0011
       },
       "groundingScore": 0.0,
-      "latencyMs": 61.198
+      "latencyMs": 219.742
     },
     {
       "caseId": "NUM-E-01",
@@ -776,7 +776,7 @@
         "neutral": 0.0189
       },
       "groundingScore": 0.9714,
-      "latencyMs": 64.629
+      "latencyMs": 221.234
     },
     {
       "caseId": "NUM-C-01",
@@ -804,7 +804,7 @@
         "neutral": 0.0008
       },
       "groundingScore": 0.0,
-      "latencyMs": 58.615
+      "latencyMs": 224.432
     },
     {
       "caseId": "NUM-N-01",
@@ -831,7 +831,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.845
+      "latencyMs": 1.8
     },
     {
       "caseId": "NUM-E-02",
@@ -858,7 +858,7 @@
         "neutral": 0.0081
       },
       "groundingScore": 0.9883,
-      "latencyMs": 75.129
+      "latencyMs": 255.922
     },
     {
       "caseId": "NUM-E-03",
@@ -885,7 +885,7 @@
         "neutral": 0.0081
       },
       "groundingScore": 0.9883,
-      "latencyMs": 60.391
+      "latencyMs": 218.909
     },
     {
       "caseId": "NUM-C-02",
@@ -912,7 +912,7 @@
         "neutral": 0.001
       },
       "groundingScore": 0.001,
-      "latencyMs": 2.092
+      "latencyMs": 2.311
     },
     {
       "caseId": "NUM-C-03",
@@ -939,7 +939,7 @@
         "neutral": 0.001
       },
       "groundingScore": 0.001,
-      "latencyMs": 1.66
+      "latencyMs": 1.778
     },
     {
       "caseId": "NUM-C-04",
@@ -967,7 +967,7 @@
         "neutral": 0.001
       },
       "groundingScore": 0.001,
-      "latencyMs": 1.443
+      "latencyMs": 1.556
     },
     {
       "caseId": "NUM-C-05",
@@ -994,7 +994,7 @@
         "neutral": 0.0006
       },
       "groundingScore": 0.0,
-      "latencyMs": 74.438
+      "latencyMs": 235.456
     },
     {
       "caseId": "NUM-C-06",
@@ -1021,7 +1021,7 @@
         "neutral": 0.0005
       },
       "groundingScore": 0.0,
-      "latencyMs": 60.977
+      "latencyMs": 218.547
     },
     {
       "caseId": "UNIT-E-01",
@@ -1049,7 +1049,7 @@
         "neutral": 0.0234
       },
       "groundingScore": 0.966,
-      "latencyMs": 56.784
+      "latencyMs": 202.999
     },
     {
       "caseId": "UNIT-C-01",
@@ -1077,7 +1077,7 @@
         "neutral": 0.0007
       },
       "groundingScore": 0.0,
-      "latencyMs": 67.42
+      "latencyMs": 210.51
     },
     {
       "caseId": "UNIT-N-01",
@@ -1105,7 +1105,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 2.045
+      "latencyMs": 2.137
     },
     {
       "caseId": "UNIT-C-02",
@@ -1132,7 +1132,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.609
+      "latencyMs": 2.733
     },
     {
       "caseId": "UNIT-E-02",
@@ -1160,7 +1160,7 @@
         "neutral": 0.0157
       },
       "groundingScore": 0.9767,
-      "latencyMs": 77.006
+      "latencyMs": 212.406
     },
     {
       "caseId": "INEQ-E-01",
@@ -1187,7 +1187,7 @@
         "neutral": 0.005
       },
       "groundingScore": 0.99,
-      "latencyMs": 2.611
+      "latencyMs": 3.226
     },
     {
       "caseId": "INEQ-E-02",
@@ -1214,7 +1214,7 @@
         "neutral": 0.005
       },
       "groundingScore": 0.99,
-      "latencyMs": 1.596
+      "latencyMs": 1.876
     },
     {
       "caseId": "INEQ-C-01",
@@ -1241,7 +1241,7 @@
         "neutral": 0.0033
       },
       "groundingScore": 0.0,
-      "latencyMs": 82.562
+      "latencyMs": 240.769
     },
     {
       "caseId": "INEQ-C-02",
@@ -1268,7 +1268,7 @@
         "neutral": 0.005
       },
       "groundingScore": 0.005,
-      "latencyMs": 1.922
+      "latencyMs": 2.066
     },
     {
       "caseId": "INEQ-E-03",
@@ -1295,7 +1295,7 @@
         "neutral": 0.005
       },
       "groundingScore": 0.99,
-      "latencyMs": 17.286
+      "latencyMs": 13.024
     },
     {
       "caseId": "INEQ-E-04",
@@ -1322,7 +1322,7 @@
         "neutral": 0.0341
       },
       "groundingScore": 0.961,
-      "latencyMs": 68.992
+      "latencyMs": 221.811
     },
     {
       "caseId": "INEQ-C-03",
@@ -1349,7 +1349,7 @@
         "neutral": 0.005
       },
       "groundingScore": 0.005,
-      "latencyMs": 2.048
+      "latencyMs": 1.94
     },
     {
       "caseId": "INEQ-C-04",
@@ -1376,7 +1376,7 @@
         "neutral": 0.005
       },
       "groundingScore": 0.005,
-      "latencyMs": 1.665
+      "latencyMs": 1.696
     },
     {
       "caseId": "PERC-E-01",
@@ -1403,7 +1403,7 @@
         "neutral": 0.0073
       },
       "groundingScore": 0.9905,
-      "latencyMs": 77.898
+      "latencyMs": 222.464
     },
     {
       "caseId": "PERC-C-01",
@@ -1430,7 +1430,7 @@
         "neutral": 0.0019
       },
       "groundingScore": 0.0,
-      "latencyMs": 60.807
+      "latencyMs": 221.053
     },
     {
       "caseId": "PERC-N-01",
@@ -1457,7 +1457,7 @@
         "neutral": 0.9752
       },
       "groundingScore": 0.0226,
-      "latencyMs": 65.969
+      "latencyMs": 223.811
     },
     {
       "caseId": "PERC-E-02",
@@ -1484,7 +1484,7 @@
         "neutral": 0.0092
       },
       "groundingScore": 0.9882,
-      "latencyMs": 68.021
+      "latencyMs": 227.375
     },
     {
       "caseId": "PERC-C-02",
@@ -1511,7 +1511,7 @@
         "neutral": 0.001
       },
       "groundingScore": 0.001,
-      "latencyMs": 1.949
+      "latencyMs": 2.768
     },
     {
       "caseId": "DATE-E-01",
@@ -1538,7 +1538,7 @@
         "neutral": 0.0103
       },
       "groundingScore": 0.9843,
-      "latencyMs": 78.536
+      "latencyMs": 240.68
     },
     {
       "caseId": "DATE-E-02",
@@ -1565,7 +1565,7 @@
         "neutral": 0.0106
       },
       "groundingScore": 0.9876,
-      "latencyMs": 33.069
+      "latencyMs": 215.323
     },
     {
       "caseId": "DATE-E-03",
@@ -1592,7 +1592,7 @@
         "neutral": 0.0091
       },
       "groundingScore": 0.9881,
-      "latencyMs": 34.617
+      "latencyMs": 223.774
     },
     {
       "caseId": "DATE-C-01",
@@ -1619,7 +1619,7 @@
         "neutral": 0.0045
       },
       "groundingScore": 0.0,
-      "latencyMs": 25.602
+      "latencyMs": 222.652
     },
     {
       "caseId": "DATE-N-01",
@@ -1646,7 +1646,7 @@
         "neutral": 0.0047
       },
       "groundingScore": 0.0,
-      "latencyMs": 42.766
+      "latencyMs": 220.884
     },
     {
       "caseId": "DATE-E-04",
@@ -1673,7 +1673,7 @@
         "neutral": 0.005
       },
       "groundingScore": 0.99,
-      "latencyMs": 2.575
+      "latencyMs": 3.05
     },
     {
       "caseId": "DATE-C-02",
@@ -1700,7 +1700,7 @@
         "neutral": 0.005
       },
       "groundingScore": 0.005,
-      "latencyMs": 1.652
+      "latencyMs": 2.239
     },
     {
       "caseId": "ENT-E-01",
@@ -1727,7 +1727,7 @@
         "neutral": 0.0165
       },
       "groundingScore": 0.974,
-      "latencyMs": 28.762
+      "latencyMs": 242.507
     },
     {
       "caseId": "ENT-N-01",
@@ -1755,7 +1755,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.973
+      "latencyMs": 2.009
     },
     {
       "caseId": "ENT-N-02",
@@ -1783,7 +1783,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.664
+      "latencyMs": 3.287
     },
     {
       "caseId": "ENT-N-03",
@@ -1810,7 +1810,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.698
+      "latencyMs": 3.596
     },
     {
       "caseId": "ENT-N-04",
@@ -1838,7 +1838,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.608
+      "latencyMs": 1.731
     },
     {
       "caseId": "ENT-N-05",
@@ -1866,7 +1866,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.584
+      "latencyMs": 1.706
     },
     {
       "caseId": "NEG-E-01",
@@ -1893,7 +1893,7 @@
         "neutral": 0.0161
       },
       "groundingScore": 0.9748,
-      "latencyMs": 27.035
+      "latencyMs": 235.358
     },
     {
       "caseId": "NEG-C-01",
@@ -1920,7 +1920,7 @@
         "neutral": 0.0006
       },
       "groundingScore": 0.0,
-      "latencyMs": 26.72
+      "latencyMs": 221.989
     },
     {
       "caseId": "NEG-C-02",
@@ -1947,7 +1947,7 @@
         "neutral": 0.0006
       },
       "groundingScore": 0.0,
-      "latencyMs": 39.377
+      "latencyMs": 223.14
     },
     {
       "caseId": "NEG-N-01",
@@ -1975,7 +1975,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 2.075
+      "latencyMs": 1.843
     },
     {
       "caseId": "NEG-E-02",
@@ -2002,7 +2002,7 @@
         "neutral": 0.0041
       },
       "groundingScore": 0.995,
-      "latencyMs": 41.535
+      "latencyMs": 270.534
     },
     {
       "caseId": "QUANT-E-01",
@@ -2029,7 +2029,7 @@
         "neutral": 0.1533
       },
       "groundingScore": 0.5762,
-      "latencyMs": 35.037
+      "latencyMs": 230.422
     },
     {
       "caseId": "QUANT-E-02",
@@ -2056,7 +2056,7 @@
         "neutral": 0.0061
       },
       "groundingScore": 0.9909,
-      "latencyMs": 42.881
+      "latencyMs": 233.448
     },
     {
       "caseId": "QUANT-N-01",
@@ -2083,7 +2083,7 @@
         "neutral": 0.9961
       },
       "groundingScore": 0.0009,
-      "latencyMs": 35.995
+      "latencyMs": 227.41
     },
     {
       "caseId": "QUANT-C-01",
@@ -2110,7 +2110,7 @@
         "neutral": 0.0011
       },
       "groundingScore": 0.0,
-      "latencyMs": 40.943
+      "latencyMs": 215.299
     },
     {
       "caseId": "REL-E-01",
@@ -2137,7 +2137,7 @@
         "neutral": 0.0095
       },
       "groundingScore": 0.9857,
-      "latencyMs": 41.866
+      "latencyMs": 243.424
     },
     {
       "caseId": "REL-E-02",
@@ -2164,7 +2164,7 @@
         "neutral": 0.0581
       },
       "groundingScore": 0.8913,
-      "latencyMs": 28.42
+      "latencyMs": 255.485
     },
     {
       "caseId": "REL-C-01",
@@ -2191,7 +2191,7 @@
         "neutral": 0.0026
       },
       "groundingScore": 0.0,
-      "latencyMs": 28.618
+      "latencyMs": 268.028
     },
     {
       "caseId": "REL-N-01",
@@ -2218,7 +2218,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 2.009
+      "latencyMs": 1.883
     },
     {
       "caseId": "COMP-E-01",
@@ -2245,7 +2245,7 @@
         "neutral": 0.005
       },
       "groundingScore": 0.99,
-      "latencyMs": 1.899
+      "latencyMs": 1.955
     },
     {
       "caseId": "COMP-C-01",
@@ -2299,7 +2299,7 @@
         "neutral": 0.9949
       },
       "groundingScore": 0.0016,
-      "latencyMs": 64.24
+      "latencyMs": 260.262
     },
     {
       "caseId": "CAUS-E-01",
@@ -2326,7 +2326,7 @@
         "neutral": 0.0128
       },
       "groundingScore": 0.9753,
-      "latencyMs": 47.547
+      "latencyMs": 262.113
     },
     {
       "caseId": "CAUS-N-01",
@@ -2353,7 +2353,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.915
+      "latencyMs": 2.391
     },
     {
       "caseId": "CAUS-E-02",
@@ -2380,7 +2380,7 @@
         "neutral": 0.0084
       },
       "groundingScore": 0.9892,
-      "latencyMs": 32.813
+      "latencyMs": 230.68
     },
     {
       "caseId": "PARA-E-01",
@@ -2407,7 +2407,7 @@
         "neutral": 0.0135
       },
       "groundingScore": 0.9847,
-      "latencyMs": 33.301
+      "latencyMs": 119.134
     },
     {
       "caseId": "PARA-E-02",
@@ -2434,7 +2434,7 @@
         "neutral": 0.0131
       },
       "groundingScore": 0.9845,
-      "latencyMs": 36.454
+      "latencyMs": 222.974
     },
     {
       "caseId": "PARA-E-03",
@@ -2461,7 +2461,7 @@
         "neutral": 0.0706
       },
       "groundingScore": 0.9037,
-      "latencyMs": 23.826
+      "latencyMs": 219.575
     },
     {
       "caseId": "PARA-C-01",
@@ -2488,7 +2488,7 @@
         "neutral": 0.002
       },
       "groundingScore": 0.0,
-      "latencyMs": 43.689
+      "latencyMs": 216.641
     },
     {
       "caseId": "MULTI-E-01",
@@ -2519,7 +2519,7 @@
         "neutral": 0.0192
       },
       "groundingScore": 0.9682,
-      "latencyMs": 104.749
+      "latencyMs": 727.403
     },
     {
       "caseId": "MULTI-E-02",
@@ -2550,7 +2550,7 @@
         "neutral": 0.0082
       },
       "groundingScore": 0.9871,
-      "latencyMs": 74.007
+      "latencyMs": 673.517
     },
     {
       "caseId": "MULTI-N-01",
@@ -2581,7 +2581,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 2.047
+      "latencyMs": 2.036
     },
     {
       "caseId": "MULTI-E-03",
@@ -2616,7 +2616,7 @@
         "neutral": 0.0179
       },
       "groundingScore": 0.5626,
-      "latencyMs": 109.264
+      "latencyMs": 786.916
     },
     {
       "caseId": "CONFL-N-01",
@@ -2647,7 +2647,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 2.886
+      "latencyMs": 3.594
     },
     {
       "caseId": "CONFL-C-01",
@@ -2678,7 +2678,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.581
+      "latencyMs": 2.23
     },
     {
       "caseId": "OCR-E-01",
@@ -2705,7 +2705,7 @@
         "neutral": 0.0259
       },
       "groundingScore": 0.9588,
-      "latencyMs": 42.883
+      "latencyMs": 279.213
     },
     {
       "caseId": "OCR-E-02",
@@ -2732,7 +2732,7 @@
         "neutral": 0.0259
       },
       "groundingScore": 0.9588,
-      "latencyMs": 25.94
+      "latencyMs": 231.566
     },
     {
       "caseId": "OCR-C-01",
@@ -2759,7 +2759,7 @@
         "neutral": 0.001
       },
       "groundingScore": 0.0,
-      "latencyMs": 31.658
+      "latencyMs": 237.509
     },
     {
       "caseId": "FORM-E-01",
@@ -2787,7 +2787,7 @@
         "neutral": 0.0057
       },
       "groundingScore": 0.9922,
-      "latencyMs": 42.399
+      "latencyMs": 249.574
     },
     {
       "caseId": "FORM-C-01",
@@ -2815,7 +2815,7 @@
         "neutral": 0.001
       },
       "groundingScore": 0.0,
-      "latencyMs": 25.128
+      "latencyMs": 230.255
     },
     {
       "caseId": "FORM-N-01",
@@ -2843,7 +2843,7 @@
         "neutral": 0.9961
       },
       "groundingScore": 0.0005,
-      "latencyMs": 44.082
+      "latencyMs": 234.181
     },
     {
       "caseId": "INJ-C-01",
@@ -2871,7 +2871,7 @@
         "neutral": 0.0075
       },
       "groundingScore": 0.0,
-      "latencyMs": 30.75
+      "latencyMs": 251.688
     },
     {
       "caseId": "INJ-E-01",
@@ -2899,7 +2899,7 @@
         "neutral": 0.0303
       },
       "groundingScore": 0.9417,
-      "latencyMs": 26.368
+      "latencyMs": 227.413
     },
     {
       "caseId": "INJ-C-02",
@@ -2926,7 +2926,7 @@
         "neutral": 0.0008
       },
       "groundingScore": 0.0,
-      "latencyMs": 124.779
+      "latencyMs": 258.583
     },
     {
       "caseId": "LEX-C-01",
@@ -2953,7 +2953,7 @@
         "neutral": 0.0008
       },
       "groundingScore": 0.0,
-      "latencyMs": 30.229
+      "latencyMs": 236.887
     },
     {
       "caseId": "LEX-C-02",
@@ -2980,7 +2980,7 @@
         "neutral": 0.0006
       },
       "groundingScore": 0.0,
-      "latencyMs": 39.895
+      "latencyMs": 239.851
     },
     {
       "caseId": "LEX-C-03",
@@ -3007,7 +3007,7 @@
         "neutral": 0.0017
       },
       "groundingScore": 0.0,
-      "latencyMs": 41.921
+      "latencyMs": 224.206
     },
     {
       "caseId": "LEX-C-04",
@@ -3034,7 +3034,7 @@
         "neutral": 0.0007
       },
       "groundingScore": 0.0,
-      "latencyMs": 45.136
+      "latencyMs": 224.051
     },
     {
       "caseId": "COMPD-N-01",
@@ -3062,7 +3062,7 @@
         "neutral": 0.9939
       },
       "groundingScore": 0.0006,
-      "latencyMs": 25.015
+      "latencyMs": 230.643
     },
     {
       "caseId": "COMPD-C-01",
@@ -3089,7 +3089,7 @@
         "neutral": 0.0092
       },
       "groundingScore": 0.0,
-      "latencyMs": 24.502
+      "latencyMs": 226.064
     },
     {
       "caseId": "ABBR-E-01",
@@ -3116,7 +3116,7 @@
         "neutral": 0.0126
       },
       "groundingScore": 0.9812,
-      "latencyMs": 38.307
+      "latencyMs": 234.846
     },
     {
       "caseId": "ABBR-E-02",
@@ -3143,7 +3143,7 @@
         "neutral": 0.0082
       },
       "groundingScore": 0.9866,
-      "latencyMs": 26.281
+      "latencyMs": 216.089
     },
     {
       "caseId": "ABBR-N-01",
@@ -3170,7 +3170,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.955
+      "latencyMs": 2.3
     },
     {
       "caseId": "STD-E-01",
@@ -3197,7 +3197,7 @@
         "neutral": 0.0091
       },
       "groundingScore": 0.9886,
-      "latencyMs": 44.306
+      "latencyMs": 234.51
     },
     {
       "caseId": "STD-C-01",
@@ -3224,7 +3224,7 @@
         "neutral": 0.0011
       },
       "groundingScore": 0.0,
-      "latencyMs": 30.983
+      "latencyMs": 227.044
     },
     {
       "caseId": "STD-N-01",
@@ -3251,7 +3251,7 @@
         "neutral": 0.9974
       },
       "groundingScore": 0.0022,
-      "latencyMs": 34.218
+      "latencyMs": 233.564
     },
     {
       "caseId": "MOD-N-01",
@@ -3278,7 +3278,7 @@
         "neutral": 0.9
       },
       "groundingScore": 0.1,
-      "latencyMs": 1.849
+      "latencyMs": 2.149
     },
     {
       "caseId": "MOD-E-01",
@@ -3305,7 +3305,7 @@
         "neutral": 0.0057
       },
       "groundingScore": 0.9931,
-      "latencyMs": 51.148
+      "latencyMs": 231.79
     },
     {
       "caseId": "MOD-C-01",
@@ -3332,7 +3332,7 @@
         "neutral": 0.0007
       },
       "groundingScore": 0.0,
-      "latencyMs": 31.534
+      "latencyMs": 214.021
     },
     {
       "caseId": "COND-E-01",
@@ -3359,7 +3359,7 @@
         "neutral": 0.0108
       },
       "groundingScore": 0.9759,
-      "latencyMs": 53.605
+      "latencyMs": 230.057
     },
     {
       "caseId": "COND-N-01",
@@ -3386,7 +3386,7 @@
         "neutral": 0.6274
       },
       "groundingScore": 0.1293,
-      "latencyMs": 29.536
+      "latencyMs": 237.236
     },
     {
       "caseId": "COND-C-01",
@@ -3413,7 +3413,7 @@
         "neutral": 0.0043
       },
       "groundingScore": 0.0,
-      "latencyMs": 24.68
+      "latencyMs": 225.26
     },
     {
       "caseId": "SYM-E-01",
@@ -3440,7 +3440,7 @@
         "neutral": 0.0061
       },
       "groundingScore": 0.9922,
-      "latencyMs": 44.094
+      "latencyMs": 223.226
     },
     {
       "caseId": "SYM-C-01",
@@ -3467,7 +3467,7 @@
         "neutral": 0.001
       },
       "groundingScore": 0.001,
-      "latencyMs": 1.939
+      "latencyMs": 2.068
     },
     {
       "caseId": "SYM-E-02",
@@ -3494,7 +3494,7 @@
         "neutral": 0.022
       },
       "groundingScore": 0.964,
-      "latencyMs": 26.217
+      "latencyMs": 210.975
     }
   ]
 }
