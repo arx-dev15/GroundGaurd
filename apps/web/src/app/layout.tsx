@@ -26,11 +26,11 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: 'GroundGuard — Evidence-Grounded AI Reliability',
-    template: '%s | GroundGuard',
+    default: 'DHADHI — Evidence-Grounded AI Reliability Engine',
+    template: '%s | DHADHI',
   },
   description:
-    'Calm, precise AI reliability platform. Trace, verify, and recover factual claims with verifiable evidence.',
+    'DHADHI audits, verifies, and self-heals AI claims in real-time against enterprise technical documentation. Dual-track LangGraph state machine with verifiable evidence grounding.',
 };
 
 export default function RootLayout({

@@ -20,6 +20,8 @@ import { UserMenu } from '@/components/layout/user-menu';
 import { useShell } from '@/components/layout/shell-context';
 import { cn } from '@/lib/utils';
 
+import { DhadhiLogo } from '@/components/ui/dhadhi-logo';
+
 export function AppSidebar() {
   const pathname = usePathname();
   const shouldReduceMotion = useReducedMotion();
@@ -84,19 +86,10 @@ export function AppSidebar() {
         <div className="h-12 border-b border-border/70 flex items-center justify-between px-3 shrink-0">
           <Link
             href={`/projects/${currentProjectId}/overview`}
-            className="flex items-center gap-2.5 min-w-0 outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md p-1 group"
-            aria-label="GroundGuard Home"
+            className="flex items-center gap-2 min-w-0 outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md p-1 group"
+            aria-label="DHADHI Home"
           >
-            <div className="h-6 w-6 rounded bg-foreground text-background flex items-center justify-center shrink-0 shadow-xs relative">
-              <Shield className="h-3.5 w-3.5 fill-current" />
-              <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-status-verified ring-2 ring-background" />
-            </div>
-
-            {!sidebarCollapsed && (
-              <span className="text-xs font-semibold tracking-tight text-foreground truncate">
-                GroundGuard
-              </span>
-            )}
+            <DhadhiLogo size="sm" showTagline={false} href="" />
           </Link>
 
           <TooltipProvider delayDuration={300}>

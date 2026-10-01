@@ -78,16 +78,35 @@ export function FinalCTA({ onGetStarted, onExploreProduct }: FinalCTAProps) {
       </div>
 
       <div className="max-w-4xl mx-auto flex flex-col items-center text-center space-y-6 relative z-10">
-        {/* GroundGuard Central Emblem with Pulsating Shield */}
+        {/* DHADHI Central Emblem with Pulsating Glow */}
         <motion.div
           initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
           whileInView={{ opacity: 1, scale: 1 }}
           viewport={{ once: true }}
           transition={transitions.bouncy}
-          className="h-14 w-14 rounded-2xl bg-zinc-900 border border-zinc-700/80 text-white flex items-center justify-center shadow-2xl shadow-black/60 mb-2 relative group"
+          className="mb-2 relative group"
         >
-          <Shield className="h-7 w-7 text-zinc-100" />
-          <div className="absolute -inset-1.5 rounded-2xl bg-white/[0.06] blur-md -z-10 group-hover:bg-white/[0.12] transition-colors" />
+          <div className="h-16 w-16 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 flex items-center justify-center shadow-2xl shadow-cyan-500/20 backdrop-blur-md">
+            <svg viewBox="0 0 40 40" fill="none" className="h-9 w-9 text-cyan-400">
+              <polygon
+                points="20,4 34,12 34,28 20,36 6,28 6,12"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinejoin="round"
+                fill="rgba(6,182,212,0.15)"
+              />
+              <path
+                d="M14 14 H21 C24.5 14 27 16.5 27 20 C27 23.5 24.5 26 21 26 H14 Z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
+              <circle cx="20" cy="20" r="2.2" fill="#22d3ee" />
+            </svg>
+          </div>
+          <div className="absolute -inset-2 rounded-2xl bg-cyan-500/20 blur-xl -z-10 group-hover:bg-cyan-500/30 transition-all duration-300" />
         </motion.div>
 
         <motion.h2

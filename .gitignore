@@ -42,3 +42,4 @@ storage/
 *.exe
 *.zip
 .qdrant-initialized
+*.tsbuildinfo

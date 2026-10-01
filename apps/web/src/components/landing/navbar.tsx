@@ -6,6 +6,8 @@ import { Shield, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+import { DhadhiLogo } from '@/components/ui/dhadhi-logo';
+
 interface NavbarProps {
   onGetStarted?: () => void;
   onSignIn?: () => void;
@@ -52,19 +54,8 @@ export function Navbar({ onGetStarted, onSignIn }: NavbarProps) {
       )}
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-        {/* Brand Logo */}
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md py-1 px-1.5 -ml-1.5 transition-colors"
-          aria-label="GroundGuard Home"
-        >
-          <div className="h-6 w-6 rounded bg-foreground text-background flex items-center justify-center transition-transform group-hover:scale-105 duration-150">
-            <Shield className="h-3.5 w-3.5" />
-          </div>
-          <span className="font-semibold text-sm tracking-tight text-foreground">
-            GroundGuard
-          </span>
-        </Link>
+        {/* DHADHI Brand Logo */}
+        <DhadhiLogo size="md" showTagline={true} />
 
         {/* Desktop Anchor Navigation */}
         <nav className="hidden md:flex items-center gap-6" aria-label="Main Navigation">

@@ -10,6 +10,8 @@ import { MobileNav } from '@/components/layout/mobile-nav';
 import { useShell } from '@/components/layout/shell-context';
 import { cn } from '@/lib/utils';
 
+import { Dhadhi3DCanvas } from '@/components/ui/dhadhi-3d-canvas';
+
 export interface AppShellLayoutProps {
   children: React.ReactNode;
   headerActions?: React.ReactNode;
@@ -26,9 +28,12 @@ export function AppShellLayout({
   const isAskPage = currentSection === 'ask';
 
   return (
-    <div className={cn('min-h-screen bg-background text-foreground flex overflow-hidden', className)}>
+    <div className={cn('relative min-h-screen bg-background text-foreground flex overflow-hidden', className)}>
+      {/* Ambient 3D Wallpaper Backdrop (Low density, non-intrusive) */}
+      <Dhadhi3DCanvas density="low" themeAccent="emerald" className="opacity-20 pointer-events-none" interactive={false} />
+
       {/* 1. Desktop / Tablet Sidebar (hidden on mobile) */}
-      <div className="hidden md:flex shrink-0">
+      <div className="relative z-10 hidden md:flex shrink-0">
         <AppSidebar />
       </div>
 

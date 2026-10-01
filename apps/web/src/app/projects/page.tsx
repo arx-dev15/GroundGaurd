@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation';
 import type { Project } from '@groundguard/contracts';
 import { apiClient } from '@/lib/api-client';
 import { AuthGuard } from '@/components/auth/auth-guard';
-import { Shield, Plus, FolderKanban, ArrowRight, Loader2, Sparkles } from 'lucide-react';
+import { Plus, FolderKanban, ArrowRight, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DhadhiLogo } from '@/components/ui/dhadhi-logo';
+import { Dhadhi3DCanvas } from '@/components/ui/dhadhi-3d-canvas';
 
 export default function ProjectsEntryPage() {
   return (
@@ -74,10 +76,11 @@ function ProjectsEntryContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex flex-col justify-center items-center p-6 space-y-4">
-        <Skeleton className="h-8 w-64 rounded" />
-        <Skeleton className="h-4 w-96 rounded" />
-        <div className="w-full max-w-md pt-4 space-y-3">
+      <div className="relative min-h-screen bg-background flex flex-col justify-center items-center p-6 space-y-4 overflow-hidden">
+        <Dhadhi3DCanvas interactive density="low" themeAccent="cyan" className="opacity-25" />
+        <Skeleton className="h-8 w-64 rounded relative z-10" />
+        <Skeleton className="h-4 w-96 rounded relative z-10" />
+        <div className="w-full max-w-md pt-4 space-y-3 relative z-10">
           <Skeleton className="h-14 w-full rounded-lg" />
           <Skeleton className="h-14 w-full rounded-lg" />
         </div>
@@ -88,14 +91,12 @@ function ProjectsEntryContent() {
   // State 1: Zero Projects Onboarding
   if (projects.length === 0) {
     return (
-      <div className="min-h-screen bg-background text-foreground flex flex-col justify-center items-center px-4 py-12 select-none">
-        <div className="w-full max-w-md space-y-8">
+      <div className="relative min-h-screen bg-background text-foreground flex flex-col justify-center items-center px-4 py-12 select-none overflow-hidden">
+        <Dhadhi3DCanvas interactive density="normal" themeAccent="cyan" className="opacity-35" />
+        <div className="relative z-10 w-full max-w-md space-y-8">
           {/* Header */}
-          <div className="text-center space-y-3">
-            <div className="h-12 w-12 mx-auto rounded-xl bg-foreground text-background flex items-center justify-center shadow-md relative">
-              <Shield className="h-6 w-6 fill-current" />
-              <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-status-verified ring-2 ring-background" />
-            </div>
+          <div className="text-center space-y-3 flex flex-col items-center">
+            <DhadhiLogo size="lg" showTagline={false} />
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
               Create your first project
             </h1>
@@ -107,7 +108,7 @@ function ProjectsEntryContent() {
           {/* Creation Form */}
           <form
             onSubmit={handleCreateProject}
-            className="p-6 rounded-xl border border-border/80 bg-card/50 backdrop-blur-sm shadow-xl space-y-4"
+            className="p-6 rounded-2xl border border-white/10 bg-card/70 backdrop-blur-xl shadow-2xl space-y-4"
           >
             {error && (
               <div className="p-3 rounded-lg border border-destructive/40 bg-destructive/10 text-destructive text-xs">
@@ -171,12 +172,11 @@ function ProjectsEntryContent() {
 
   // State 2: Multiple Projects Selector
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col justify-center items-center px-4 py-12 select-none">
-      <div className="w-full max-w-lg space-y-6">
-        <div className="text-center space-y-2">
-          <div className="h-10 w-10 mx-auto rounded-xl bg-foreground text-background flex items-center justify-center shadow-md">
-            <Shield className="h-5 w-5 fill-current" />
-          </div>
+    <div className="relative min-h-screen bg-background text-foreground flex flex-col justify-center items-center px-4 py-12 select-none overflow-hidden">
+      <Dhadhi3DCanvas interactive density="normal" themeAccent="cyan" className="opacity-35" />
+      <div className="relative z-10 w-full max-w-lg space-y-6">
+        <div className="text-center space-y-2 flex flex-col items-center">
+          <DhadhiLogo size="md" showTagline={false} />
           <h1 className="text-xl font-bold tracking-tight text-foreground">Select a project</h1>
           <p className="text-xs text-muted-foreground">
             Choose a workspace to inspect claims and grounded knowledge.

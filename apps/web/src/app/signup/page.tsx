@@ -3,10 +3,12 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Shield, Eye, EyeOff, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/lib/auth-context';
+import { DhadhiLogo } from '@/components/ui/dhadhi-logo';
+import { Dhadhi3DCanvas } from '@/components/ui/dhadhi-3d-canvas';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -66,32 +68,29 @@ export default function SignupPage() {
   const displayError = localError || error;
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col justify-center items-center px-4 py-12 selection:bg-muted select-none">
+    <div className="relative min-h-screen bg-background text-foreground flex flex-col justify-center items-center px-4 py-12 selection:bg-cyan-500/20 select-none overflow-hidden">
+      {/* 3D Interactive Wallpaper */}
+      <Dhadhi3DCanvas interactive density="high" themeAccent="cyan" className="opacity-40" />
+
       {/* Brand Header */}
-      <div className="w-full max-w-sm flex flex-col items-center mb-8">
+      <div className="relative z-10 w-full max-w-sm flex flex-col items-center mb-8">
         <Link
           href="/"
-          className="flex items-center gap-2.5 mb-6 group outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md p-1"
+          className="flex items-center gap-2.5 mb-6 group outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-lg p-1.5 transition-transform hover:scale-105"
         >
-          <div className="h-7 w-7 rounded bg-foreground text-background flex items-center justify-center shrink-0 shadow-sm relative">
-            <Shield className="h-4 w-4 fill-current" />
-            <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-status-verified ring-2 ring-background" />
-          </div>
-          <span className="text-sm font-semibold tracking-tight text-foreground">
-            GroundGuard
-          </span>
+          <DhadhiLogo size="lg" showTagline={false} />
         </Link>
 
-        <h1 className="text-xl font-bold tracking-tight text-foreground text-center">
-          Create your account
+        <h1 className="text-2xl font-bold tracking-tight text-foreground text-center bg-gradient-to-r from-foreground via-foreground/90 to-muted-foreground bg-clip-text">
+          Create your DHADHI account
         </h1>
-        <p className="text-xs text-muted-foreground mt-1.5 text-center">
-          Start verifying AI claims against enterprise evidence
+        <p className="text-xs text-muted-foreground mt-2 text-center max-w-xs leading-relaxed">
+          Start verifying AI claims with real-time factual grounding
         </p>
       </div>
 
       {/* Signup Card */}
-      <div className="w-full max-w-sm rounded-xl border border-border/80 bg-card/50 backdrop-blur-sm p-6 shadow-xl space-y-4">
+      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/10 bg-card/70 backdrop-blur-xl p-6 shadow-2xl shadow-cyan-950/20 space-y-4">
         {displayError && (
           <div
             role="alert"

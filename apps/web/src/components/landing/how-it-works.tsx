@@ -39,7 +39,7 @@ const STAGES: PipelineStage[] = [
     label: 'Extract',
     tagline: 'Atomic Proposition Segmentation',
     description:
-      'Rather than grading ambiguous paragraphs, GroundGuard extracts individual factual claims with explicit subject-predicate bounds.',
+      'Rather than grading ambiguous paragraphs, DHADHI extracts individual factual claims with explicit subject-predicate bounds.',
     icon: Scissors,
   },
   {
@@ -92,7 +92,7 @@ export function HowItWorks() {
             Pipeline Architecture
           </div>
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-foreground font-sans">
-            How GroundGuard Works
+            How DHADHI Works
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground max-w-xl leading-relaxed">
             From raw query to verified answer: an autonomous verification loop inspecting every atomic claim.

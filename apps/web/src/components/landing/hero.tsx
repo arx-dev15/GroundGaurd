@@ -8,6 +8,7 @@ import { EvidenceField } from '@/components/landing/evidence-field';
 import { EvidenceProbe } from '@/components/landing/evidence-probe';
 import { HeroTyping } from '@/components/landing/hero-typing';
 import { HeroDemo } from '@/components/landing/hero-demo';
+import { Dhadhi3DCanvas } from '@/components/ui/dhadhi-3d-canvas';
 import { transitions } from '@/lib/motion';
 
 interface HeroProps {
@@ -52,6 +53,9 @@ export function Hero({ onGetStarted }: HeroProps) {
       ref={heroRef}
       className="relative w-full overflow-hidden flex flex-col justify-center min-h-[calc(100vh-4rem)] pt-6 sm:pt-10 pb-16 lg:pb-24 border-b border-border/40 bg-background"
     >
+      {/* 3D Hardware Accelerated Perspective Wallpaper */}
+      <Dhadhi3DCanvas density="normal" themeAccent="cyan" interactive={true} />
+
       {/* Layered Cursor-Reactive Evidence Field */}
       <EvidenceField activeInquiryIndex={activeQuestionIndex} />
 
@@ -68,10 +72,10 @@ export function Hero({ onGetStarted }: HeroProps) {
               initial={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, scale: 0.9, y: 12 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               transition={{ ...transitions.bouncy, delay: 0.05 }}
-              className="mb-4 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border/70 bg-card/70 backdrop-blur-md text-[11px] font-mono uppercase tracking-wider text-muted-foreground select-none shadow-xs"
+              className="mb-4 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-cyan-500/30 bg-card/70 backdrop-blur-md text-[11px] font-mono uppercase tracking-wider text-foreground select-none shadow-sm"
             >
-              <span className="h-2 w-2 rounded-full bg-status-verified animate-subtle-pulse" />
-              <span>Evidence-Grounded Reliability</span>
+              <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span>DHADHI · Evidence-Grounded AI Reliability Engine</span>
             </motion.div>
 
             {/* Headline */}
@@ -81,7 +85,11 @@ export function Hero({ onGetStarted }: HeroProps) {
               transition={{ ...transitions.springPop, delay: 0.12 }}
               className="text-3xl sm:text-4xl md:text-5xl lg:text-[3.25rem] font-bold tracking-tight text-foreground leading-[1.12] max-w-xl font-sans"
             >
-              AI answers you can actually verify.
+              AI answers you can{' '}
+              <span className="bg-gradient-to-r from-cyan-400 via-emerald-400 to-sky-400 bg-clip-text text-transparent">
+                actually verify
+              </span>
+              .
             </motion.h1>
 
             {/* Supporting Copy */}
@@ -91,7 +99,7 @@ export function Hero({ onGetStarted }: HeroProps) {
               transition={{ ...transitions.spring, delay: 0.18 }}
               className="mt-4 mb-6 text-sm sm:text-base text-muted-foreground max-w-lg leading-relaxed font-normal"
             >
-              GroundGuard traces factual claims to evidence, surfaces conflicts, and can repair failed claims before you rely on them.
+              <strong className="text-foreground font-semibold">DHADHI</strong> traces factual claims to deterministic evidence, surfaces conflicts, and self-heals unverified statements in real time.
             </motion.p>
 
             {/* Primary & Secondary Actions */}
