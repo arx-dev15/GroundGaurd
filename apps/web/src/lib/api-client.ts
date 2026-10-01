@@ -9,7 +9,7 @@ import type { APIError } from '@groundguard/types';
  * - Handles structured APIError responses.
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 export class GroundGuardAPIError extends Error {
   public code: string;
@@ -25,7 +25,7 @@ export class GroundGuardAPIError extends Error {
   }
 }
 
-function getAuthToken(): string | null {
+export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem('groundguard_token');
 }

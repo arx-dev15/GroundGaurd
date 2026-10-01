@@ -14,7 +14,12 @@ import {
   CheckCircle2,
   PanelRightOpen,
   PanelRightClose,
+  XCircle,
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+import { useGenerationEvents } from '@/lib/use-generation-events';
 import { Button } from '@/components/ui/button';
 import { AskComposer } from '@/components/ask/ask-composer';
 import { ZeroKnowledgeState } from '@/components/ask/zero-knowledge-state';
@@ -28,9 +33,16 @@ import {
   useCreateConversation,
   conversationQueryKeys,
 } from '@/lib/conversations-query';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, GroundGuardAPIError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import type { Project, Conversation, Message, Claim, EvidenceItem } from '@groundguard/types';
+
+interface GenerationErrorState {
+  message: string;
+  code?: string;
+  requestId?: string;
+  queryText: string;
+}
 
 export default function AskPage() {
   const params = useParams();
@@ -47,11 +59,16 @@ export default function AskPage() {
   const readyDocuments = documents.filter((d) => d.status === 'ready');
   const hasReadyKnowledge = readyDocuments.length > 0;
 
-  // Conversations query
-  const { data: conversations = [], refetch: refetchConversations } = useProjectConversations(projectId);
+  // Conversations query — ALWAYS fetched on mount, independent of active conversation or message mutation
+  const {
+    data: conversations = [],
+    isLoading: isLoadingConversations,
+    refetch: refetchConversations,
+  } = useProjectConversations(projectId);
+
   const [activeConversationId, setActiveConversationId] = React.useState<string | null>(convParam || null);
 
-  // Sync activeConversationId with URL query
+  // Sync activeConversationId with URL query parameter
   React.useEffect(() => {
     if (convParam && convParam !== activeConversationId) {
       setActiveConversationId(convParam);
@@ -69,6 +86,10 @@ export default function AskPage() {
 
   // Optimistic pending user message state during in-flight request
   const [pendingUserMessage, setPendingUserMessage] = React.useState<Message | null>(null);
+
+  // Error state for generation failure
+  const [generationError, setGenerationError] = React.useState<GenerationErrorState | null>(null);
+  const [showErrorDetails, setShowErrorDetails] = React.useState(false);
 
   // Composer input state
   const [inputValue, setInputValue] = React.useState('');
@@ -94,7 +115,6 @@ export default function AskPage() {
   // Combine persisted messages with any pending in-flight user message
   const messages = React.useMemo(() => {
     if (!pendingUserMessage) return persistedMessages;
-    // If the server has already persisted the message, don't duplicate
     const exists = persistedMessages.some(
       (m) => m.content === pendingUserMessage.content && m.role === 'user'
     );
@@ -125,12 +145,82 @@ export default function AskPage() {
     });
   }, [persistedMessages, generationClaimsMap, queryClient]);
 
-  // Submit Handler: Handles both initial question (Hero) and follow-up (Compact)
+  // In-flight generation tracking & meaningful stages
+  const [activeGenerationId, setActiveGenerationId] = React.useState<string | null>(null);
+  const [statusLabel, setStatusLabel] = React.useState<string>('Retrieving project evidence...');
+  const abortControllerRef = React.useRef<AbortController | null>(null);
+
+  // SSE runtime events subscription for live verification updates
+  const { cancel: cancelGenerationEvents } = useGenerationEvents({
+    generationId: activeGenerationId,
+    enabled: Boolean(activeGenerationId && isSubmitting),
+    onEvent: (event) => {
+      if (event === 'generation.started') {
+        setStatusLabel('Generating grounded answer...');
+      } else if (event === 'sentence.verified' || event === 'sentence.flagged') {
+        setStatusLabel('Verifying claims against project knowledge...');
+      } else if (event === 'recovery.started') {
+        setStatusLabel('Recovering unsupported claims...');
+      } else if (event === 'recovery.completed') {
+        setStatusLabel('Finalizing answer...');
+      }
+    },
+    onClaimUpdate: (claim) => {
+      if (activeGenerationId) {
+        setGenerationClaimsMap((prev) => {
+          const list = prev[activeGenerationId] || [];
+          const idx = list.findIndex((c) => c.claimId === claim.claimId);
+          if (idx >= 0) {
+            const nextList = [...list];
+            nextList[idx] = claim;
+            return { ...prev, [activeGenerationId]: nextList };
+          }
+          return { ...prev, [activeGenerationId]: [...list, claim] };
+        });
+      }
+    },
+    onCancelled: () => {
+      setIsSubmitting(false);
+      setActiveGenerationId(null);
+    },
+  });
+
+  // Cancel generation handler
+  const handleCancel = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (activeGenerationId) {
+      await cancelGenerationEvents();
+    }
+    setIsSubmitting(false);
+
+    if (activeConversationId) {
+      const cancelMsg: Message = {
+        id: `cancelled-${Date.now()}`,
+        conversationId: activeConversationId,
+        role: 'assistant',
+        content: 'Generation cancelled by user.',
+        createdAt: new Date().toISOString(),
+      };
+      queryClient.setQueryData<Message[]>(
+        conversationQueryKeys.messages(activeConversationId),
+        (old = []) => [...old, cancelMsg]
+      );
+    }
+    setPendingUserMessage(null);
+    setActiveGenerationId(null);
+  };
+
+  // Submit Handler
   const handleSubmit = async (overrideText?: string) => {
     const textToSend = (overrideText ?? inputValue).trim();
     if (!textToSend || isSubmitting) return;
 
-    // 1. Optimistic UI update: show message immediately and clear composer
+    setGenerationError(null);
+    setShowErrorDetails(false);
+
     const tempMsg: Message = {
       id: `temp-${Date.now()}`,
       conversationId: activeConversationId || 'pending',
@@ -142,11 +232,15 @@ export default function AskPage() {
     setPendingUserMessage(tempMsg);
     setInputValue('');
     setIsSubmitting(true);
+    setStatusLabel('Retrieving project evidence...');
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       let targetConvId = activeConversationId;
 
-      // 2. If no active conversation, create one first
+      // 1. If no active conversation, create one first
       if (!targetConvId) {
         const titleSnippet = textToSend.slice(0, 48);
         const newConv = await createConversationMutation.mutateAsync(titleSnippet);
@@ -155,11 +249,19 @@ export default function AskPage() {
         router.replace(`/projects/${projectId}/ask?c=${newConv.id}`);
       }
 
-      // 3. Send query message to M3
+      setStatusLabel('Generating grounded answer...');
+
+      // 2. Send query message to M3
       const res = await apiClient.post<any>(
         `/v1/projects/${projectId}/conversations/${targetConvId}/messages`,
-        { content: textToSend }
+        { content: textToSend },
+        { signal: controller.signal }
       );
+
+      // Track active generation ID
+      if (res?.generationId) {
+        setActiveGenerationId(res.generationId);
+      }
 
       // Cache returned claims for this generation
       if (res?.generationId && res?.claims) {
@@ -173,7 +275,17 @@ export default function AskPage() {
         );
       }
 
-      // 4. Update TanStack query cache directly for instantaneous display without reload
+      // Check if generation returned a failed status
+      if (res?.status === 'failed') {
+        setGenerationError({
+          message: res?.error?.message || "We couldn't generate this answer.",
+          code: res?.error?.code || 'GENERATION_FAILED',
+          requestId: res?.requestId,
+          queryText: textToSend,
+        });
+      }
+
+      // 3. Update TanStack query cache directly for instantaneous display
       if (res?.userMessage && res?.message) {
         queryClient.setQueryData<Message[]>(
           conversationQueryKeys.messages(targetConvId),
@@ -189,17 +301,28 @@ export default function AskPage() {
         );
       }
 
-      // Clear pending message and re-fetch to guarantee cache consistency
       setPendingUserMessage(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: conversationQueryKeys.messages(targetConvId) }),
         queryClient.invalidateQueries({ queryKey: conversationQueryKeys.projectList(projectId) }),
       ]);
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return;
+      }
       console.error('Failed to send message:', err);
       setPendingUserMessage(null);
+
+      const isApiErr = err instanceof GroundGuardAPIError;
+      setGenerationError({
+        message: err?.message || "We couldn't generate this answer.",
+        code: isApiErr ? err.code : 'REQUEST_ERROR',
+        requestId: isApiErr ? err.requestId : undefined,
+        queryText: textToSend,
+      });
     } finally {
       setIsSubmitting(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -207,20 +330,21 @@ export default function AskPage() {
   const handleNewConversation = () => {
     setActiveConversationId(null);
     setPendingUserMessage(null);
+    setGenerationError(null);
     setSelectedClaim(null);
     setSelectedEvidence(null);
     setInspectorOpen(false);
     router.push(`/projects/${projectId}/ask`);
   };
 
-  // Select a claim to inspect: Opens Inspector
+  // Select a claim to inspect
   const handleSelectClaim = (claim: Claim) => {
     setSelectedClaim(claim);
     setSelectedEvidence(null);
     setInspectorOpen(true);
   };
 
-  // Select an evidence chunk to inspect: Opens Inspector
+  // Select an evidence chunk to inspect
   const handleSelectEvidence = (ev: EvidenceItem) => {
     setSelectedEvidence(ev);
     setInspectorOpen(true);
@@ -232,25 +356,24 @@ export default function AskPage() {
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, isSubmitting]);
+  }, [messages.length, isSubmitting, generationError]);
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
-      {/* 1. Left Conversation History Sidebar (Active Conversation state only) */}
-      {!isHeroState && (
-        <ConversationSidebar
-          conversations={conversations}
-          activeConversationId={activeConversationId}
-          onSelectConversation={(id) => {
-            setActiveConversationId(id);
-            router.push(`/projects/${projectId}/ask?c=${id}`);
-          }}
-          onNewConversation={handleNewConversation}
-          isCollapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className="hidden md:flex"
-        />
-      )}
+      {/* 1. Left Conversation History Sidebar — ALWAYS PERSISTENT ON DESKTOP */}
+      <ConversationSidebar
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        isLoading={isLoadingConversations}
+        onSelectConversation={(id) => {
+          setActiveConversationId(id);
+          router.push(`/projects/${projectId}/ask?c=${id}`);
+        }}
+        onNewConversation={handleNewConversation}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        className="hidden md:flex"
+      />
 
       {/* 2. Main Center Workspace */}
       <div className="flex-1 flex flex-col min-w-0 h-full relative overflow-hidden bg-background">
@@ -272,7 +395,7 @@ export default function AskPage() {
           </div>
         ) : isHeroState ? (
           // ============================================================
-          // 1. NEW CONVERSATION STATE (Linear Agent inspired surface)
+          // NEW CONVERSATION STATE (Clean Composer Surface)
           // ============================================================
           <div className="flex-1 flex flex-col justify-center items-center p-6 sm:p-12 overflow-y-auto">
             <motion.div
@@ -311,7 +434,7 @@ export default function AskPage() {
           </div>
         ) : (
           // ============================================================
-          // 2. ACTIVE CONVERSATION STATE (GroundGuard Research Workspace)
+          // ACTIVE CONVERSATION STATE (GroundGuard Reading & Verification)
           // ============================================================
           <div className="flex-1 flex flex-col min-h-0">
             {/* Top Workspace Bar */}
@@ -340,7 +463,6 @@ export default function AskPage() {
                   </span>
                 </div>
 
-                {/* Subtle Inspector Toggle if a claim was selected */}
                 {selectedClaim && (
                   <Button
                     variant="ghost"
@@ -394,6 +516,7 @@ export default function AskPage() {
                       <AnswerView
                         answerText={msg.content}
                         claims={assistantClaims}
+                        generationStatus={msg.content.includes('cancelled') ? 'cancelled' : 'completed'}
                         projectId={projectId}
                         selectedClaimId={selectedClaim?.claimId}
                         onSelectClaim={handleSelectClaim}
@@ -411,12 +534,24 @@ export default function AskPage() {
                   );
                 })}
 
-                {/* In-flight Generating Indicator */}
+                {/* In-flight Generating Indicator with Cancel Action */}
                 {isSubmitting && (
                   <div className="space-y-2 animate-in fade-in duration-200">
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground pl-1 flex items-center gap-1.5">
-                      <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                      <span>Thinking & verifying against project knowledge...</span>
+                    <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-muted-foreground pl-1">
+                      <div className="flex items-center gap-1.5">
+                        <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                        <span>{statusLabel}</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCancel}
+                        className="h-6 text-[11px] gap-1 px-2 border-border/60 hover:bg-muted text-muted-foreground hover:text-foreground"
+                      >
+                        <XCircle className="h-3 w-3" />
+                        <span>Cancel</span>
+                      </Button>
                     </div>
                     <div className="p-4 rounded-xl border border-border/60 bg-card/30 space-y-2">
                       <div className="h-4 w-3/4 rounded bg-muted/60 animate-pulse" />
@@ -426,11 +561,70 @@ export default function AskPage() {
                   </div>
                 )}
 
+                {/* Inline Generation Error Experience with Retry Action */}
+                {generationError && !isSubmitting && (
+                  <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/5 space-y-3 animate-in fade-in duration-200">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1 flex-1">
+                        <h4 className="text-sm font-semibold text-foreground">
+                          We couldn&apos;t generate this answer.
+                        </h4>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {generationError.message}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSubmit(generationError.queryText)}
+                        className="h-7 text-xs font-medium gap-1.5"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        <span>Try again</span>
+                      </Button>
+
+                      {(generationError.code || generationError.requestId) && (
+                        <button
+                          type="button"
+                          onClick={() => setShowErrorDetails(!showErrorDetails)}
+                          className="text-[11px] font-mono text-muted-foreground hover:text-foreground inline-flex items-center gap-1 transition-colors"
+                        >
+                          <span>{showErrorDetails ? 'Hide details' : 'View details'}</span>
+                          {showErrorDetails ? (
+                            <ChevronUp className="h-3 w-3" />
+                          ) : (
+                            <ChevronDown className="h-3 w-3" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    {showErrorDetails && (
+                      <div className="p-2.5 rounded-lg bg-background/80 border border-border/60 text-[11px] font-mono space-y-1 text-muted-foreground">
+                        {generationError.code && (
+                          <div>
+                            <span className="text-foreground">Error Code:</span> {generationError.code}
+                          </div>
+                        )}
+                        {generationError.requestId && (
+                          <div>
+                            <span className="text-foreground">Request ID:</span> {generationError.requestId}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div ref={messagesEndRef} />
               </div>
             </div>
 
-            {/* Persistent Compact Bottom Composer: Centered Column */}
+            {/* Persistent Compact Bottom Composer */}
             <div className="p-3 sm:p-4 border-t border-border/60 bg-background/95 backdrop-blur-sm shrink-0">
               <div className="max-w-[760px] mx-auto w-full">
                 <AskComposer
@@ -452,8 +646,31 @@ export default function AskPage() {
         claim={selectedClaim}
         selectedEvidence={selectedEvidence}
         projectId={projectId}
-        isOpen={inspectorOpen && Boolean(selectedClaim)}
+        generationId={
+          selectedClaim
+            ? Object.entries(generationClaimsMap).find(([_, claims]) =>
+                claims.some((c) => c.claimId === selectedClaim.claimId)
+              )?.[0]
+            : undefined
+        }
+        isOpen={inspectorOpen}
         onClose={() => setInspectorOpen(false)}
+        onClaimUpdated={(updatedClaim) => {
+          setSelectedClaim(updatedClaim);
+          setGenerationClaimsMap((prev) => {
+            const next = { ...prev };
+            for (const [genId, list] of Object.entries(next)) {
+              const idx = list.findIndex((c) => c.claimId === updatedClaim.claimId);
+              if (idx >= 0) {
+                const nextList = [...list];
+                nextList[idx] = updatedClaim;
+                next[genId] = nextList;
+                break;
+              }
+            }
+            return next;
+          });
+        }}
       />
     </div>
   );

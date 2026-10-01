@@ -6,6 +6,7 @@ import {
   createConversation,
   getGenerationClaims,
   getClaimRecoveryAttempts,
+  retryClaim,
 } from './conversations-api';
 import type { Conversation, Message, Claim, RecoveryAttempt } from '@groundguard/types';
 
@@ -82,6 +83,24 @@ export function useSendMessage(projectId: string, conversationId: string) {
           res.claims
         );
       }
+    },
+  });
+}
+
+export function useRetryClaim() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (claimId: string) => retryClaim(claimId),
+    onSuccess: (data, claimId) => {
+      // Invalidate recovery attempts
+      queryClient.setQueryData(
+        conversationQueryKeys.claimRecovery(claimId),
+        data.recoveryAttempts
+      );
+      // Invalidate all claims queries so the updated claim is reflected in the UI
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === 'generations' && query.queryKey[2] === 'claims',
+      });
     },
   });
 }

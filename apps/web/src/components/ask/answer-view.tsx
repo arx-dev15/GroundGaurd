@@ -10,22 +10,27 @@ import {
   RotateCcw,
   AlertTriangle,
   HelpCircle,
+  Clock,
   Copy,
   Check,
   SearchX,
   ArrowRight,
   BookOpen,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { GroundingRail } from './grounding-rail';
 import { CitationPill } from './citation-pill';
+import { TrustSummary } from './trust-summary';
 import { StatusBadge } from '@/components/trust/status-badge';
+import { CLAIM_STATE_CONFIG } from '@/lib/trust-utils';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { Claim, EvidenceItem } from '@groundguard/types';
+import type { Claim, EvidenceItem, GenerationStatus } from '@groundguard/types';
 
 interface AnswerViewProps {
   answerText: string;
   claims?: Claim[];
+  generationStatus?: GenerationStatus;
   projectId: string;
   selectedClaimId?: string | null;
   onSelectClaim: (claim: Claim) => void;
@@ -39,6 +44,7 @@ interface AnswerViewProps {
 export function AnswerView({
   answerText,
   claims = [],
+  generationStatus = 'completed',
   projectId,
   selectedClaimId,
   onSelectClaim,
@@ -49,6 +55,8 @@ export function AnswerView({
   className,
 }: AnswerViewProps) {
   const [copied, setCopied] = React.useState(false);
+  const [hoveredClaimId, setHoveredClaimId] = React.useState<string | null>(null);
+  const [activeStatusFilter, setActiveStatusFilter] = React.useState<string | null>(null);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(answerText);
@@ -56,11 +64,6 @@ export function AnswerView({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Compute Trust Summary counts
-  const verifiedCount = claims.filter((c) => c.status === 'verified').length;
-  const recoveredCount = claims.filter((c) => c.status === 'recovered').length;
-  const flaggedCount = claims.filter((c) => c.status === 'flagged').length;
-  const reviewCount = claims.filter((c) => c.status === 'needs_review').length;
   const hasClaims = claims.length > 0;
 
   // Build flattened unique evidence array for numbering [1], [2], etc.
@@ -84,6 +87,12 @@ export function AnswerView({
     const idx = evidencePool.findIndex((e) => (e.chunkId || e.evidenceId || e.text) === id);
     return idx >= 0 ? idx + 1 : 1;
   };
+
+  // Filtered claims if user clicked a filter pill in TrustSummary
+  const displayedClaims = React.useMemo(() => {
+    if (!activeStatusFilter) return claims;
+    return claims.filter((c) => c.status === activeStatusFilter);
+  }, [claims, activeStatusFilter]);
 
   // Case 1: Non-claim response (Conversational, Product Help, or Scoped Abstention)
   if (!hasClaims) {
@@ -169,38 +178,26 @@ export function AnswerView({
   // Case 2: Grounded Research Document Answer with Claims & Grounding Rail
   return (
     <div className={cn('space-y-3 py-1', className)}>
-      {/* Subtle Top Metadata Bar: Trust Summary on left, Evidence Lens toggle + Copy on right */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono pb-2 border-b border-border/40 select-none">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-            Trust Summary:
-          </span>
-          <div className="flex items-center gap-2 flex-wrap text-[11px]">
-            {verifiedCount > 0 && (
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                <CheckCircle2 className="h-3 w-3" />
-                {verifiedCount} verified
-              </span>
-            )}
-            {recoveredCount > 0 && (
-              <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
-                <RotateCcw className="h-3 w-3" />
-                {recoveredCount} recovered
-              </span>
-            )}
-            {flaggedCount > 0 && (
-              <span className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-medium">
-                <AlertTriangle className="h-3 w-3" />
-                {flaggedCount} flagged
-              </span>
-            )}
-            {reviewCount > 0 && (
-              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
-                <HelpCircle className="h-3 w-3" />
-                {reviewCount} needs review
-              </span>
-            )}
-          </div>
+      {/* 1. Signature Trust Summary Header */}
+      <TrustSummary
+        claims={claims}
+        generationStatus={generationStatus}
+        selectedStatusFilter={activeStatusFilter}
+        onClickClaimFilter={setActiveStatusFilter}
+      />
+
+      {/* Utility Bar: Evidence Lens toggle + Copy action */}
+      <div className="flex items-center justify-between text-xs font-mono select-none px-0.5">
+        <div className="flex items-center gap-2">
+          {activeStatusFilter && (
+            <button
+              type="button"
+              onClick={() => setActiveStatusFilter(null)}
+              className="text-[11px] text-primary hover:underline font-mono"
+            >
+              Clear filter ({activeStatusFilter})
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
@@ -214,6 +211,7 @@ export function AnswerView({
                 : 'bg-transparent text-muted-foreground border-border/40 hover:bg-muted/50 hover:text-foreground'
             )}
             title="Toggle Evidence Lens reading mode"
+            aria-pressed={isEvidenceLens}
           >
             {isEvidenceLens ? (
               <>
@@ -244,37 +242,57 @@ export function AnswerView({
         </div>
       </div>
 
-      {/* Main Research Document Flow: Grounding Rail + Claim Spans */}
+      {/* 2. Main Research Document Flow: Grounding Rail + Claim Spans */}
       <div className="flex items-stretch gap-3 sm:gap-4 min-w-0">
-        {/* Signature Vertical Grounding Rail */}
-        <div className="shrink-0 pt-1">
+        {/* Signature Vertical Grounding Rail (hidden on very small mobile, visible sm+) */}
+        <div className="hidden sm:block shrink-0 pt-1">
           <GroundingRail
             claims={claims}
             selectedClaimId={selectedClaimId}
+            hoveredClaimId={hoveredClaimId}
             onSelectClaim={onSelectClaim}
+            onHoverClaim={setHoveredClaimId}
             isEvidenceLens={isEvidenceLens}
           />
         </div>
 
-        {/* Readable Document Text */}
+        {/* Readable Document Text with subtle claim mapping */}
         <div className="flex-1 min-w-0 space-y-2 text-xs sm:text-sm text-foreground leading-relaxed font-sans">
-          {claims.map((claim, idx) => {
+          {displayedClaims.map((claim, idx) => {
             const isSelected = selectedClaimId === claim.claimId;
+            const isHovered = hoveredClaimId === claim.claimId;
             const claimEvList = claim.evidence || [];
+            const config = CLAIM_STATE_CONFIG[claim.status] || CLAIM_STATE_CONFIG.pending;
 
             return (
               <div
                 key={claim.claimId || idx}
                 onClick={() => onSelectClaim(claim)}
+                onMouseEnter={() => setHoveredClaimId(claim.claimId)}
+                onMouseLeave={() => setHoveredClaimId(null)}
+                onFocus={() => setHoveredClaimId(claim.claimId)}
+                onBlur={() => setHoveredClaimId(null)}
+                tabIndex={0}
+                role="button"
+                aria-label={`Claim: ${claim.text}. Status: ${config.label}. Click to inspect.`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectClaim(claim);
+                  }
+                }}
                 className={cn(
-                  'group relative py-1 px-1.5 rounded transition-all duration-150 cursor-pointer',
+                  'group relative py-1 px-1.5 rounded transition-all duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                   isSelected
                     ? 'bg-primary/10 ring-1 ring-primary/40'
+                    : isHovered
+                    ? 'bg-muted/30 ring-1 ring-border/60'
                     : isEvidenceLens
                     ? 'border-b border-border/60 hover:bg-muted/30'
                     : 'hover:bg-muted/20'
                 )}
               >
+                {/* Text span */}
                 <span>{claim.text}</span>
 
                 {/* Inline Citations */}
@@ -292,9 +310,10 @@ export function AnswerView({
                   />
                 ))}
 
-                {isEvidenceLens && (
-                  <span className="inline-block ml-2 align-middle">
-                    <StatusBadge status={claim.status} size="sm" showIcon={false} />
+                {/* Evidence Lens / Flagged status chip */}
+                {(isEvidenceLens || claim.status === 'flagged' || claim.status === 'needs_review') && (
+                  <span className="inline-block ml-2 align-middle select-none">
+                    <StatusBadge status={claim.status} size="sm" showIcon={true} />
                   </span>
                 )}
               </div>

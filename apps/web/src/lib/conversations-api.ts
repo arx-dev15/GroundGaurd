@@ -81,3 +81,9 @@ export async function getClaimRecoveryAttempts(claimId: string): Promise<Recover
     return [];
   }
 }
+
+export async function retryClaim(claimId: string): Promise<{ claim: Claim; recoveryAttempts: RecoveryAttempt[] }> {
+  return apiClient.post<{ claim: Claim; recoveryAttempts: RecoveryAttempt[] }>(
+    `/v1/claims/${claimId}/retry`
+  );
+}
