@@ -155,4 +155,33 @@ export async function projectRoutes(fastify: FastifyInstance) {
 
     return reply.status(200).send(retrieveResult);
   });
+
+  // POST /v1/projects/:projectId/reconcile
+  fastify.post('/v1/projects/:projectId/reconcile', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const userId = request.user!.id;
+
+    const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
+    if (!project) {
+      throw new NotFoundError('Project not found');
+    }
+
+    const { dbManager } = await import('../plugins/database');
+    const pool = dbManager.getPool();
+    const chunkRes = await pool.query(
+      `SELECT c.id FROM chunks c
+       JOIN documents d ON c.document_id = d.id
+       WHERE d.project_id = $1 AND d.status = 'ready'`,
+      [projectId]
+    );
+    const validChunkIds = chunkRes.rows.map((r: { id: string }) => r.id);
+
+    const reconcileResult = await aiClient.reconcileVectors(
+      projectId,
+      validChunkIds,
+      request.requestId
+    );
+
+    return reply.status(200).send(reconcileResult);
+  });
 }

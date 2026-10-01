@@ -276,6 +276,54 @@ class QdrantStore:
         )
         return res.count
 
+    def reconcile_project_vectors(self, project_id: str, valid_chunk_ids: set) -> int:
+        """
+        Reconciles Qdrant points against the authoritative set of valid chunk IDs in PostgreSQL (Flaw 6 Fix).
+        Finds any orphaned points in Qdrant (points for this project whose chunkId is not in valid_chunk_ids)
+        and purges them from the index.
+        Returns the number of purged orphaned points.
+        """
+        scroll_filter = Filter(
+            must=[
+                FieldCondition(key="projectId", match=MatchValue(value=project_id))
+            ]
+        )
+        orphaned_point_ids = []
+        offset = None
+
+        while True:
+            records, next_offset = self.client.scroll(
+                collection_name=COLLECTION_NAME,
+                scroll_filter=scroll_filter,
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            for record in records:
+                chunk_id = (record.payload or {}).get("chunkId")
+                if chunk_id and chunk_id not in valid_chunk_ids:
+                    orphaned_point_ids.append(record.id)
+
+            if next_offset is None or not records:
+                break
+            offset = next_offset
+
+        if orphaned_point_ids:
+            from qdrant_client.http.models import PointIdsList
+            self.client.delete(
+                collection_name=COLLECTION_NAME,
+                points_selector=PointIdsList(points=orphaned_point_ids),
+                wait=True
+            )
+            logger.warning(
+                f"[Reconciliation] Purged {len(orphaned_point_ids)} orphaned Qdrant points for project_id={project_id}"
+            )
+            return len(orphaned_point_ids)
+
+        return 0
+
 
 # Singleton store — initialized once at service startup.
 qdrant_store = QdrantStore()
+

@@ -78,6 +78,15 @@ class DeleteDocumentResult(BaseModel):
     projectId: str
     error: Optional[str] = None
 
+class ReconcileRequest(BaseModel):
+    projectId: str
+    validChunkIds: List[str]
+
+class ReconcileResponse(BaseModel):
+    projectId: str
+    purgedVectorsCount: int
+    success: bool
+
 class GenerateRequest(BaseModel):
     requestId: Optional[str] = None
     generationId: Optional[str] = None
@@ -296,6 +305,27 @@ async def delete_document(
             status_code=500,
             detail=f"Derived index purge failed: {e}"
         )
+
+@app.post("/reconcile", response_model=ReconcileResponse)
+async def reconcile_vectors(payload: ReconcileRequest, x_request_id: Optional[str] = Header(None)):
+    """
+    Reconciles derived vector index against PostgreSQL canonical chunk IDs (Flaw 6 Fix).
+    Purges ghost/orphaned vector points remaining from interrupted ingests or failed compensating purges.
+    """
+    logger.info(f"[/reconcile] project_id={payload.projectId} valid_chunks={len(payload.validChunkIds)}")
+    try:
+        purged = qdrant_store.reconcile_project_vectors(
+            project_id=payload.projectId,
+            valid_chunk_ids=set(payload.validChunkIds)
+        )
+        return ReconcileResponse(
+            projectId=payload.projectId,
+            purgedVectorsCount=purged,
+            success=True
+        )
+    except Exception as e:
+        logger.error(f"Vector reconciliation failed for project {payload.projectId}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/retrieve", response_model=RetrieveResponse)
 async def retrieve(payload: RetrieveRequest, x_request_id: Optional[str] = Header(None)):

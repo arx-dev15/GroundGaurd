@@ -26,22 +26,23 @@ logger = logging.getLogger("agents-repair")
 CIRCUIT_BREAKER_DISCLAIMER = "[Note: Statement unverified against provided source]"
 
 
-def invert_polarity(sentence: str) -> str:
-    """Fast-Path instant polarity inversion (<2ms) for direct factual negations."""
-    replacements = [
-        (r'\bis not\b', 'is'),
-        (r'\bis\b', 'is not'),
-        (r'\bdoes not have\b', 'has'),
-        (r'\bhas\b', 'does not have'),
-        (r'\bcannot\b', 'can'),
-        (r'\bcan\b', 'cannot'),
-        (r'\bwill not\b', 'will'),
-        (r'\bwill\b', 'will not')
-    ]
-    for pattern, repl in replacements:
-        if re.search(pattern, sentence, re.IGNORECASE):
-            return re.sub(pattern, repl, sentence, count=1, flags=re.IGNORECASE)
-    return sentence
+def find_grounded_evidence_sentence(claim_sentence: str, evidence_chunks: List[EvidenceChunk]) -> Optional[str]:
+    """
+    Finds an exact, grounded sentence directly from retrieved evidence chunks matching the focal entities.
+    Prevents ungrammatical regex polarity mangling (Flaw 5).
+    """
+    identifiers = extract_identifiers(claim_sentence)
+    tokens = [i.normalized for i in identifiers]
+    if not tokens:
+        return None
+
+    for chunk in evidence_chunks:
+        sentences = re.split(r'(?<=[.!?])\s+', chunk.text)
+        for s in sentences:
+            s_clean = s.strip()
+            if all(tok in s_clean.upper() for tok in tokens) and len(s_clean) > 15:
+                return s_clean
+    return None
 
 
 async def execute_dual_track_repair(
@@ -57,7 +58,11 @@ async def execute_dual_track_repair(
     attempt: int = 0
 ) -> SentenceVerificationEvent:
     """
-    Mandate 8 & 9: Dual-Track Repair Engine with Hard Bounded Circuit Breaker.
+    Dual-Track Repair Engine with:
+    - Zero-Freeze Streaming: Eliminates mid-stream 3s LLM re-synthesis freeze (Flaw 1).
+    - Deterministic Numerical Scaling via Pint (<15ms).
+    - Direct Grounded Evidence Substitution for Contradictions, eliminating regex syntax mangling (Flaw 5).
+    - Circuit Breaker Bound: Emits safe fallback disclaimer without stalling SSE stream.
     """
     t0 = time.time() * 1000.0
 
@@ -111,84 +116,50 @@ async def execute_dual_track_repair(
             timestamp_ms=time.time() * 1000.0
         )
 
-    if failure_type == "CONTRADICTION" and ("not" in claim_sentence.lower() or "is" in claim_sentence.lower()):
-        # Try fast polarity inversion if a simple negation flipped the claim
-        inverted = invert_polarity(claim_sentence)
-        if inverted != claim_sentence:
+    if failure_type == "CONTRADICTION":
+        # Flaw 5 Fix: Do NOT use blind regex polarity inversion ("may not bypass", modal errors).
+        # Instead, substitute the exact grounded sentence directly from the retrieved evidence chunk.
+        grounded_substitute = find_grounded_evidence_sentence(claim_sentence, evidence_chunks)
+        if grounded_substitute:
             latency = (time.time() * 1000.0) - t0
-            logger.info(f"[Fast-Path Polarity <15ms] Inverted claim polarity in {latency:.2f}ms")
+            logger.info(f"[Fast-Path Direct Evidence Substitution <15ms] Substituted verified truth in {latency:.2f}ms")
             return SentenceVerificationEvent(
                 event="sentence.recovered",
                 sentence_index=sentence_index,
-                text=inverted,
+                text=grounded_substitute,
                 original_text=claim_sentence,
                 status=SentenceStatus.RECOVERED,
-                score=0.85,
+                score=0.92,
                 label="entailment",
                 repair_track="fast_path",
                 evidence_chunk_ids=[c.chunk_id for c in evidence_chunks],
-                reason="Fast-Path polarity inversion recovered claim",
+                reason="Fast-Path direct grounded evidence substitution recovered contradiction",
                 timestamp_ms=time.time() * 1000.0
             )
-
-    # -------------------------------------------------------------------------
-    # TRACK 2 (DEEP-PATH: Bounded Re-Retrieval - Max 1 Attempt)
-    # -------------------------------------------------------------------------
-    logger.info(f"[Deep-Path] S_{sentence_index} entering targeted re-retrieval (Attempt {attempt + 1}/1)")
-
-    # 1. Check if relationship / topology issue
-    rel_keywords = ["upstream", "downstream", "isolated by", "connected to", "discharges to"]
-    is_relational = any(k in claim_sentence.lower() for k in rel_keywords)
-
-    identifiers = extract_identifiers(claim_sentence)
-    id_tokens = [i.normalized for i in identifiers]
-
-    found_evidence: List[str] = []
-
-    if is_relational and id_tokens:
-        for token in id_tokens:
-            relations = graph_store.query_relations(project_id, token)
-            for r in relations:
-                prov = r.get("provenance", {})
-                if prov.get("sourceText"):
-                    found_evidence.append(prov["sourceText"])
-
-    # 2. Targeted re-query in Qdrant & Tantivy
-    if not found_evidence:
-        re_query = " ".join(id_tokens) + " " + claim_sentence
-        try:
-            dense_hits = dense_vector_store.search_dense(project_id=project_id, query=re_query, top_k=3)
-            lexical_hits = lexical_index.search_lexical(project_id=project_id, query=re_query, top_k=3)
-            found_evidence.extend([h["text"] for h in dense_hits] + [h["text"] for h in lexical_hits])
-        except Exception as e:
-            logger.error(f"[Deep-Path] Re-retrieval failed: {e}")
-
-    # Check if re-retrieval yielded direct support
-    if found_evidence:
-        # Re-verify claim against new evidence
-        combined_found = " ".join(found_evidence)
-        # Check if equipment tags confirmed
-        if id_tokens and all(tok.upper() in combined_found.upper() for tok in id_tokens):
+        else:
+            # If no exact grounded sentence found in evidence, immediately trip fallback disclaimer
+            logger.warning(f"[Contradiction Fallback] No grounded substitute found for '{claim_sentence}'. Tripping fallback.")
             return SentenceVerificationEvent(
-                event="sentence.recovered",
+                event="sentence.fallback",
                 sentence_index=sentence_index,
-                text=claim_sentence,
+                text=CIRCUIT_BREAKER_DISCLAIMER,
                 original_text=claim_sentence,
-                status=SentenceStatus.RECOVERED,
-                score=0.88,
-                label="entailment",
-                repair_track="deep_path",
-                evidence_chunk_ids=[c.chunk_id for c in evidence_chunks],
-                reason="Deep-Path bounded re-retrieval substantiated claim",
+                status=SentenceStatus.FALLBACK,
+                score=0.0,
+                repair_track="circuit_breaker",
+                reason="Contradiction without direct evidence substitute",
                 timestamp_ms=time.time() * 1000.0
             )
 
     # -------------------------------------------------------------------------
-    # Still unverified after 1 Deep-Path attempt -> Circuit Breaker Trips
+    # TRACK 2: Zero-Freeze Streaming Handling for Missing Evidence / Relationship Issues (Flaw 1 Fix)
     # -------------------------------------------------------------------------
+    # Production Rule: Never execute a 3-second generative LLM rewrite or heavy re-retrieval
+    # inside the live streaming loop. Immediately emit an inline safety disclaimer to preserve
+    # fluid SSE streaming (<1.5s TTFT), while logging the missing fact for out-of-band resolution.
     logger.warning(
-        f"[Deep-Path Failed] S_{sentence_index} unverified after 1 attempt. "
-        f"Circuit Breaker fallback disclaimer engaged."
+        f"[Zero-Freeze Streaming] S_{sentence_index} triggered {failure_type}: '{failure_reason}'. "
+        f"Immediately emitting scoped fallback disclaimer to prevent streaming freeze."
     )
     return SentenceVerificationEvent(
         event="sentence.fallback",
@@ -198,6 +169,6 @@ async def execute_dual_track_repair(
         status=SentenceStatus.FALLBACK,
         score=0.0,
         repair_track="circuit_breaker",
-        reason=f"Deep-Path re-retrieval failed to substantiate: {failure_reason}",
+        reason=f"Zero-freeze fallback for {failure_type}: {failure_reason}",
         timestamp_ms=time.time() * 1000.0
     )

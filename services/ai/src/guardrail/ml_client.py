@@ -27,10 +27,60 @@ class NeuralVerifierResult:
         return self.label == "entailment" and self.score >= 0.50
 
 
+import re
+from src.pipeline.extractor import extract_identifiers
+
+
+def resolve_anaphoric_pronouns(current_sentence: str, discourse_window: List[str]) -> str:
+    """
+    Resolves anaphoric pronouns ("they", "this", "these", "it", "the unit", "this system")
+    in current_sentence using the concrete referent/subject from the preceding discourse (S_{n-1}).
+    Yields a single, standalone sentence S_n for DeBERTa NLI evaluation.
+    This eliminates compound hypothesis attention dilution across 50+ tokens (Flaw 3 Fix).
+    """
+    if not discourse_window:
+        return current_sentence
+
+    prev_sentence = discourse_window[-1].strip()
+    if not prev_sentence:
+        return current_sentence
+
+    # 1. Identify primary technical tag or identifier in previous sentence (e.g., P-101A, V-204)
+    prev_ids = extract_identifiers(prev_sentence)
+    referent = None
+    if prev_ids:
+        referent = prev_ids[0].normalized
+    else:
+        # Fallback to key noun phrases: e.g. "the cooling pump", "the isolation valve", "the system"
+        noun_match = re.search(r'\b(?:the|this)\s+([a-zA-Z0-9_\- ]{3,25}?)(?=\s+(?:is|was|are|were|has|have|can|must|should|feeds|discharges|\.))\b', prev_sentence, re.IGNORECASE)
+        if noun_match:
+            referent = noun_match.group(0).strip()
+
+    if not referent:
+        return current_sentence
+
+    # 2. Perform targeted anaphoric substitution in current sentence
+    resolved = current_sentence
+    patterns = [
+        (r'^(?:they|these|those)\s+', f"{referent} "),
+        (r'^(?:it|this\s+unit|this\s+system|the\s+unit)\s+', f"{referent} "),
+        (r'\b(?:they|these)\b', referent),
+        (r'\b(?:it|this\s+unit)\b', referent),
+    ]
+    for pat, rep in patterns:
+        if re.search(pat, resolved, re.IGNORECASE):
+            resolved = re.sub(pat, rep, resolved, count=1, flags=re.IGNORECASE)
+            logger.info(f"[ml-client] Anaphoric pronoun resolved: '{current_sentence}' -> '{resolved}' using referent '{referent}'")
+            break
+
+    return resolved
+
+
 class MLServiceClient:
     """
-    HTTP Client to services/ml with discourse window enrichment.
-    Resolves pronoun ambiguities by prefixing S_{n-2} + S_{n-1} context.
+    HTTP Client to services/ml with anaphoric pronoun resolution.
+    Resolves pronoun ambiguities in S_n using S_{n-1} and feeds only
+    the single resolved sentence to DeBERTa to preserve sharp self-attention.
     """
     def __init__(self, base_url: str = ML_SERVICE_URL):
         self.base_url = base_url.rstrip("/")
@@ -43,22 +93,14 @@ class MLServiceClient:
         request_id: Optional[str] = None
     ) -> NeuralVerifierResult:
         """
-        Mandate 7: Passes 2-sentence discourse window ($S_{n-2} + S_{n-1}$)
-        Prefixes discourse history when pronouns ('they', 'this', 'it', 'these', 'the unit')
-        are detected to anchor cross-sentence coreference before dispatching to DeBERTa-v3.
+        Evaluates single-sentence hypothesis against evidence.
+        Resolves pronouns in S_n using S_{n-1} prior to DeBERTa dispatch.
         """
         t0 = time.perf_counter()
 
-        # Check for pronoun / referential markers
-        pronoun_markers = ["they", "this", "it", "these", "those", "the pump", "the valve", "the unit", "its", "their"]
-        has_referential = any(re_mark in current_sentence.lower().split() for re_mark in pronoun_markers)
-
-        # Condition claim on discourse window S_{n-2} + S_{n-1}
-        conditioned_claim = current_sentence
-        if has_referential and discourse_window:
-            prefix = " ".join(discourse_window[-2:]).strip()
-            conditioned_claim = f"[Context: {prefix}] {current_sentence}"
-            logger.info(f"[ml-client] Discourse conditioning applied: '{conditioned_claim[:100]}...'")
+        # Flaw 3 Fix: Resolve pronouns to concrete referents from S_{n-1}
+        # Passes ONLY the single resolved sentence S_n, never a compound 3-sentence blob
+        resolved_claim = resolve_anaphoric_pronouns(current_sentence, discourse_window)
 
         headers = {"Content-Type": "application/json"}
         if request_id:
@@ -67,7 +109,7 @@ class MLServiceClient:
         payload = {
             "requestId": request_id,
             "claimId": f"claim_{int(time.time() * 1000)}",
-            "claim": conditioned_claim,
+            "claim": resolved_claim,
             "evidence": [
                 {"chunkId": "ev_chunk_1", "text": evidence_text}
             ]

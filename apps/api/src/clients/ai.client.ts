@@ -197,6 +197,26 @@ export class AIClient {
     }
     return res.json();
   }
+
+  public async reconcileVectors(
+    projectId: string,
+    validChunkIds: string[],
+    requestId?: string
+  ): Promise<{ projectId: string; purgedVectorsCount: number; success: boolean }> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (requestId) headers['x-request-id'] = requestId;
+
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/reconcile`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ projectId, validChunkIds }),
+    });
+
+    if (!res.ok) {
+      throw new ServiceUnavailableError('AI Service (/reconcile)');
+    }
+    return res.json();
+  }
 }
 
 export const aiClient = new AIClient();

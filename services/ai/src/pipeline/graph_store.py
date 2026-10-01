@@ -1,8 +1,9 @@
 import os
 import re
 import json
+import time
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import networkx as nx
 from networkx.readwrite import json_graph
 
@@ -30,28 +31,80 @@ RELATIONAL_PATTERNS = [
 ]
 
 
+class ProjectGraphLock:
+    """Inter-process cooperative lock to prevent race conditions during concurrent worker graph writes."""
+    def __init__(self, lock_path: str, timeout_sec: float = 10.0):
+        self.lock_path = lock_path
+        self.timeout_sec = timeout_sec
+        self.lock_file = None
+
+    def __enter__(self):
+        start_time = time.time()
+        while True:
+            try:
+                # Open with O_CREAT | O_EXCL for atomic file creation
+                self.lock_file = os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+                return self
+            except FileExistsError:
+                if time.time() - start_time > self.timeout_sec:
+                    # Stale lock recovery: if lockfile older than timeout, force release
+                    try:
+                        lock_age = time.time() - os.path.getmtime(self.lock_path)
+                        if lock_age > self.timeout_sec:
+                            os.remove(self.lock_path)
+                            continue
+                    except Exception:
+                        pass
+                    raise TimeoutError(f"Could not acquire graph lock at {self.lock_path} within {self.timeout_sec}s")
+                time.sleep(0.05)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.lock_file is not None:
+            try:
+                os.close(self.lock_file)
+            except Exception:
+                pass
+            try:
+                if os.path.exists(self.lock_path):
+                    os.remove(self.lock_path)
+            except Exception:
+                pass
+
+
 class GraphStore:
     def __init__(self, base_path: str = GRAPHS_PATH):
         self.base_path = base_path
         os.makedirs(self.base_path, exist_ok=True)
+        # In-memory thread-safe cache: project_id -> (mtime, DiGraph)
+        self._cache: Dict[str, Tuple[float, nx.DiGraph]] = {}
 
     def _get_project_graph_path(self, project_id: str) -> str:
         proj_dir = os.path.join(self.base_path, project_id)
         os.makedirs(proj_dir, exist_ok=True)
         return os.path.join(proj_dir, "topology.json")
 
+    def _get_lock_path(self, project_id: str) -> str:
+        return f"{self._get_project_graph_path(project_id)}.lock"
+
     def load_graph(self, project_id: str) -> nx.DiGraph:
         """
-        Loads the project-scoped directed graph.
-        If file exists but is corrupted, raises RuntimeError (does NOT silently wipe out prior graph).
-        If file does not exist, returns an empty DiGraph.
+        Loads the project-scoped directed graph with mtime caching.
+        Returns cached graph if disk mtime has not changed (sub-millisecond reads).
         """
         path = self._get_project_graph_path(project_id)
         if os.path.exists(path):
+            mtime = os.path.getmtime(path)
+            if project_id in self._cache:
+                cached_mtime, cached_graph = self._cache[project_id]
+                if cached_mtime == mtime:
+                    return cached_graph.copy()
+
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    return json_graph.node_link_graph(data, directed=True, multigraph=False)
+                    graph = json_graph.node_link_graph(data, directed=True, multigraph=False)
+                    self._cache[project_id] = (mtime, graph)
+                    return graph.copy()
             except Exception as e:
                 logger.error(f"FATAL: Failed to read project topology graph at {path}: {e}")
                 raise RuntimeError(
@@ -62,15 +115,18 @@ class GraphStore:
 
     def save_graph(self, project_id: str, graph: nx.DiGraph) -> None:
         """
-        Persists the project-scoped directed graph to disk using atomic temp file replacement.
+        Persists the project-scoped directed graph using atomic temp replacement
+        and updates the in-memory cache.
         """
         path = self._get_project_graph_path(project_id)
-        temp_path = f"{path}.tmp_{os.getpid()}"
+        temp_path = f"{path}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
         try:
             data = json_graph.node_link_data(graph)
             with open(temp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             os.replace(temp_path, path)
+            mtime = os.path.getmtime(path)
+            self._cache[project_id] = (mtime, graph.copy())
             logger.info(f"Saved project graph ({graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges) to {path}")
         except Exception as e:
             if os.path.exists(temp_path):
@@ -130,46 +186,48 @@ class GraphStore:
         chunks: List[Dict[str, Any]]
     ) -> int:
         """
-        Processes chunks, extracts valid relationships, updates project graph, and persists.
+        Processes chunks, extracts valid relationships, updates project graph, and persists
+        with cooperative process locking to prevent concurrency races.
         """
         try:
-            graph = self.load_graph(project_id)
-            self._purge_document_elements(graph, document_id)
+            with ProjectGraphLock(self._get_lock_path(project_id)):
+                graph = self.load_graph(project_id)
+                self._purge_document_elements(graph, document_id)
 
-            edges_added = 0
-            for chunk in chunks:
-                chunk_text = chunk.get("text", "")
-                page_no = chunk.get("page_number", 1)
-                chunk_id = chunk.get("id", "")
+                edges_added = 0
+                for chunk in chunks:
+                    chunk_text = chunk.get("text", "")
+                    page_no = chunk.get("page_number", 1)
+                    chunk_id = chunk.get("id", "")
 
-                relations = self.extract_relations_from_text(
-                    text=chunk_text,
-                    chunk_id=chunk_id,
-                    document_id=document_id,
-                    project_id=project_id,
-                    page_number=page_no
-                )
-
-                for rel in relations:
-                    src = rel["source"]
-                    dst = rel["target"]
-                    graph.add_node(src, entity=src)
-                    graph.add_node(dst, entity=dst)
-                    graph.add_edge(
-                        src,
-                        dst,
-                        relation=rel["relation"],
-                        projectId=project_id,
-                        documentId=document_id,
-                        chunkId=chunk_id,
-                        pageNumber=page_no,
-                        sourceText=rel["sourceText"]
+                    relations = self.extract_relations_from_text(
+                        text=chunk_text,
+                        chunk_id=chunk_id,
+                        document_id=document_id,
+                        project_id=project_id,
+                        page_number=page_no
                     )
-                    edges_added += 1
 
-            self.save_graph(project_id, graph)
-            logger.info(f"Processed graph for document_id={document_id}: {edges_added} relationships recorded")
-            return edges_added
+                    for rel in relations:
+                        src = rel["source"]
+                        dst = rel["target"]
+                        graph.add_node(src, entity=src)
+                        graph.add_node(dst, entity=dst)
+                        graph.add_edge(
+                            src,
+                            dst,
+                            relation=rel["relation"],
+                            projectId=project_id,
+                            documentId=document_id,
+                            chunkId=chunk_id,
+                            pageNumber=page_no,
+                            sourceText=rel["sourceText"]
+                        )
+                        edges_added += 1
+
+                self.save_graph(project_id, graph)
+                logger.info(f"Processed graph for document_id={document_id}: {edges_added} relationships recorded")
+                return edges_added
         except Exception as e:
             logger.error(f"Graph extraction/persistence failed for document_id={document_id}: {e}")
             raise e
@@ -192,13 +250,14 @@ class GraphStore:
 
     def delete_document(self, project_id: str, document_id: str) -> None:
         """
-        Deletes all graph elements originating from documentId in project_id.
+        Deletes all graph elements originating from documentId in project_id with locking.
         """
         try:
-            graph = self.load_graph(project_id)
-            self._purge_document_elements(graph, document_id)
-            self.save_graph(project_id, graph)
-            logger.info(f"Purged graph elements for document_id={document_id} in project_id={project_id}")
+            with ProjectGraphLock(self._get_lock_path(project_id)):
+                graph = self.load_graph(project_id)
+                self._purge_document_elements(graph, document_id)
+                self.save_graph(project_id, graph)
+                logger.info(f"Purged graph elements for document_id={document_id} in project_id={project_id}")
         except Exception as e:
             logger.error(f"Error purging graph elements for document_id={document_id}: {e}")
             raise e

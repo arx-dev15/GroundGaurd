@@ -288,6 +288,11 @@ export async function generationRoutes(fastify: FastifyInstance) {
 
     request.raw.on('close', () => {
       unsubscribe();
+      // Flaw 4 Fix: If client disconnects while generation is still active,
+      // cancel immediately to abort upstream Python/LLM inference and avoid zombie compute.
+      if (!generationEvents.isTerminal(generationId)) {
+        generationOrchestrator.cancelGeneration(generationId).catch(() => {});
+      }
     });
   });
 
