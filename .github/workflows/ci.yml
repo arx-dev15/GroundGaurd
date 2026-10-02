@@ -37,6 +37,8 @@ jobs:
   python-tests:
     name: Python AI & ML Unit & Mandate Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -66,6 +68,40 @@ jobs:
         run: |
           pip install -r requirements.txt pytest httpx
 
+      - name: Fetch Fine-Tuned M1 Checkpoint
+        working-directory: services/ml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download v1.0.0-ml-weights --pattern 'model.safetensors' --dir models/groundguard-deberta-v1/ --clobber
+
+      - name: Validate Model Checkpoint
+        working-directory: services/ml
+        run: |
+          python -c "
+          import hashlib
+          from pathlib import Path
+
+          checkpoint = Path('models/groundguard-deberta-v1/model.safetensors')
+          if not checkpoint.exists():
+              raise FileNotFoundError(f'Checkpoint missing at {checkpoint}')
+
+          size = checkpoint.stat().st_size
+          if size < 500_000_000:
+              raise ValueError(f'Checkpoint size ({size} bytes) is suspiciously small')
+
+          hasher = hashlib.sha256()
+          with open(checkpoint, 'rb') as f:
+              while chunk := f.read(8 * 1024 * 1024):
+                  hasher.update(chunk)
+          actual_sha = hasher.hexdigest().lower()
+          expected_sha = '40f4ab43a34a3f5cf4519c0b6cc5625ac86f7dfac8413c9eceb639746d551580'.lower()
+          if actual_sha != expected_sha:
+              raise ValueError(f'Checksum mismatch: got {actual_sha}, expected {expected_sha}')
+
+          print(f'Checkpoint integrity verified: {size} bytes, SHA256: {actual_sha}')
+          "
+
       - name: Run ML API Tests
         working-directory: services/ml
-        run: python -m pytest tests/test_api.py -v
+        run: python -m pytest tests/test_api.py tests/test_model_identity.py -v

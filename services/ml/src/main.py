@@ -44,7 +44,14 @@ async def lifespan(app: FastAPI):
             neural_predictor.load_model()
             logger.info("DeBERTa Cross-Encoder loaded and ready!")
         except Exception as e:
-            logger.warning(f"Could not load neural model into memory ({e}). Using deterministic mock engine for local development.")
+            logger.error(f"FATAL: Required neural model failed to load from '{MODEL_NAME}': {e}", exc_info=True)
+            raise RuntimeError(
+                f"Failed to load required neural model '{MODEL_NAME}'. "
+                "Ensure fine-tuned weights exist (e.g. models/groundguard-deberta-v1/model.safetensors). "
+                "Silent fallback to mock engine is disabled when USE_NEURAL_ENGINE=true."
+            ) from e
+    else:
+        logger.info("Explicit mock mode active (USE_NEURAL_ENGINE=false). Running deterministic mock engine.")
     yield
     logger.info("Shutting down GroundGuard ML Service...")
 
@@ -88,34 +95,69 @@ async def root():
     }
 
 def get_active_engine():
-    """Returns the neural predictor if loaded, otherwise falls back to mock engine."""
-    if USE_NEURAL_ENGINE and neural_predictor.is_loaded:
-        return neural_predictor
+    """Returns the neural predictor if loaded, otherwise returns mock engine only in explicit mock mode."""
+    if USE_NEURAL_ENGINE:
+        if neural_predictor.is_loaded:
+            return neural_predictor
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Neural model required but not loaded into memory"
+        )
     return mock_engine
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health():
+async def health(response: Response):
     """Liveness & Readiness health probe for Member 3 and Docker."""
-    engine = get_active_engine()
-    is_neural = (engine == neural_predictor)
+    if USE_NEURAL_ENGINE:
+        if neural_predictor.is_loaded:
+            return HealthResponse(
+                service=SERVICE_NAME,
+                status="ok",
+                modelLoaded=True,
+                modelVersion=MODEL_VERSION,
+                device=str(neural_predictor.device)
+            )
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return HealthResponse(
+            service=SERVICE_NAME,
+            status="degraded",
+            modelLoaded=False,
+            modelVersion="unloaded",
+            device="cpu"
+        )
     return HealthResponse(
         service=SERVICE_NAME,
         status="ok",
-        modelLoaded=True,
-        modelVersion=MODEL_VERSION,
-        device=str(neural_predictor.device) if is_neural else "cpu"
+        modelLoaded=False,
+        modelVersion="mock-engine-v1",
+        device="cpu"
     )
 
 @app.get("/model/info", response_model=ModelInfoResponse)
-async def model_info():
+async def model_info(response: Response):
     """Returns active model metadata for the frontend evaluation dashboard."""
-    engine = get_active_engine()
-    is_neural = (engine == neural_predictor)
+    if USE_NEURAL_ENGINE:
+        if neural_predictor.is_loaded:
+            return ModelInfoResponse(
+                modelVersion=MODEL_VERSION,
+                engineType="deberta-cross-encoder",
+                baseModel=MODEL_NAME,
+                labels=["contradiction", "entailment", "neutral"],
+                status="ready"
+            )
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return ModelInfoResponse(
+            modelVersion="unloaded",
+            engineType="none",
+            baseModel=MODEL_NAME,
+            labels=["contradiction", "entailment", "neutral"],
+            status="not_ready"
+        )
     return ModelInfoResponse(
-        modelVersion=MODEL_VERSION,
-        engineType="deberta-cross-encoder" if is_neural else "mock-heuristic",
-        baseModel=MODEL_NAME if is_neural else "rule-based-mock",
+        modelVersion="mock-engine-v1",
+        engineType="mock-heuristic",
+        baseModel="rule-based-mock",
         labels=["contradiction", "entailment", "neutral"],
         status="ready"
     )
@@ -135,13 +177,15 @@ async def verify(payload: VerifyRequest, x_request_id: Optional[str] = Header(No
         claim_id=claim_id
     )
 
+    active_version = MODEL_VERSION if (USE_NEURAL_ENGINE and neural_predictor.is_loaded) else "mock-engine-v1"
+
     return VerifyResponse(
         requestId=req_id,
         claimId=claim_id,
         label=label,
         scores=scores,
         groundingScore=grounding_score,
-        modelVersion=MODEL_VERSION,
+        modelVersion=active_version,
     )
 
 @app.post("/verify/batch", response_model=BatchVerifyResponse)
@@ -153,10 +197,12 @@ async def verify_batch(payload: BatchVerifyRequest, x_request_id: Optional[str] 
     engine = get_active_engine()
     results = engine.verify_batch(payload.items)
 
+    active_version = MODEL_VERSION if (USE_NEURAL_ENGINE and neural_predictor.is_loaded) else "mock-engine-v1"
+
     return BatchVerifyResponse(
         requestId=req_id,
         results=results,
-        modelVersion=MODEL_VERSION,
+        modelVersion=active_version,
     )
 
 @app.api_route("/evaluate", methods=["GET", "POST"])

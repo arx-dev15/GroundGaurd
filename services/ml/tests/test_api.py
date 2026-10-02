@@ -16,14 +16,15 @@ def test_health_endpoint(client):
     assert data["service"] == "ml"
     assert data["status"] == "ok"
     assert data["modelLoaded"] is True
-    assert "modelVersion" in data
+    assert data["modelVersion"] == "groundguard-deberta-v1-finetuned"
 
 def test_model_info_endpoint(client):
     """Verify that /model/info returns model metadata."""
     response = client.get("/model/info")
     assert response.status_code == 200
     data = response.json()
-    assert "modelVersion" in data
+    assert data["modelVersion"] == "groundguard-deberta-v1-finetuned"
+    assert data["engineType"] == "deberta-cross-encoder"
     assert set(data["labels"]) == {"entailment", "contradiction", "neutral"}
     assert data["status"] == "ready"
 

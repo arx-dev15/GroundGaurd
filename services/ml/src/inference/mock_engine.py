@@ -9,7 +9,7 @@ class MockInferenceEngine:
     Deterministic mock verification engine for Phase 1.
     Provides realistic classification based on numerical and lexical heuristics.
     """
-    def __init__(self, model_version: str = MODEL_VERSION):
+    def __init__(self, model_version: str = "mock-engine-v1"):
         self.model_version = model_version
 
     def verify_single(self, claim: str, evidence: List[EvidenceChunk], claim_id: str = "claim_1") -> tuple:
