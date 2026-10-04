@@ -2,6 +2,7 @@ import os
 import re
 import json
 import logging
+from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import networkx as nx
 from networkx.readwrite import json_graph
@@ -10,7 +11,16 @@ from src.pipeline.extractor import extract_identifiers, Identifier
 
 logger = logging.getLogger("m2-graph-store")
 
-GRAPHS_PATH = os.getenv("GRAPHS_PATH", "uploads/graphs").strip()
+def _resolve_canonical_path(path_str: str) -> str:
+    cleaned = (path_str or "uploads/graphs").strip()
+    if cleaned.lower() == ":memory:":
+        return ":memory:"
+    if os.path.isabs(cleaned):
+        return cleaned
+    repo_root = Path(__file__).resolve().parents[4]
+    return str((repo_root / cleaned).resolve())
+
+GRAPHS_PATH = _resolve_canonical_path(os.getenv("GRAPHS_PATH", "uploads/graphs"))
 
 # Explicit directional predicate patterns connecting two identifiers
 # Example: "Valve V-204 is upstream of pump P-101A"
@@ -27,7 +37,7 @@ RELATIONAL_PATTERNS = [
 
 class GraphStore:
     def __init__(self, base_path: str = GRAPHS_PATH):
-        self.base_path = (base_path or "uploads/graphs").strip()
+        self.base_path = _resolve_canonical_path(base_path)
         os.makedirs(self.base_path, exist_ok=True)
 
     def _get_project_graph_path(self, project_id: str) -> str:

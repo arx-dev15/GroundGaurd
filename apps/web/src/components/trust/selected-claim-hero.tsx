@@ -39,6 +39,7 @@ interface SelectedClaimHeroProps {
   generationMetadata?: Record<string, unknown>;
   onRetry?: () => void;
   isRetrying?: boolean;
+  layoutMode?: 'stacked' | 'side-by-side' | 'auto';
   onOpenSource?: (docId: string, page?: number) => void;
   onOpenAnswer?: () => void;
   className?: string;
@@ -53,6 +54,7 @@ export function SelectedClaimHero({
   generationMetadata,
   onRetry,
   isRetrying = false,
+  layoutMode = 'auto',
   onOpenSource,
   onOpenAnswer,
   className,
@@ -146,7 +148,13 @@ export function SelectedClaimHero({
       </div>
 
       {/* Hero Comparison: CLAIM ↕ EVIDENCE */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div
+        className={cn(
+          layoutMode === 'stacked'
+            ? 'flex flex-col gap-3.5'
+            : 'grid grid-cols-1 md:grid-cols-2 gap-4'
+        )}
+      >
         {/* LEFT: VERIFIED DOCUMENT SLICE */}
         <div className="rounded-xl border border-border/80 bg-muted/20 p-3.5 space-y-2 flex flex-col justify-between">
           <div className="space-y-1.5">
@@ -229,11 +237,6 @@ export function SelectedClaimHero({
             <span className="text-muted-foreground font-sans">
               {getVerificationExplanation()}
             </span>
-            {claim.verification?.groundingScore != null && (
-              <span className="font-mono text-[11px] text-muted-foreground font-semibold">
-                Score: {formatGroundingScore(claim.verification.groundingScore)}
-              </span>
-            )}
           </div>
         </div>
       </div>
@@ -256,11 +259,11 @@ export function SelectedClaimHero({
           {status === 'needs_review' && <HelpCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />}
           {status === 'pending' && <Clock className="h-4 w-4 text-muted-foreground shrink-0" />}
           <span className="font-medium text-xs sm:text-sm">
-            {status === 'verified' && 'Supported · Document evidence verifies this statement'}
-            {status === 'recovered' && 'Recovered · Revised statement verified against project documentation'}
-            {status === 'flagged' && 'Contradiction · Statement conflicts with project documentation'}
-            {status === 'needs_review' && 'Needs Review · Insufficient documentation to substantiate claim'}
-            {status === 'pending' && 'Awaiting verification by GroundGuard M1 model'}
+            {status === 'verified' && 'Verified · Project evidence supports this claim.'}
+            {status === 'recovered' && 'Recovered · GroundGuard revised this claim and verified the revision against project evidence.'}
+            {status === 'flagged' && 'Contradicted · Project evidence conflicts with this claim.'}
+            {status === 'needs_review' && 'Needs Review · GroundGuard could not find enough evidence to verify this claim.'}
+            {status === 'pending' && 'Evaluating claim against project evidence...'}
           </span>
         </div>
 

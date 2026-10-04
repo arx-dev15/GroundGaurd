@@ -93,11 +93,11 @@ export function GroundGuardAnalysis({
 
   // LIVE STAGE VIEW (during active generation/verification)
   if (mode === 'live') {
-    const isVerifying = currentStage.toLowerCase().includes('verifying') || currentStage.toLowerCase().includes('checking');
-    const isRecovering = currentStage.toLowerCase().includes('recovering') || currentStage.toLowerCase().includes('repairing');
+    const stageLower = currentStage.toLowerCase();
+    const isVerifying = stageLower.includes('verifying') || stageLower.includes('checking');
+    const isRecovering = stageLower.includes('recovering') || stageLower.includes('repairing');
 
     const stages: LiveStage[] = [
-      { id: 'understand', label: 'Understanding your question', status: 'completed' },
       {
         id: 'evidence',
         label: 'Working with project evidence',
@@ -108,12 +108,16 @@ export function GroundGuardAnalysis({
         label: 'Checking factual claims',
         status: isRecovering ? 'completed' : isVerifying ? 'active' : 'pending',
       },
-      {
-        id: 'repair',
-        label: 'Repairing unsupported claims if necessary',
-        status: isRecovering ? 'active' : 'pending',
-      },
     ];
+
+    // Stage 3: Only appears if recovery actually starts
+    if (isRecovering) {
+      stages.push({
+        id: 'repair',
+        label: 'Recovering unsupported claims',
+        status: 'active',
+      });
+    }
 
     return (
       <div className={cn('p-3.5 rounded-xl border border-border/80 bg-card/60 space-y-3 select-none animate-in fade-in duration-200', className)}>

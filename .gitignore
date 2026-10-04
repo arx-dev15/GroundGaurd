@@ -2,6 +2,7 @@ node_modules/
 testing/
 Run_Commands.md
 .next/
+3d-model/
 dist/
 scratch/
 build/

@@ -11,9 +11,10 @@ export class MLClient {
     this.timeoutMs = timeoutMs;
   }
 
-  private async fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  private async fetchWithTimeout(url: string, options: RequestInit = {}, customTimeoutMs?: number): Promise<Response> {
     const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeout = customTimeoutMs || this.timeoutMs;
+    const id = setTimeout(() => controller.abort(), timeout);
     try {
       const response = await fetch(url, {
         ...options,
@@ -65,7 +66,7 @@ export class MLClient {
       method: 'POST',
       headers,
       body: JSON.stringify({ ...payload, requestId: reqId }),
-    });
+    }, 30_000);
 
     if (!res.ok) {
       throw new ServiceUnavailableError('ML Service (/verify)');
@@ -105,7 +106,7 @@ export class MLClient {
       method: 'POST',
       headers,
       body: JSON.stringify({ ...payload, requestId: reqId }),
-    });
+    }, 60_000);
 
     if (!res.ok) {
       throw new ServiceUnavailableError('ML Service (/verify/batch)');

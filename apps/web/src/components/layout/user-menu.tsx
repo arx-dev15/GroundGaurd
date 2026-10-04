@@ -34,7 +34,7 @@ export function UserMenu() {
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuth();
 
-  const displayName = user?.name || (user?.email ? user.email.split('@')[0] : 'User');
+  const displayName = user?.name?.trim() || 'User';
   const displayEmail = user?.email || '';
 
   const initials = React.useMemo(() => {

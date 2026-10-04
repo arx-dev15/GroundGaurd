@@ -8,24 +8,24 @@ IntentType = Literal["conversational", "product_help", "grounded_query", "unsupp
 
 # 1. Conversational Patterns (Greetings, Thanks, Farewells, Acknowledgments)
 GREETING_PATTERNS = [
-    re.compile(r'^\s*(?:hi|hey|hello|heyy+|howdy|greetings|good\s+(?:morning|afternoon|evening|day)|what\'?s\s+up|sup|yo)(?:\s+(?:there|groundguard|bot|assistant))?[\s!.,?]*$', re.IGNORECASE),
+    re.compile(r'^\s*(?:hi|hey|hello|heyy+|hiya|howdy|greetings|good\s+(?:morning|afternoon|evening|day)|what\'?s\s+up|sup|yo)(?:\s+(?:there|groundguard|bot|assistant|bro|dude|man|mate|pal))?[\s!.,?]*$', re.IGNORECASE),
 ]
 
 THANKS_PATTERNS = [
-    re.compile(r'^\s*(?:thanks|thank\s+you|thx|ty|many\s+thanks|much\s+appreciated|thanks\s+a\s+lot|thank\s+you\s+so\s+much)[\s!.,?]*$', re.IGNORECASE),
+    re.compile(r'^\s*(?:thanks|thank\s+you|thx|ty|many\s+thanks|much\s+appreciated|thanks\s+a\s+lot|thank\s+you\s+so\s+much)(?:\s+(?:bro|dude|man|mate|pal|there|groundguard|bot))?[\s!.,?]*$', re.IGNORECASE),
 ]
 
 FAREWELL_PATTERNS = [
-    re.compile(r'^\s*(?:bye|goodbye|see\s+ya|cya|farewell|have\s+a\s+good\s+one|catch\s+you\s+later)[\s!.,?]*$', re.IGNORECASE),
+    re.compile(r'^\s*(?:bye|goodbye|see\s+ya|cya|farewell|have\s+a\s+good\s+one|catch\s+you\s+later)(?:\s+(?:bro|dude|man|mate|pal))?[\s!.,?]*$', re.IGNORECASE),
 ]
 
 ACK_PATTERNS = [
-    re.compile(r'^\s*(?:ok|okay|cool|great|awesome|understood|got\s+it|nice|perfect|sure|fine)[\s!.,?]*$', re.IGNORECASE),
+    re.compile(r'^\s*(?:ok|okay|cool|great|awesome|understood|got\s+it|nice|perfect|sure|fine|alright)(?:\s+(?:bro|dude|man|mate|pal|then))?[\s!.,?]*$', re.IGNORECASE),
 ]
 
 # 2. Product / Help Patterns
 HELP_PATTERNS = [
-    re.compile(r'^\s*(?:what\s+(?:can|should|to)\s+(?:i|we)\s+ask(?:\s+you)?|what\s+to\s+ask|how\s+(?:do\s+i\s+use\s+this|does\s+(?:this|groundguard)\s+work)|what\s+can\s+you\s+do|what\s+are\s+your\s+capabilities|how\s+can\s+you\s+help|what\s+documents\s+do\s+i\s+have|what\s+is\s+groundguard|help|help\s+me|explain\s+groundguard)[\s!.,?]*$', re.IGNORECASE),
+    re.compile(r'^\s*(?:what\s+(?:can|should|to)\s+(?:i|we)\s+ask(?:\s+you)?|what\s+to\s+ask|how\s+(?:do\s+i\s+use\s+this|to\s+use\s+this|does\s+(?:this|groundguard)\s+work)|how\s+(?:do\s+i|to)\s+verify\s+(?:a\s+)?claim[s]?|what\s+can\s+(?:you|groundguard|this)\s+do|what\s+you\s+can\s+do|what\s+(?:is\s+this|is\s+groundguard)|what\s+are\s+your\s+capabilities|how\s+can\s+you\s+help|what\s+documents\s+do\s+i\s+have|help|help\s+me|explain\s+groundguard)(?:\s+(?:bro|dude|man|mate|pal))?[\s!.,?]*$', re.IGNORECASE),
     re.compile(r'^(?:how\s+to\s+use|features|instructions|usage)[\s!.,?]*$', re.IGNORECASE),
 ]
 
@@ -33,6 +33,17 @@ HELP_PATTERNS = [
 OFF_TOPIC_PATTERNS = [
     re.compile(r'\b(?:football|cricket|sports|match|virat|kohli|messi|ronaldo|president\s+of\s+france|prime\s+minister\s+of|weather\s+in|recipe|movie|actor|actress|celebrity)\b', re.IGNORECASE),
 ]
+
+def normalize_intent_query(query: str) -> str:
+    """
+    Normalizes closed-class colloquial abbreviations (e.g. 'u' -> 'you', 'ur' -> 'your')
+    and colloquial filler like 'this thing' -> 'this' ONLY for intent classification.
+    """
+    q = (query or "").strip()
+    q = re.sub(r'\bu\b', 'you', q, flags=re.IGNORECASE)
+    q = re.sub(r'\bur\b', 'your', q, flags=re.IGNORECASE)
+    q = re.sub(r'\bthis\s+thing\b', 'this', q, flags=re.IGNORECASE)
+    return q.strip()
 
 def classify_intent(query: str) -> Tuple[IntentType, Optional[str]]:
     """
@@ -42,9 +53,11 @@ def classify_intent(query: str) -> Tuple[IntentType, Optional[str]]:
     - unsupported_query (obvious off-topic world trivia / sports / celebrities)
     All other substantive queries enter the grounded retrieval pipeline.
     """
-    clean = (query or "").strip()
-    if not clean:
+    raw = (query or "").strip()
+    if not raw:
         return ("conversational", "greeting")
+
+    clean = normalize_intent_query(raw)
 
     for pat in GREETING_PATTERNS:
         if pat.match(clean):
@@ -72,56 +85,42 @@ def classify_intent(query: str) -> Tuple[IntentType, Optional[str]]:
 
     return ("grounded_query", None)
 
-def generate_conversational_response(sub_intent: Optional[str]) -> str:
+def generate_conversational_response(sub_intent: Optional[str], project_name: Optional[str] = None) -> str:
     """
-    Returns friendly conversational response for casual interactions.
+    Returns concise, useful conversational responses for closed-class interactions (Section 11).
     """
+    target = project_name or "this project"
     if sub_intent == "thanks":
-        return "You're welcome! Let me know if you need any more evidence-backed answers from your project knowledge."
+        return "You're welcome."
     elif sub_intent == "farewell":
         return "Goodbye! Whenever you need to investigate technical claims or documentation, I'll be here."
     elif sub_intent == "ack":
-        return "Sounds good! Whenever you're ready, ask a question about your project documents."
+        return "Sure — what would you like to check next?"
     else:
-        return "Hey! What would you like to explore in this project? I can answer questions from your uploaded knowledge, compare sources, or help you find evidence for a claim."
+        return f"Hey — what would you like to look into in {target}?"
 
-def generate_product_help_response(doc_summary: Dict[str, Any]) -> str:
+def generate_product_help_response(project_info: Optional[Any] = None) -> str:
     """
-    Returns helpful GroundGuard guidance using real project document metadata.
+    Returns helpful GroundGuard guidance explaining actual capabilities (Section 10).
     """
-    ready_count = doc_summary.get("readyCount", 0)
-    filenames: List[str] = doc_summary.get("filenames", [])
+    target = "this project"
+    if isinstance(project_info, str) and project_info.strip():
+        target = project_info.strip()
+    elif isinstance(project_info, dict):
+        target = project_info.get("projectName") or "this project"
 
-    if ready_count > 0:
-        doc_label = "document" if ready_count == 1 else "documents"
-        file_preview = f" ({', '.join(filenames[:3])})" if filenames else ""
-        return (
-            f"You currently have {ready_count} ready {doc_label}{file_preview}.\n\n"
-            f"You can ask me to:\n"
-            f"• explain something from your documents\n"
-            f"• compare information across sources\n"
-            f"• find evidence supporting a claim\n"
-            f"• summarize a topic in this project"
-        )
-    else:
-        return (
-            "You currently have no ready documents in this project.\n\n"
-            "Upload technical manuals, datasheets, or PDFs in the Knowledge tab to start asking grounded questions."
-        )
+    return (
+        "I can help you work with this project's uploaded evidence. You can ask "
+        "questions, compare information across sources, inspect the evidence behind "
+        "individual claims, and review claims GroundGuard verified, flagged, or recovered.\n\n"
+        f"What would you like to check in {target}?"
+    )
 
 def generate_unsupported_query_response(query: str, doc_summary: Optional[Dict[str, Any]] = None) -> str:
     """
     Returns polite refusal indicating that GroundGuard is scoped to project evidence.
     """
-    ready_count = (doc_summary or {}).get("readyCount", 0)
-    if ready_count > 0:
-        return (
-            "I am scoped strictly to your project's uploaded documents and evidence. "
-            "The current project knowledge does not contain information to answer this question. "
-            "You can ask me questions about your uploaded documentation (such as component specifications, wiring, or operating parameters)."
-        )
-    else:
-        return (
-            "GroundGuard is scoped strictly to project evidence, but there are currently no ready documents in this project. "
-            "Upload your technical documents in the Knowledge tab to ask grounded questions."
-        )
+    return (
+        "I couldn't answer that from this project's sources.\n\n"
+        "GroundGuard keeps project answers grounded in uploaded evidence."
+    )

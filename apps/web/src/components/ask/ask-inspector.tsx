@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatusBadge } from '@/components/trust/status-badge';
 import { SelectedClaimHero } from '@/components/trust/selected-claim-hero';
+import { PDFSourceViewer } from '@/components/source/pdf-source-viewer';
 import { useClaimRecoveryAttempts, useRetryClaim } from '@/lib/conversations-query';
 import { CLAIM_STATE_CONFIG, formatGroundingScore } from '@/lib/trust-utils';
 import { cn } from '@/lib/utils';
@@ -48,6 +49,7 @@ export interface AskInspectorProps {
   variant?: 'drawer' | 'inline';
   contextTitle?: string;
   onOpenAnswer?: () => void;
+  initialTab?: string;
 }
 
 export function AskInspector({
@@ -62,13 +64,30 @@ export function AskInspector({
   variant = 'drawer',
   contextTitle,
   onOpenAnswer,
+  initialTab,
 }: AskInspectorProps) {
   const shouldReduceMotion = useReducedMotion();
-  const [activeTab, setActiveTab] = React.useState<string>('claim');
+  const [activeTab, setActiveTab] = React.useState<string>(initialTab || 'claim');
+  const [selectedAttemptIndex, setSelectedAttemptIndex] = React.useState<number>(0);
   const [retryError, setRetryError] = React.useState<string | null>(null);
 
   // Fetch real recovery attempts from M3 if claim exists
   const { data: recoveryAttempts = [], refetch: refetchRecoveryAttempts } = useClaimRecoveryAttempts(claim?.claimId);
+  const activeAttempt = recoveryAttempts[selectedAttemptIndex] || recoveryAttempts[recoveryAttempts.length - 1];
+
+  // Synchronize initialTab when provided
+  React.useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  // Default to latest attempt when attempts update
+  React.useEffect(() => {
+    if (recoveryAttempts.length > 0) {
+      setSelectedAttemptIndex(recoveryAttempts.length - 1);
+    }
+  }, [recoveryAttempts.length]);
 
   // Retry claim mutation
   const retryMutation = useRetryClaim();
@@ -84,12 +103,12 @@ export function AskInspector({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose, variant]);
 
-  // If selected evidence changes or claim changes, switch tab accordingly
+  // Reset tab to primary overview whenever inspected claim changes
   React.useEffect(() => {
-    if (selectedEvidence) {
-      setActiveTab('evidence');
+    if (claim) {
+      setActiveTab('claim');
     }
-  }, [selectedEvidence]);
+  }, [claim]);
 
   if (!isOpen || !claim) {
     if (variant === 'inline') {
@@ -215,30 +234,59 @@ export function AskInspector({
           className="flex-1 flex flex-col min-h-0"
         >
           <div className="px-4 pt-2 border-b border-border/50 bg-muted/10">
-            <TabsList className="grid grid-cols-5 h-8 p-0.5 bg-muted/50 rounded-lg text-[11px]">
-              <TabsTrigger value="claim" className="py-1 px-1.5 text-[11px]">
-                Claim
+            <TabsList className="grid grid-cols-4 h-8 p-0.5 bg-muted/50 rounded-lg text-[11px]">
+              <TabsTrigger value="source" className="py-1 px-1.5 text-[11px] flex items-center gap-1">
+                <FileText className="h-3 w-3" />
+                <span>Source PDF</span>
               </TabsTrigger>
-              <TabsTrigger value="evidence" className="py-1 px-1.5 text-[11px]">
-                Evidence
-              </TabsTrigger>
-              <TabsTrigger value="verification" className="py-1 px-1.5 text-[11px]">
-                Verify
+              <TabsTrigger value="claim" className="py-1 px-1.5 text-[11px] flex items-center gap-1">
+                <ShieldCheck className="h-3 w-3" />
+                <span>Verification</span>
               </TabsTrigger>
               <TabsTrigger
                 value="recovery"
                 className={cn(
-                  'py-1 px-1.5 text-[11px]',
+                  'py-1 px-1.5 text-[11px] flex items-center gap-1',
                   isRecovered ? 'text-blue-500 font-medium' : isEligibleForRetry ? 'text-foreground' : 'text-muted-foreground'
                 )}
               >
-                Recovery
+                <RotateCcw className="h-3 w-3" />
+                <span>Recovery</span>
+                {recoveryAttempts.length > 0 && (
+                  <span className="text-[9px] px-1 py-0.2 rounded-full bg-muted font-mono">{recoveryAttempts.length}</span>
+                )}
               </TabsTrigger>
-              <TabsTrigger value="advanced" className="py-1 px-1.5 text-[11px]">
-                Trace
+              <TabsTrigger value="advanced" className="py-1 px-1.5 text-[11px] flex items-center gap-1">
+                <Activity className="h-3 w-3" />
+                <span>Diagnostics</span>
               </TabsTrigger>
             </TabsList>
           </div>
+
+          {/* ============================================================ */}
+          {/* Tab 0: Contextual PDF Source Viewer                          */}
+          {/* ============================================================ */}
+          <TabsContent value="source" className="flex-1 overflow-hidden p-2 m-0 flex flex-col">
+            <PDFSourceViewer
+              documentId={selectedEvidence?.documentId || primaryEvidence?.documentId}
+              documentFilename={
+                (selectedEvidence?.metadata?.filename as string) ||
+                (selectedEvidence?.metadata?.documentFilename as string) ||
+                (primaryEvidence?.metadata?.filename as string) ||
+                (primaryEvidence?.metadata?.documentFilename as string) ||
+                'Project Document'
+              }
+              pageNumber={
+                selectedEvidence?.pageNumber ??
+                (selectedEvidence?.metadata?.pageNumber as number | undefined) ??
+                primaryEvidence?.pageNumber ??
+                (primaryEvidence?.metadata?.pageNumber as number | undefined)
+              }
+              highlightedExcerpt={selectedEvidence?.text || primaryEvidence?.text}
+              onClose={onClose}
+              className="h-full border-0 shadow-none"
+            />
+          </TabsContent>
 
           {/* ============================================================ */}
           {/* Tab 1: Claim Overview + Central Editorial Comparison         */}
@@ -251,6 +299,7 @@ export function AskInspector({
               projectId={projectId}
               generationId={generationId}
               generationMetadata={generationMetadata}
+              layoutMode={variant === 'drawer' ? 'stacked' : 'side-by-side'}
               onRetry={handleRetry}
               isRetrying={retryMutation.isPending}
               onOpenAnswer={onOpenAnswer}
@@ -436,148 +485,179 @@ export function AskInspector({
           {/* ============================================================ */}
           {/* Tab 4: Recovery Playback (Observable Audit Trace)            */}
           {/* ============================================================ */}
+          {/* ============================================================ */}
+          {/* Tab 3: Recovery Playback (One selected attempt at a time)     */}
+          {/* ============================================================ */}
           <TabsContent value="recovery" className="flex-1 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between border-b border-border/40 pb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
                 <RotateCcw className="h-3.5 w-3.5" />
-                <span>Recovery Playback Audit Trace</span>
+                <span>Autonomous Recovery Playback</span>
               </div>
               {recoveryAttempts.length > 0 && (
                 <span className="text-[10px] font-mono text-muted-foreground">
-                  {recoveryAttempts.length} {recoveryAttempts.length === 1 ? 'attempt' : 'attempts'}
+                  {recoveryAttempts.length} / 2 attempts recorded
                 </span>
               )}
             </div>
 
-            {recoveryAttempts.length > 0 ? (
-              <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border/60">
-                {recoveryAttempts.map((attempt, index) => (
-                  <div key={attempt.id || index} className="space-y-3 pb-3 border-b border-border/30 last:border-0">
-                    <div className="flex items-center gap-1.5 text-[11px] font-mono font-medium text-foreground">
-                      <span className="px-1.5 py-0.5 rounded bg-muted/60 border border-border/40">
-                        Attempt #{attempt.attemptNumber}
-                      </span>
-                      <span className="text-muted-foreground capitalize">({attempt.action || 'revise'})</span>
-                    </div>
+            {/* 1. Original Statement & Flag Reason (Shown ONCE at top) */}
+            <div className="space-y-2 p-3 rounded-lg border border-border/60 bg-muted/20">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                Original Claim
+              </div>
+              <p className="text-xs text-foreground font-medium leading-relaxed select-text">
+                {activeAttempt?.originalText || claim.sourceText || claim.text}
+              </p>
+              <div className="pt-1 flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 font-mono">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>Why it was flagged: {activeAttempt?.failureReason || (claim.status === 'flagged' ? 'CONTRADICTION' : 'INSUFFICIENT_EVIDENCE')}</span>
+              </div>
+            </div>
 
-                    {/* 1. Original statement */}
-                    <div className="relative space-y-1">
-                      <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-muted-foreground border-2 border-background" />
-                      <span className="text-[10px] font-mono text-muted-foreground">Original Claim</span>
-                      <p className="text-xs text-muted-foreground/80 line-through bg-muted/20 p-2 rounded border border-border/40 select-text">
-                        {attempt.originalText}
-                      </p>
-                    </div>
-
-                    {/* 2. Failure reason */}
-                    <div className="relative space-y-1">
-                      <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-rose-500 border-2 border-background" />
-                      <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400">
-                        Discrepancy Detected ({attempt.failureReason || 'CONTRADICTION'})
-                      </span>
-                      <p className="text-xs text-foreground bg-rose-500/10 border border-rose-500/20 p-2 rounded">
-                        M1 cross-encoder flagged contradiction against project evidence chunks.
-                      </p>
-                    </div>
-
-                    {/* 3. Candidate revision */}
-                    {attempt.candidateText && (
-                      <div className="relative space-y-1">
-                        <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-blue-500 border-2 border-background" />
-                        <span className="text-[10px] font-mono text-blue-600 dark:text-blue-400">
-                          Autonomous Revision Candidate
-                        </span>
-                        <p className="text-xs text-foreground bg-blue-500/10 border border-blue-500/20 p-2 rounded select-text">
-                          {attempt.candidateText}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* 4. M1 Reverification outcome */}
-                    {attempt.verificationLabel && (
-                      <div className="relative space-y-1">
-                        <div
-                          className={cn(
-                            'absolute -left-6 top-1 w-2.5 h-2.5 rounded-full border-2 border-background',
-                            attempt.verificationLabel === 'entailment' ? 'bg-emerald-500' : 'bg-amber-500'
-                          )}
-                        />
-                        <span
-                          className={cn(
-                            'text-[10px] font-mono font-medium',
-                            attempt.verificationLabel === 'entailment'
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-amber-600 dark:text-amber-400'
-                          )}
-                        >
-                          Re-verification ({attempt.verificationLabel}) · Grounding {formatGroundingScore(attempt.groundingScore ?? undefined)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {/* Final Settled State */}
-                <div className="relative space-y-1">
-                  <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-background" />
-                  <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-medium">
-                    Final Settled State
-                  </span>
-                  <p className="text-xs text-foreground font-medium bg-emerald-500/10 border border-emerald-500/20 p-2 rounded select-text">
-                    {claim.text}
-                  </p>
+            {/* 2. Attempt Selector Pills */}
+            {recoveryAttempts.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  Attempts
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {recoveryAttempts.map((att, idx) => {
+                    const isSelected = selectedAttemptIndex === idx;
+                    const isAttRecovered = att.verificationLabel === 'entailment';
+                    return (
+                      <button
+                        key={att.id || idx}
+                        type="button"
+                        onClick={() => setSelectedAttemptIndex(idx)}
+                        className={cn(
+                          'px-2.5 py-1 rounded-md text-xs font-mono transition-all border text-left flex items-center gap-1.5',
+                          isSelected
+                            ? 'bg-primary/10 border-primary text-primary font-semibold ring-1 ring-primary/30'
+                            : 'bg-card border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                        )}
+                      >
+                        <span>Attempt #{att.attemptNumber}</span>
+                        {isAttRecovered ? (
+                          <span className="text-emerald-500 font-bold">✓ Recovered</span>
+                        ) : att.candidateText ? (
+                          <span className="text-muted-foreground">Revision</span>
+                        ) : (
+                          <span className="text-amber-500 font-medium">No candidate</span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-            ) : isRecovered ? (
-              <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border/60">
-                <div className="relative space-y-1">
-                  <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-muted-foreground border-2 border-background" />
-                  <span className="text-[10px] font-mono text-muted-foreground">Original Claim</span>
-                  <p className="text-xs text-muted-foreground/80 line-through bg-muted/20 p-2 rounded border border-border/40 select-text">
-                    {claim.sourceText || 'Original ungrounded candidate statement'}
-                  </p>
-                </div>
+            )}
 
-                <div className="relative space-y-1">
-                  <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-rose-500 border-2 border-background" />
-                  <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400">Contradiction Flagged</span>
-                  <p className="text-xs text-foreground bg-rose-500/10 border border-rose-500/20 p-2 rounded">
-                    Dual-stage engine flagged discrepancy with project evidence.
-                  </p>
-                </div>
-
-                <div className="relative space-y-1">
-                  <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-blue-500 border-2 border-background" />
-                  <span className="text-[10px] font-mono text-blue-600 dark:text-blue-400">Autonomous Revision</span>
-                  <p className="text-xs text-foreground bg-blue-500/10 border border-blue-500/20 p-2 rounded">
-                    Revised against authoritative document evidence.
-                  </p>
-                </div>
-
-                <div className="relative space-y-1">
-                  <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-background" />
-                  <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-medium">
-                    Recovered Entailment Verified
+            {/* 3. SELECTED ATTEMPT DETAIL */}
+            {activeAttempt ? (
+              <div className="space-y-3 p-3.5 rounded-lg border border-border/70 bg-card/50">
+                <div className="flex items-center justify-between text-[11px] font-mono border-b border-border/40 pb-2">
+                  <span className="font-semibold text-foreground">
+                    Selected Attempt: #{activeAttempt.attemptNumber}
                   </span>
-                  <p className="text-xs text-foreground font-medium bg-emerald-500/10 border border-emerald-500/20 p-2 rounded select-text">
-                    {claim.text}
-                  </p>
+                  <span className="text-muted-foreground capitalize">
+                    Action: {activeAttempt.action || 'abstain'}
+                  </span>
+                </div>
+
+                {/* Evidence Used */}
+                <div className="space-y-1">
+                  <div className="text-[10px] font-mono uppercase text-muted-foreground">
+                    Recovery Evidence Retrieved
+                  </div>
+                  {activeAttempt.recoveryEvidence && activeAttempt.recoveryEvidence.length > 0 ? (
+                    <div className="p-2 rounded bg-muted/30 border border-border/40 text-xs italic text-foreground/90 max-h-32 overflow-y-auto leading-relaxed select-text">
+                      &ldquo;{activeAttempt.recoveryEvidence.map((e: any) => e.text).join(' ')}&rdquo;
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">
+                      No targeted recovery evidence was found in project documents.
+                    </p>
+                  )}
+                </div>
+
+                {/* Candidate Revision */}
+                <div className="space-y-1">
+                  <div className="text-[10px] font-mono uppercase text-muted-foreground">
+                    Candidate Revision
+                  </div>
+                  {activeAttempt.candidateText ? (
+                    <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20 text-xs text-foreground font-medium select-text">
+                      {activeAttempt.candidateText}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">
+                      No candidate revision was produced.
+                    </p>
+                  )}
+                </div>
+
+                {/* M1 Reverification */}
+                <div className="space-y-1 pt-1">
+                  <div className="text-[10px] font-mono uppercase text-muted-foreground">
+                    M1 Neural Reverification
+                  </div>
+                  {activeAttempt.verificationLabel ? (
+                    <div className="p-2 rounded bg-muted/40 border border-border/50 flex items-center justify-between text-xs font-mono">
+                      <span className={activeAttempt.verificationLabel === 'entailment' ? 'text-emerald-600 font-semibold' : 'text-amber-600'}>
+                        Result: {activeAttempt.verificationLabel}
+                      </span>
+                      {activeAttempt.groundingScore !== undefined && activeAttempt.groundingScore !== null && (
+                        <span className="text-muted-foreground">
+                          Grounding: {formatGroundingScore(activeAttempt.groundingScore)}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">
+                      Reverification was not executed for this attempt.
+                    </p>
+                  )}
+                </div>
+
+                {/* Terminal Status */}
+                <div className="pt-2 border-t border-border/40 flex items-center justify-between text-xs font-mono">
+                  <span className="text-muted-foreground">Settled State:</span>
+                  <span className={cn('font-semibold', activeAttempt.verificationLabel === 'entailment' ? 'text-emerald-600' : 'text-amber-600')}>
+                    {activeAttempt.verificationLabel === 'entailment' ? 'RECOVERED ✓' : 'UNRESOLVED (Needs Review)'}
+                  </span>
                 </div>
               </div>
             ) : (
-              <div className="p-6 text-center text-xs text-muted-foreground border border-dashed border-border/60 rounded-lg space-y-3">
-                <p>No recovery was required for this claim.</p>
-                {isEligibleForRetry && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRetry}
-                    disabled={retryMutation.isPending}
-                    className="h-7 text-xs gap-1.5"
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                    <span>Request verification retry</span>
-                  </Button>
+              <div className="p-6 text-center text-xs text-muted-foreground border border-dashed border-border/60 rounded-lg">
+                No recovery attempts recorded for this claim.
+              </div>
+            )}
+
+            {/* Retry Button with Limit Enforcement (Section 8, 9, 30, 31) */}
+            {isEligibleForRetry && (
+              <div className="pt-2 border-t border-border/40 space-y-2">
+                <Button
+                  onClick={handleRetry}
+                  disabled={recoveryAttempts.length >= 2 || retryMutation.isPending}
+                  className="w-full h-8 text-xs gap-1.5"
+                  variant={recoveryAttempts.length >= 2 ? 'outline' : 'default'}
+                >
+                  {retryMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Recovering…</span>
+                    </>
+                  ) : recoveryAttempts.length >= 2 ? (
+                    <span>Recovery attempt limit reached (2/2)</span>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      <span>Retry Recovery</span>
+                    </>
+                  )}
+                </Button>
+                {retryError && (
+                  <p className="text-xs text-destructive text-center">{retryError}</p>
                 )}
               </div>
             )}

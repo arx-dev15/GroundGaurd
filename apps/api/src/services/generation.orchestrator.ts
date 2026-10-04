@@ -105,12 +105,51 @@ export class GenerationOrchestrator {
         requestId: generation.requestId,
       });
 
+      // Fetch bounded recent conversation history for interpretation context if in a conversation
+      let conversationContext: Array<{ role: 'user' | 'assistant'; content: string }> | undefined = undefined;
+      if (generation.conversationId) {
+        try {
+          const priorMessages = await conversationRepository.listMessagesByConversationId(generation.conversationId);
+          const validPrior = priorMessages
+            .filter(
+              (m) =>
+                m.content !== generation.query &&
+                !m.content.startsWith('GroundGuard was unable') &&
+                !m.content.startsWith('Generation service unavailable')
+            )
+            .slice(-6);
+
+          const ctx: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+          let totalChars = 0;
+          for (let i = validPrior.length - 1; i >= 0; i--) {
+            const m = validPrior[i];
+            const cappedContent =
+              m.role === 'assistant' && m.content.length > 400
+                ? m.content.slice(0, 400) + '...'
+                : m.content;
+
+            if (totalChars + cappedContent.length > 1500 && ctx.length > 0) {
+              break;
+            }
+
+            ctx.unshift({
+              role: m.role as 'user' | 'assistant',
+              content: cappedContent,
+            });
+            totalChars += cappedContent.length;
+          }
+          if (ctx.length > 0) conversationContext = ctx;
+        } catch (_) {}
+      }
+
       const result = await aiClient.generate(
         {
           projectId: generation.projectId,
           query: generation.query,
           requestId: generation.requestId,
           generationId: generation.id,
+          conversationId: generation.conversationId ?? undefined,
+          conversationContext,
           options: { maxRecoveryAttempts: generation.maxRecoveryAttempts },
         },
         generation.requestId,
@@ -254,125 +293,13 @@ export class GenerationOrchestrator {
 
     await generationRepository.updateGeneration(generation.id, { status: 'generating' });
 
-    const cleanQuery = data.query.trim();
-
-    // 2a. Conversational Greetings & Casual Chat (Zero retrieval, zero hallucination)
-    const GREETING_REGEX = /^\s*(?:hi|hey|hello|heyy+|howdy|greetings|good\s+(?:morning|afternoon|evening|day)|what'?s\s+up|sup|yo)(?:\s+(?:there|groundguard|bot|assistant))?[\s!.,?]*$/i;
-    const THANKS_REGEX = /^\s*(?:thanks|thank\s+you|thx|ty|many\s+thanks|much\s+appreciated|thanks\s+a\s+lot|thank\s+you\s+so\s+much)[\s!.,?]*$/i;
-    const FAREWELL_REGEX = /^\s*(?:bye|goodbye|see\s+ya|cya|farewell|have\s+a\s+good\s+one|catch\s+you\s+later)[\s!.,?]*$/i;
-    const ACK_REGEX = /^\s*(?:ok|okay|cool|great|awesome|understood|got\s+it|nice|perfect|sure|fine)[\s!.,?]*$/i;
-    const HELP_REGEX = /^\s*(?:what\s+(?:can|should|to)\s+(?:i|we)\s+ask(?:\s+you)?|what\s+to\s+ask|how\s+(?:do\s+i\s+use\s+this|does\s+(?:this|groundguard)\s+work)|what\s+can\s+you\s+do|what\s+are\s+your\s+capabilities|how\s+can\s+you\s+help|what\s+documents\s+do\s+i\s+have|what\s+is\s+groundguard|help|help\s+me|explain\s+groundguard)[\s!.,?]*$/i;
-
-    if (GREETING_REGEX.test(cleanQuery) || THANKS_REGEX.test(cleanQuery) || FAREWELL_REGEX.test(cleanQuery) || ACK_REGEX.test(cleanQuery)) {
-      const { projectRepository } = await import('../repositories/project.repository');
-      const { documentRepository } = await import('../repositories/document.repository');
-      const project = await projectRepository.findProjectById(data.projectId);
-      const docs = await documentRepository.listDocumentsByProjectId(data.projectId);
-      const readyDocs = docs.filter((d) => d.status === 'ready');
-      const readyCount = readyDocs.length;
-      const projectName = project?.name || 'this project';
-
-      let reply: string;
-      if (THANKS_REGEX.test(cleanQuery)) {
-        reply = "You're welcome! Let me know if you need any more evidence-backed answers from your project knowledge.";
-      } else if (FAREWELL_REGEX.test(cleanQuery)) {
-        reply = "Goodbye! Whenever you need to investigate technical claims or documentation, I'll be here.";
-      } else if (ACK_REGEX.test(cleanQuery)) {
-        reply = "Sounds good! Whenever you're ready, ask a question about your project documents.";
-      } else {
-        if (readyCount > 0) {
-          reply = `Ask anything about ${projectName}. ${readyCount} project ${readyCount === 1 ? 'document is' : 'documents are'} ready for grounded questions.`;
-        } else {
-          reply = `Ask anything about ${projectName}. GroundGuard will answer from the evidence in this project once documents are uploaded.`;
-        }
-      }
-
-      const totalLatencyMs = Date.now() - startedAt;
-      const persisted = await generationRepository.persistCompletedGeneration({
-        generationId: generation.id,
-        projectId: data.projectId,
-        status: 'completed',
-        answer: reply,
-        modelVersion: 'groundguard-conversational',
-        metadata: { intent: 'conversational' },
-        totalLatencyMs,
-        claims: [],
-        conversationId: data.conversationId,
-      });
-
-      return {
-        requestId,
-        generationId: generation.id,
-        conversationId: data.conversationId,
-        status: 'completed' as const,
-        answer: reply,
-        evidence: [],
-        claims: [],
-        modelVersion: 'groundguard-conversational',
-        metadata: { intent: 'conversational' },
-        userMessage: {
-          id: userMsg.id,
-          conversationId: userMsg.conversationId,
-          role: userMsg.role,
-          content: userMsg.content,
-          createdAt: userMsg.createdAt.toISOString(),
-        },
-        message: persisted.assistantMessage,
-      };
-    }
-
-    // 2b. Product & Help Guidance (Uses real project ready documents metadata)
-    if (HELP_REGEX.test(cleanQuery)) {
-      const { documentRepository } = await import('../repositories/document.repository');
-      const docs = await documentRepository.listDocumentsByProjectId(data.projectId);
-      const readyDocs = docs.filter((d) => d.status === 'ready');
-      const readyCount = readyDocs.length;
-      const docLabel = readyCount === 1 ? 'document' : 'documents';
-
-      let reply: string;
-      if (readyCount > 0) {
-        reply = `You currently have ${readyCount} ready ${docLabel}.\n\nYou can ask me to:\n• explain something from your documents\n• compare information across sources\n• find evidence supporting a claim\n• summarize a topic in this project`;
-      } else {
-        reply = 'You currently have no ready documents in this project.\n\nUpload technical manuals, datasheets, or PDFs in the Knowledge tab to start asking grounded questions.';
-      }
-
-      const totalLatencyMs = Date.now() - startedAt;
-      const persisted = await generationRepository.persistCompletedGeneration({
-        generationId: generation.id,
-        projectId: data.projectId,
-        status: 'completed',
-        answer: reply,
-        modelVersion: 'groundguard-product-help',
-        metadata: { intent: 'product_help', readyDocumentCount: readyCount },
-        totalLatencyMs,
-        claims: [],
-        conversationId: data.conversationId,
-      });
-
-      return {
-        requestId,
-        generationId: generation.id,
-        conversationId: data.conversationId,
-        status: 'completed' as const,
-        answer: reply,
-        evidence: [],
-        claims: [],
-        modelVersion: 'groundguard-product-help',
-        metadata: { intent: 'product_help', readyDocumentCount: readyCount },
-        userMessage: {
-          id: userMsg.id,
-          conversationId: userMsg.conversationId,
-          role: userMsg.role,
-          content: userMsg.content,
-          createdAt: userMsg.createdAt.toISOString(),
-        },
-        message: persisted.assistantMessage,
-      };
-    }
-
-    // 3. Substantive Question: Invoke M2 Grounded Pipeline (Retrieval -> Sufficiency -> Generation -> Claims -> Verification)
+    // 2. Delegate all user queries directly to M2 via aiClient.generate
+    // Single Assistant Language Owner: M2 owns natural language understanding, query planning,
+    // conversational/product-help responses, and grounded generation. M3 owns orchestration, auth,
+    // persistence, and SSE events.
     try {
-      // Fetch bounded recent conversation history for interpretation context (last 4 turns, max 1000 chars)
+      // Fetch bounded recent conversation history for interpretation context (up to 6 turns, max 1500 chars)
+      // Prioritize the most recent messages first so immediate context is never starved
       let conversationContext: Array<{ role: 'user' | 'assistant'; content: string }> = [];
       try {
         const priorMessages = await conversationRepository.listMessagesByConversationId(data.conversationId);
@@ -383,16 +310,25 @@ export class GenerationOrchestrator {
               !m.content.startsWith('GroundGuard was unable') &&
               !m.content.startsWith('Generation service unavailable')
           )
-          .slice(-4);
+          .slice(-6);
 
         let totalChars = 0;
-        for (const m of validPrior) {
-          if (totalChars + m.content.length > 1000) break;
-          conversationContext.push({
+        for (let i = validPrior.length - 1; i >= 0; i--) {
+          const m = validPrior[i];
+          const cappedContent =
+            m.role === 'assistant' && m.content.length > 400
+              ? m.content.slice(0, 400) + '...'
+              : m.content;
+
+          if (totalChars + cappedContent.length > 1500 && conversationContext.length > 0) {
+            break;
+          }
+
+          conversationContext.unshift({
             role: m.role as 'user' | 'assistant',
-            content: m.content,
+            content: cappedContent,
           });
-          totalChars += m.content.length;
+          totalChars += cappedContent.length;
         }
       } catch (_) {
         // Fallback: continue without context if prior message fetch fails
@@ -465,23 +401,26 @@ export class GenerationOrchestrator {
       });
 
       // Phase 7: Dual-stage Grounding Verification (M1 cross-encoder + deterministic checks)
-      await verificationOrchestrator.verifyGenerationClaims(generation.id, requestId);
-      const flagged = await this.emitClaimEvents(generation.id);
+      let finalClaims: any[] = [];
+      if (result.claims && result.claims.length > 0) {
+        await verificationOrchestrator.verifyGenerationClaims(generation.id, requestId);
+        const flagged = await this.emitClaimEvents(generation.id);
 
-      // Phase 8: Failure-Aware Agentic Recovery (for failed claims)
-      if (maxRecoveryAttempts > 0) {
-        if (flagged.size > 0) {
-          await generationRepository.updateGeneration(generation.id, { status: 'recovering' });
-          generationEvents.publish(generation.id, 'recovery.started', { claims: [...flagged] });
+        // Phase 8: Failure-Aware Agentic Recovery (for failed claims)
+        if (maxRecoveryAttempts > 0) {
+          if (flagged.size > 0) {
+            await generationRepository.updateGeneration(generation.id, { status: 'recovering' });
+            generationEvents.publish(generation.id, 'recovery.started', { claims: [...flagged] });
+          }
+          await recoveryOrchestrator.recoverGenerationClaims(generation.id, requestId);
+          if (flagged.size > 0) {
+            await this.emitClaimEvents(generation.id, flagged);
+            generationEvents.publish(generation.id, 'recovery.completed', { claims: [...flagged] });
+          }
         }
-        await recoveryOrchestrator.recoverGenerationClaims(generation.id, requestId);
-        if (flagged.size > 0) {
-          await this.emitClaimEvents(generation.id, flagged);
-          generationEvents.publish(generation.id, 'recovery.completed', { claims: [...flagged] });
-        }
+
+        finalClaims = await verificationOrchestrator.getHydratedClaims(generation.id);
       }
-
-      const finalClaims = await verificationOrchestrator.getHydratedClaims(generation.id);
 
       // Transition generation to completed
       await generationRepository.updateGeneration(generation.id, {

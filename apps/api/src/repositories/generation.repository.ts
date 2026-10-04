@@ -635,6 +635,79 @@ export class GenerationRepository {
     );
     return res.rows[0] || null;
   }
+
+  public async listClaimsByProjectId(projectId: string): Promise<Array<DBClaim & {
+    generationId: string;
+    conversationId: string | null;
+    conversationTitle: string | null;
+    query: string;
+  }>> {
+    const pool = dbManager.getPool();
+    const res = await pool.query(
+      `SELECT
+        c.id,
+        c.generation_id AS "generationId",
+        c.external_claim_id AS "externalClaimId",
+        c.claim_index AS "claimIndex",
+        c.text,
+        c.status,
+        c.label,
+        c.entailment_score AS "entailmentScore",
+        c.contradiction_score AS "contradictionScore",
+        c.neutral_score AS "neutralScore",
+        c.grounding_score AS "groundingScore",
+        c.model_version AS "modelVersion",
+        c.created_at AS "createdAt",
+        c.updated_at AS "updatedAt",
+        g.conversation_id AS "conversationId",
+        COALESCE(cv.title, 'Untitled conversation') AS "conversationTitle",
+        g.query AS "query"
+       FROM claims c
+       JOIN generations g ON g.id = c.generation_id
+       LEFT JOIN conversations cv ON cv.id = g.conversation_id
+       WHERE g.project_id = $1
+       ORDER BY c.created_at DESC;`,
+      [projectId]
+    );
+    return res.rows;
+  }
+
+  public async listGroundedGenerationsByProjectId(projectId: string): Promise<Array<{
+    generationId: string;
+    conversationId: string | null;
+    conversationTitle: string;
+    query: string;
+    createdAt: Date;
+    totalClaims: number;
+    verifiedClaims: number;
+    flaggedClaims: number;
+    recoveredClaims: number;
+    needsReviewClaims: number;
+  }>> {
+    const pool = dbManager.getPool();
+    const res = await pool.query(
+      `SELECT
+        g.id AS "generationId",
+        g.conversation_id AS "conversationId",
+        COALESCE(cv.title, 'Untitled conversation') AS "conversationTitle",
+        g.query,
+        g.created_at AS "createdAt",
+        COUNT(c.id)::int AS "totalClaims",
+        COUNT(c.id) FILTER (WHERE c.status = 'verified')::int AS "verifiedClaims",
+        COUNT(c.id) FILTER (WHERE c.status = 'flagged')::int AS "flaggedClaims",
+        COUNT(c.id) FILTER (WHERE c.status = 'recovered')::int AS "recoveredClaims",
+        COUNT(c.id) FILTER (WHERE c.status = 'needs_review')::int AS "needsReviewClaims"
+       FROM generations g
+       JOIN claims c ON c.generation_id = g.id
+       LEFT JOIN conversations cv ON cv.id = g.conversation_id
+       WHERE g.project_id = $1
+       GROUP BY g.id, g.conversation_id, cv.title, g.query, g.created_at
+       HAVING COUNT(c.id) > 0
+       ORDER BY g.created_at DESC;`,
+      [projectId]
+    );
+    return res.rows;
+  }
 }
 
 export const generationRepository = new GenerationRepository();

@@ -165,10 +165,12 @@ class RealLLMRuntime:
             "generationConfig": generation_config
         }
         def _sync_post():
-            last_err = None
             for attempt in range(2):
                 try:
                     res = requests.post(url, headers=headers, json=payload, timeout=40.0)
+                    if res.status_code == 429 and attempt < 1:
+                        time.sleep(3.0)
+                        continue
                     if res.status_code != 200:
                         raise LLMUnavailableError(f"Gemini API error (HTTP {res.status_code}): {res.text}")
                     data = res.json()

@@ -37,10 +37,11 @@ export function useGenerationEvents({
   const [isStreaming, setIsStreaming] = React.useState<boolean>(false);
   const [isCancelling, setIsCancelling] = React.useState<boolean>(false);
 
-  // Active EventSource reference
-  const esRef = React.useRef<EventSource | null>(null);
+  // Active stream controller reference
+  const abortControllerRef = React.useRef<AbortController | null>(null);
+  const lastEventIdRef = React.useRef<string | null>(null);
 
-  // Store callbacks in ref to avoid re-triggering EventSource reconnection
+  // Store callbacks in ref to avoid re-triggering reconnection
   const callbacksRef = React.useRef({ onEvent, onClaimUpdate, onCompleted, onCancelled, onFailed });
   React.useEffect(() => {
     callbacksRef.current = { onEvent, onClaimUpdate, onCompleted, onCancelled, onFailed };
@@ -48,23 +49,17 @@ export function useGenerationEvents({
 
   React.useEffect(() => {
     if (!enabled || !generationId || typeof window === 'undefined') {
-      if (esRef.current) {
-        esRef.current.close();
-        esRef.current = null;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
         setIsStreaming(false);
       }
       return;
     }
 
-    const token = getAuthToken();
-    const cleanBase = API_BASE_URL.replace(/\/$/, '');
-    const url = token
-      ? `${cleanBase}/v1/generations/${generationId}/events?token=${encodeURIComponent(token)}`
-      : `${cleanBase}/v1/generations/${generationId}/events`;
-
     let isClosed = false;
-    const es = new EventSource(url);
-    esRef.current = es;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsStreaming(true);
 
     const handleEvent = (event: string, rawData: string) => {
@@ -75,7 +70,7 @@ export function useGenerationEvents({
         // fallback
       }
 
-      const { state, label, isTerminal } = mapSSEEventToStatus(event, data);
+      const { state, label } = mapSSEEventToStatus(event, data);
       setStatus(state);
       setStatusLabel(label);
 
@@ -90,7 +85,7 @@ export function useGenerationEvents({
       if (event === 'generation.completed') {
         callbacksRef.current.onCompleted?.(data);
         if (!isClosed) {
-          es.close();
+          controller.abort();
           setIsStreaming(false);
         }
       } else if (event === 'generation.failed') {
@@ -102,42 +97,109 @@ export function useGenerationEvents({
           callbacksRef.current.onFailed?.(data);
         }
         if (!isClosed) {
-          es.close();
+          controller.abort();
           setIsStreaming(false);
         }
       }
     };
 
-    // Standard SSE custom event listeners
-    const knownEvents = [
-      'generation.started',
-      'token.delta',
-      'sentence.verified',
-      'sentence.flagged',
-      'recovery.started',
-      'recovery.completed',
-      'generation.completed',
-      'generation.failed',
-    ];
+    async function streamEvents() {
+      const token = getAuthToken();
+      const cleanBase = API_BASE_URL.replace(/\/$/, '');
+      const url = `${cleanBase}/v1/generations/${generationId}/events`;
 
-    knownEvents.forEach((evtName) => {
-      es.addEventListener(evtName, (e: MessageEvent) => {
-        handleEvent(evtName, e.data);
-      });
-    });
-
-    es.onerror = () => {
-      // EventSource will automatically attempt to reconnect with Last-Event-ID.
-      // If server closed stream (readyState === 2), stop streaming state.
-      if (es.readyState === EventSource.CLOSED) {
-        setIsStreaming(false);
+      const headers: Record<string, string> = {
+        Accept: 'text/event-stream',
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
       }
-    };
+      if (lastEventIdRef.current) {
+        headers['Last-Event-ID'] = lastEventIdRef.current;
+      }
+
+      try {
+        const response = await fetch(url, {
+          headers,
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            callbacksRef.current.onFailed?.({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+          } else if (response.status === 404) {
+            callbacksRef.current.onFailed?.({ code: 'NOT_FOUND', message: 'Generation not found' });
+          } else {
+            callbacksRef.current.onFailed?.({ code: 'STREAM_ERROR', message: `HTTP ${response.status}` });
+          }
+          if (!isClosed) {
+            setIsStreaming(false);
+          }
+          return;
+        }
+
+        if (!response.body) {
+          if (!isClosed) {
+            setIsStreaming(false);
+          }
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!isClosed && !controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const blocks = buffer.split('\n\n');
+          buffer = blocks.pop() || '';
+
+          for (const block of blocks) {
+            if (!block.trim()) continue;
+            let eventType = 'message';
+            let eventId: string | null = null;
+            const dataLines: string[] = [];
+
+            for (const rawLine of block.split('\n')) {
+              const line = rawLine.trimEnd();
+              if (line.startsWith('event:')) {
+                eventType = line.slice(6).trim();
+              } else if (line.startsWith('data:')) {
+                dataLines.push(line.slice(5).trim());
+              } else if (line.startsWith('id:')) {
+                eventId = line.slice(3).trim();
+              }
+            }
+
+            if (eventId) {
+              lastEventIdRef.current = eventId;
+            }
+
+            const rawData = dataLines.join('\n');
+            handleEvent(eventType, rawData);
+          }
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError' || controller.signal.aborted) {
+          return;
+        }
+        console.warn('Generation events stream error:', err);
+      } finally {
+        if (!isClosed && !controller.signal.aborted) {
+          setIsStreaming(false);
+        }
+      }
+    }
+
+    streamEvents();
 
     return () => {
       isClosed = true;
-      es.close();
-      esRef.current = null;
+      controller.abort();
+      abortControllerRef.current = null;
       setIsStreaming(false);
     };
   }, [generationId, enabled]);
@@ -151,9 +213,9 @@ export function useGenerationEvents({
       setStatus('cancelled');
       setStatusLabel('Generation cancelled');
       onCancelled?.();
-      if (esRef.current) {
-        esRef.current.close();
-        esRef.current = null;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
       setIsStreaming(false);
     } catch (err: any) {

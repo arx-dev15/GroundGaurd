@@ -165,4 +165,47 @@ export async function documentRoutes(fastify: FastifyInstance) {
       message: 'Document deleted successfully',
     });
   });
+
+  // GET /v1/documents/:documentId/content (Stream raw PDF bytes)
+  fastify.get('/v1/documents/:documentId/content', async (request, reply) => {
+    const { documentId } = request.params as { documentId: string };
+    const userId = request.user!.id;
+
+    const dbDoc = await documentRepository.findDocumentById(documentId);
+    if (!dbDoc) {
+      throw new NotFoundError('Document not found');
+    }
+
+    const project = await projectRepository.findProjectByIdAndUserId(dbDoc.projectId, userId);
+    if (!project) {
+      throw new NotFoundError('Document not found');
+    }
+    assertProjectAuthorized(request, dbDoc.projectId);
+
+    const path = await import('path');
+    const fs = await import('fs');
+    const UPLOADS_BASE_DIR = path.resolve(process.cwd(), 'uploads');
+    const safeProjectDir = path.resolve(UPLOADS_BASE_DIR, dbDoc.projectId);
+    const candidatePath = path.resolve(safeProjectDir, `${dbDoc.id}.pdf`);
+
+    let finalFilePath: string | null = null;
+    if (fs.existsSync(candidatePath) && candidatePath.startsWith(safeProjectDir)) {
+      finalFilePath = candidatePath;
+    } else if (dbDoc.filePath && fs.existsSync(dbDoc.filePath)) {
+      const resolved = path.resolve(dbDoc.filePath);
+      if (resolved.startsWith(safeProjectDir) || resolved.startsWith(UPLOADS_BASE_DIR)) {
+        finalFilePath = resolved;
+      }
+    }
+
+    if (!finalFilePath || !fs.existsSync(finalFilePath)) {
+      throw new NotFoundError('Document file content not found on server');
+    }
+
+    const stream = fs.createReadStream(finalFilePath);
+    reply.type('application/pdf');
+    reply.header('Content-Disposition', `inline; filename="${encodeURIComponent(dbDoc.filename)}"`);
+    reply.header('Cache-Control', 'private, max-age=3600');
+    return reply.send(stream);
+  });
 }

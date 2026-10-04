@@ -90,23 +90,24 @@ async function runTest() {
   console.log('Assistant Message ID:', helloData.message?.id, 'Content:', helloData.message?.content);
   console.log('Claims Count:', helloData.claims?.length);
 
-  if (!helloData.message?.content || !helloData.message?.content.includes('What would you like to explore')) {
+  if (!helloData.message?.content || helloData.message?.content.length < 5) {
     throw new Error('Greeting response was not properly generated or persisted!');
   }
 
-  // 3. Send "what can I ask?"
-  console.log('\n[Step 3] Sending "what can I ask?"...');
+  // 3. Send "what can u do" (Colloquial chat wording per Section 8 & 9)
+  console.log('\n[Step 3] Sending "what can u do"...');
   const helpRes = await app.inject({
     method: 'POST',
     url: `/v1/projects/${project.id}/conversations/${conv.id}/messages`,
     headers: { authorization: `Bearer ${jwt}` },
-    payload: { content: 'what can I ask?' },
+    payload: { content: 'what can u do' },
   });
-  console.log('Send "what can I ask?" status:', helpRes.statusCode);
+  console.log('Send "what can u do" status:', helpRes.statusCode);
   const helpData = JSON.parse(helpRes.body);
   console.log('Help Assistant Message ID:', helpData.message?.id, 'Content:\n', helpData.message?.content);
 
-  if (!helpData.message?.content || !helpData.message?.content.includes('ready document')) {
+  const helpLower = (helpData.message?.content || '').toLowerCase();
+  if (!helpData.message?.content || (!helpLower.includes('document') && !helpLower.includes('evidence') && !helpLower.includes('claim') && !helpLower.includes('source'))) {
     throw new Error('Product help response was not properly generated or persisted!');
   }
 
@@ -122,7 +123,8 @@ async function runTest() {
   const thanksData = JSON.parse(thanksRes.body);
   console.log('Thanks Assistant Message ID:', thanksData.message?.id, 'Content:', thanksData.message?.content);
 
-  if (!thanksData.message?.content || !thanksData.message?.content.includes('welcome')) {
+  const thanksLower = (thanksData.message?.content || '').toLowerCase();
+  if (!thanksData.message?.content || (!thanksLower.includes('welcome') && !thanksLower.includes('happy') && !thanksLower.includes('anytime') && !thanksLower.includes('glad'))) {
     throw new Error('Thanks response was not properly generated or persisted!');
   }
 

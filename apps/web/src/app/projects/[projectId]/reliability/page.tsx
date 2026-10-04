@@ -25,10 +25,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { apiClient } from '@/lib/api-client';
 import {
-  listConversations,
-  listMessages,
-  getGenerationClaims,
-  getClaimRecoveryAttempts,
+  getProjectClaims,
+  getProjectGroundedGenerations,
+  type ProjectClaimItem,
+  type GroundedGenerationItem,
 } from '@/lib/conversations-api';
 import { StatusBadge } from '@/components/trust/status-badge';
 import { ClaimStateStrip } from '@/components/trust/claim-state-strip';
@@ -37,28 +37,8 @@ import { CLAIM_STATE_CONFIG } from '@/lib/trust-utils';
 import { cn } from '@/lib/utils';
 import type {
   ProjectMetricsResponse,
-  Conversation,
-  Message,
   Claim,
-  RecoveryAttempt,
 } from '@groundguard/types';
-
-interface HydratedClaimItem {
-  claim: Claim;
-  conversationId: string;
-  conversationTitle: string;
-  generationId: string;
-  createdAt?: string;
-  siblingClaims: Claim[];
-}
-
-interface AnswerTrustRecord {
-  conversation: Conversation;
-  generationId?: string;
-  claims: Claim[];
-  sources: string[];
-  createdAt?: string;
-}
 
 function formatRelativeTime(dateString?: string): string {
   if (!dateString) return '';
@@ -90,18 +70,16 @@ export default function ReliabilityPage() {
   const [metrics, setMetrics] = React.useState<ProjectMetricsResponse | null>(null);
   const [isLoadingMetrics, setIsLoadingMetrics] = React.useState(true);
 
-  // Conversations & Claims data
-  const [conversations, setConversations] = React.useState<Conversation[]>([]);
-  const [allClaimItems, setAllClaimItems] = React.useState<HydratedClaimItem[]>([]);
-  const [answerRecords, setAnswerRecords] = React.useState<AnswerTrustRecord[]>([]);
-  const [recoveredClaimItems, setRecoveredClaimItems] = React.useState<HydratedClaimItem[]>([]);
+  // Canonical Claims & Grounded Generations data
+  const [allClaimItems, setAllClaimItems] = React.useState<ProjectClaimItem[]>([]);
+  const [groundedGenerations, setGroundedGenerations] = React.useState<GroundedGenerationItem[]>([]);
   const [isLoadingWorkspace, setIsLoadingWorkspace] = React.useState(true);
 
-  // Review Queue filter state: 'attention' | 'all'
-  const [filterMode, setFilterMode] = React.useState<'attention' | 'all'>('attention');
+  // Review Queue filter state: 'attention' | 'recovered' | 'all'
+  const [filterMode, setFilterMode] = React.useState<'attention' | 'recovered' | 'all'>('attention');
 
   // Currently selected claim for Inspector
-  const [selectedClaimItem, setSelectedClaimItem] = React.useState<HydratedClaimItem | null>(null);
+  const [selectedClaimItem, setSelectedClaimItem] = React.useState<ProjectClaimItem | null>(null);
 
   // Collapsible diagnostics toggle
   const [showDiagnostics, setShowDiagnostics] = React.useState(false);
@@ -119,76 +97,31 @@ export default function ReliabilityPage() {
     }
   }, [projectId]);
 
-  // 2. Fetch Conversations, Messages, and Claims
+  // 2. Fetch Canonical Project Claims and Grounded Generations
   const fetchWorkspaceData = React.useCallback(async () => {
     if (!projectId) return;
     setIsLoadingWorkspace(true);
     try {
-      const convList = await listConversations(projectId);
-      setConversations(convList);
+      const [claims, generations] = await Promise.all([
+        getProjectClaims(projectId),
+        getProjectGroundedGenerations(projectId),
+      ]);
 
-      // Hydrate recent conversations (bounded to max 6)
-      const recentConvs = convList.slice(0, 6);
-      const items: HydratedClaimItem[] = [];
-      const records: AnswerTrustRecord[] = [];
+      setAllClaimItems(claims);
+      setGroundedGenerations(generations);
 
-      for (const conv of recentConvs) {
-        try {
-          const msgs = await listMessages(projectId, conv.id);
-          const assistantMsg = [...msgs].reverse().find((m) => m.role === 'assistant' && m.generationId);
-          if (assistantMsg && assistantMsg.generationId) {
-            const claims = await getGenerationClaims(assistantMsg.generationId);
-
-            // Collect unique source documents
-            const uniqueSources = new Set<string>();
-            for (const c of claims) {
-              for (const ev of c.evidence || []) {
-                const src =
-                  (ev.metadata?.filename as string) ||
-                  (ev.metadata?.documentFilename as string) ||
-                  ev.documentId;
-                if (src) uniqueSources.add(src);
-              }
-            }
-
-            records.push({
-              conversation: conv,
-              generationId: assistantMsg.generationId,
-              claims,
-              sources: Array.from(uniqueSources),
-              createdAt: assistantMsg.createdAt,
-            });
-
-            for (const c of claims) {
-              items.push({
-                claim: c,
-                conversationId: conv.id,
-                conversationTitle: conv.title || 'Untitled conversation',
-                generationId: assistantMsg.generationId,
-                createdAt: assistantMsg.createdAt,
-                siblingClaims: claims,
-              });
-            }
-          }
-        } catch {
-          // ignore single conversation fetch failure
-        }
-      }
-
-      setAllClaimItems(items);
-      setAnswerRecords(records);
-
-      const recovered = items.filter((item) => item.claim.status === 'recovered');
-      setRecoveredClaimItems(recovered);
-
-      // Auto-select first attention claim, or first claim if none
-      const attention = items.filter(
-        (item) => item.claim.status === 'flagged' || item.claim.status === 'needs_review'
+      // Auto-select first attention claim, or first recovered, or first claim if none
+      const attention = claims.filter(
+        (c) => c.status === 'flagged' || c.status === 'needs_review'
       );
+      const recovered = claims.filter((c) => c.status === 'recovered');
+
       if (attention.length > 0) {
         setSelectedClaimItem(attention[0]);
-      } else if (items.length > 0) {
-        setSelectedClaimItem(items[0]);
+      } else if (recovered.length > 0) {
+        setSelectedClaimItem(recovered[0]);
+      } else if (claims.length > 0) {
+        setSelectedClaimItem(claims[0]);
       }
     } catch {
       // workspace fetch error
@@ -202,19 +135,38 @@ export default function ReliabilityPage() {
     fetchWorkspaceData();
   }, [fetchMetrics, fetchWorkspaceData]);
 
-  // Attention claims: flagged (contradicted) or needs_review
+  // Canonical groupings derived directly from claims
   const attentionClaimItems = React.useMemo(() => {
     return allClaimItems.filter(
-      (item) => item.claim.status === 'flagged' || item.claim.status === 'needs_review'
+      (c) => c.status === 'flagged' || c.status === 'needs_review'
     );
   }, [allClaimItems]);
 
+  const recoveredClaimItems = React.useMemo(() => {
+    return allClaimItems.filter((c) => c.status === 'recovered');
+  }, [allClaimItems]);
+
   const verifiedClaimItems = React.useMemo(() => {
-    return allClaimItems.filter((item) => item.claim.status === 'verified');
+    return allClaimItems.filter((c) => c.status === 'verified');
   }, [allClaimItems]);
 
   // Items to display based on filter
-  const visibleClaimItems = filterMode === 'attention' ? attentionClaimItems : allClaimItems;
+  const visibleClaimItems = React.useMemo(() => {
+    if (filterMode === 'attention') return attentionClaimItems;
+    if (filterMode === 'recovered') return recoveredClaimItems;
+    return allClaimItems;
+  }, [filterMode, attentionClaimItems, recoveredClaimItems, allClaimItems]);
+
+  // Keyboard navigation through visible queue
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === 'ArrowDown' && index < visibleClaimItems.length - 1) {
+      e.preventDefault();
+      setSelectedClaimItem(visibleClaimItems[index + 1]);
+    } else if (e.key === 'ArrowUp' && index > 0) {
+      e.preventDefault();
+      setSelectedClaimItem(visibleClaimItems[index - 1]);
+    }
+  };
 
   const scrollToWorkspace = () => {
     const el = document.getElementById('trust-workspace');
@@ -313,6 +265,18 @@ export default function ReliabilityPage() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setFilterMode('recovered')}
+                    className={cn(
+                      'px-2 py-1 rounded-md transition-colors font-medium',
+                      filterMode === 'recovered'
+                        ? 'bg-background text-foreground shadow-2xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    Recovered ({recoveredClaimItems.length})
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setFilterMode('all')}
                     className={cn(
                       'px-2 py-1 rounded-md transition-colors font-medium',
@@ -342,26 +306,25 @@ export default function ReliabilityPage() {
                   <div className="p-8 text-center space-y-2 select-none">
                     <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto stroke-[1.5]" />
                     <h4 className="text-sm font-semibold text-foreground">
-                      No claims require attention
+                      No claims need review.
                     </h4>
                     <p className="text-xs text-muted-foreground max-w-xs mx-auto leading-relaxed">
-                      All verified factual statements are supported by project documents.
+                      GroundGuard has no unresolved claims in the selected scope.
                     </p>
-                    {allClaimItems.length > 0 && filterMode === 'attention' && (
+                    {allClaimItems.length > 0 && filterMode !== 'all' && (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => setFilterMode('all')}
                         className="h-7 text-xs mt-2"
                       >
-                        Inspect all verified claims
+                        Inspect all {allClaimItems.length} grounded claims
                       </Button>
                     )}
                   </div>
                 ) : (
-                  visibleClaimItems.map((item) => {
-                    const isSelected = selectedClaimItem?.claim.claimId === item.claim.claimId;
-                    const claim = item.claim;
+                  visibleClaimItems.map((claim, idx) => {
+                    const isSelected = selectedClaimItem?.claimId === claim.claimId;
                     const primaryEv = claim.evidence?.[0];
                     const docName =
                       (primaryEv?.metadata?.filename as string) ||
@@ -372,7 +335,8 @@ export default function ReliabilityPage() {
                     return (
                       <div
                         key={claim.claimId}
-                        onClick={() => setSelectedClaimItem(item)}
+                        onClick={() => setSelectedClaimItem(claim)}
+                        onKeyDown={(e) => handleKeyDown(e, idx)}
                         className={cn(
                           'p-3 rounded-lg border transition-all cursor-pointer text-left space-y-2 group',
                           isSelected
@@ -387,7 +351,7 @@ export default function ReliabilityPage() {
                         <div className="flex items-center justify-between gap-2">
                           <StatusBadge status={claim.status} size="sm" />
                           <span className="text-[10px] font-mono text-muted-foreground">
-                            {formatRelativeTime(item.createdAt)}
+                            {formatRelativeTime(claim.createdAt)}
                           </span>
                         </div>
 
@@ -399,7 +363,7 @@ export default function ReliabilityPage() {
                         {/* Bottom Metadata: Context + Source Document */}
                         <div className="pt-1 flex flex-col gap-1 text-[11px] text-muted-foreground border-t border-border/30">
                           <div className="truncate">
-                            Asked in: <span className="text-foreground/90 font-medium">{item.conversationTitle}</span>
+                            Asked in: <span className="text-foreground/90 font-medium">{claim.conversationTitle || 'Conversation'}</span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate flex items-center gap-1 font-mono text-[10px]">
@@ -408,14 +372,16 @@ export default function ReliabilityPage() {
                               {pageNum !== undefined && <span>· p. {pageNum}</span>}
                             </span>
 
-                            <Link
-                              href={`/projects/${projectId}/ask?c=${item.conversationId}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-[10px] font-mono text-primary hover:underline flex items-center gap-0.5 shrink-0"
-                            >
-                              <span>Open</span>
-                              <ChevronRight className="h-3 w-3" />
-                            </Link>
+                            {claim.conversationId && (
+                              <Link
+                                href={`/projects/${projectId}/ask?c=${claim.conversationId}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[10px] font-mono text-primary hover:underline flex items-center gap-0.5 shrink-0"
+                              >
+                                <span>Open</span>
+                                <ChevronRight className="h-3 w-3" />
+                              </Link>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -430,26 +396,26 @@ export default function ReliabilityPage() {
             {/* ---------------------------------------------------------- */}
             <div className="lg:col-span-7 flex flex-col min-h-[500px]">
               <AskInspector
-                claim={selectedClaimItem ? selectedClaimItem.claim : null}
-                selectedEvidence={selectedClaimItem?.claim.evidence?.[0] || null}
+                claim={selectedClaimItem}
+                selectedEvidence={selectedClaimItem?.evidence?.[0] || null}
                 projectId={projectId}
                 generationId={selectedClaimItem?.generationId}
                 isOpen={true}
                 variant="inline"
                 contextTitle={selectedClaimItem?.conversationTitle}
                 onOpenAnswer={() => {
-                  if (selectedClaimItem) {
+                  if (selectedClaimItem?.conversationId) {
                     router.push(`/projects/${projectId}/ask?c=${selectedClaimItem.conversationId}`);
                   }
                 }}
                 onClaimUpdated={(updatedClaim) => {
                   setSelectedClaimItem((prev) =>
-                    prev ? { ...prev, claim: updatedClaim } : null
+                    prev ? { ...prev, ...updatedClaim } : null
                   );
                   setAllClaimItems((prev) =>
                     prev.map((it) =>
-                      it.claim.claimId === updatedClaim.claimId
-                        ? { ...it, claim: updatedClaim }
+                      it.claimId === updatedClaim.claimId
+                        ? { ...it, ...updatedClaim }
                         : it
                     )
                   );
@@ -460,16 +426,16 @@ export default function ReliabilityPage() {
         </section>
 
         {/* ============================================================ */}
-        {/* 3. ANSWER-LEVEL TRUST RECORDS (With ClaimStateStrip)        */}
+        {/* 3. ANSWER-LEVEL TRUST RECORDS (Grounded Generations Only)   */}
         {/* ============================================================ */}
         <section className="space-y-4 pt-4 border-t border-border/50">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <h2 className="text-xs font-mono uppercase tracking-wider text-muted-foreground font-semibold">
-                Recent Answers
+                Recent Grounded Answers
               </h2>
               <p className="text-xs text-muted-foreground">
-                Audited answers with verified claim state distributions.
+                Grounded answers with verified claim state distributions. Non-factual and greeting turns are excluded.
               </p>
             </div>
             <Link
@@ -490,10 +456,10 @@ export default function ReliabilityPage() {
                 </div>
               ))}
             </div>
-          ) : answerRecords.length === 0 ? (
+          ) : groundedGenerations.length === 0 ? (
             <div className="p-8 text-center rounded-xl border border-dashed border-border/70 bg-card/20 space-y-2">
               <Clock className="h-6 w-6 text-muted-foreground mx-auto" />
-              <p className="text-xs text-muted-foreground">No recent answers recorded yet.</p>
+              <p className="text-xs text-muted-foreground">No grounded answers recorded yet.</p>
               <Link
                 href={`/projects/${projectId}/ask`}
                 className="text-xs text-primary hover:underline font-medium inline-block pt-1"
@@ -503,30 +469,36 @@ export default function ReliabilityPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {answerRecords.map((record) => {
-                const verified = record.claims.filter((c) => c.status === 'verified').length;
-                const recovered = record.claims.filter((c) => c.status === 'recovered').length;
-                const review = record.claims.filter(
-                  (c) => c.status === 'needs_review' || c.status === 'flagged'
-                ).length;
+              {groundedGenerations.map((record) => {
+                const statuses = [
+                  ...Array(record.claimCounts.verified).fill('verified' as const),
+                  ...Array(record.claimCounts.recovered).fill('recovered' as const),
+                  ...Array(record.claimCounts.needsReview).fill('needs_review' as const),
+                  ...Array(record.claimCounts.flagged).fill('flagged' as const),
+                ];
 
                 return (
                   <div
-                    key={record.conversation.id}
+                    key={record.generationId}
                     className="p-4 rounded-xl border border-border/70 bg-card/40 hover:bg-card/70 transition-all space-y-3 flex flex-col justify-between"
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between gap-2">
-                        <h3 className="text-sm font-semibold text-foreground line-clamp-1 font-sans">
-                          {record.conversation.title || 'Untitled conversation'}
-                        </h3>
+                        <div className="space-y-0.5">
+                          <h3 className="text-sm font-semibold text-foreground line-clamp-1 font-sans">
+                            {record.conversationTitle || 'Untitled conversation'}
+                          </h3>
+                          <p className="text-xs text-muted-foreground line-clamp-1 italic font-sans">
+                            &ldquo;{record.query}&rdquo;
+                          </p>
+                        </div>
                         <span className="text-[10px] font-mono text-muted-foreground shrink-0">
                           {formatRelativeTime(record.createdAt)}
                         </span>
                       </div>
 
                       {/* Signature GroundGuard Claim State Strip */}
-                      <ClaimStateStrip claims={record.claims} showCounts={true} size="default" />
+                      <ClaimStateStrip statuses={statuses} showCounts={true} size="default" />
                     </div>
 
                     <div className="pt-2 border-t border-border/30 flex items-center justify-between text-xs font-mono text-muted-foreground">
@@ -536,13 +508,15 @@ export default function ReliabilityPage() {
                           : 'No sources'}
                       </span>
 
-                      <Link
-                        href={`/projects/${projectId}/ask?c=${record.conversation.id}`}
-                        className="text-primary hover:underline font-semibold flex items-center gap-1 shrink-0"
-                      >
-                        <span>Open</span>
-                        <ArrowRight className="h-3 w-3" />
-                      </Link>
+                      {record.conversationId && (
+                        <Link
+                          href={`/projects/${projectId}/ask?c=${record.conversationId}`}
+                          className="text-primary hover:underline font-semibold flex items-center gap-1 shrink-0"
+                        >
+                          <span>Open</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </Link>
+                      )}
                     </div>
                   </div>
                 );
@@ -551,78 +525,7 @@ export default function ReliabilityPage() {
           )}
         </section>
 
-        {/* ============================================================ */}
-        {/* 4. RECOVERY SECTION (Signature playback or subtle empty)    */}
-        {/* ============================================================ */}
-        <section className="space-y-3 pt-4 border-t border-border/50">
-          <div className="space-y-0.5">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5">
-              <RotateCcw className="h-3.5 w-3.5 text-blue-500" />
-              <span>Recovery Activity</span>
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Autonomous repair and re-verification of contradictory claims.
-            </p>
-          </div>
 
-          {recoveredClaimItems.length > 0 ? (
-            <div className="space-y-3">
-              {recoveredClaimItems.map((item) => (
-                <div
-                  key={item.claim.claimId}
-                  className="p-4 rounded-xl border border-blue-500/30 bg-blue-500/5 space-y-3 text-xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-foreground flex items-center gap-1.5">
-                      <RotateCcw className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                      <span>Claim Recovered</span>
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedClaimItem(item);
-                        scrollToWorkspace();
-                      }}
-                      className="h-6 text-[11px] gap-1 px-2 border-blue-500/40"
-                    >
-                      <span>Inspect audit trace</span>
-                      <ArrowRight className="h-3 w-3" />
-                    </Button>
-                  </div>
-
-                  {/* Visual playback trail */}
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2 text-center text-[11px] font-mono">
-                    <div className="p-2 rounded bg-background/60 border border-border/40">
-                      <div className="text-[10px] text-muted-foreground">1. Original</div>
-                      <div className="text-muted-foreground truncate">{item.claim.sourceText || 'Original claim'}</div>
-                    </div>
-                    <div className="p-2 rounded bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300">
-                      <div className="text-[10px]">2. Contradiction</div>
-                      <div className="truncate">Flagged by M1</div>
-                    </div>
-                    <div className="p-2 rounded bg-background/60 border border-border/40">
-                      <div className="text-[10px] text-muted-foreground">3. New Evidence</div>
-                      <div className="text-foreground truncate">Authoritative chunk</div>
-                    </div>
-                    <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300">
-                      <div className="text-[10px]">4. Revised</div>
-                      <div className="truncate font-medium">{item.claim.text}</div>
-                    </div>
-                    <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                      <div className="text-[10px]">5. Reverified</div>
-                      <div className="truncate font-bold">✓ Entailment</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="py-2 text-xs text-muted-foreground italic">
-              No recovery activity yet. When GroundGuard repairs a failed claim, its verification trail will appear here.
-            </div>
-          )}
-        </section>
 
         {/* ============================================================ */}
         {/* 5. SECONDARY DIAGNOSTICS (Collapsed by default)             */}

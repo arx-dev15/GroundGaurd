@@ -125,6 +125,8 @@ GET /projects
 GET /projects/:projectId
 PATCH /projects/:projectId
 DELETE /projects/:projectId
+GET /projects/:projectId/claims
+GET /projects/:projectId/grounded-generations
 ```
 
 ---
@@ -136,6 +138,7 @@ POST /projects/:projectId/documents
 GET /projects/:projectId/documents
 GET /documents/:documentId
 GET /documents/:documentId/status
+GET /documents/:documentId/content
 DELETE /documents/:documentId
 ```
 
@@ -283,7 +286,134 @@ Response:
 
 ---
 
-# 10. M2 Internal API
+# 10. Project Canonical Claims
+
+```http
+GET /v1/projects/:projectId/claims
+```
+
+- **Method**: `GET`
+- **Path**: `/v1/projects/:projectId/claims`
+- **Auth Requirement**: JWT Bearer token required in `Authorization` header (`Bearer <token>`).
+- **Ownership Requirement**: User must own or be authorized to access the project (`assertProjectAuthorized`).
+- **Request Parameters**:
+  - `projectId` (path, string, required): ID of the project whose canonical claims are requested.
+- **Response Shape** (`application/json`, HTTP 200):
+
+```json
+{
+  "claims": [
+    {
+      "claimId": "claim_47fd7a7a-199b-486f-b0a2-d3c8fb2665d6",
+      "text": "Campus Monitor provides administrators with data-driven insights into environmental conditions...",
+      "status": "needs_review",
+      "ordinal": 1,
+      "generationId": "gen_9bb9203b-6b27-468b-ad14-dc3697748213",
+      "conversationId": "conv_c2c3248e-0f0a-49c3-98a3-669bde25fb55",
+      "conversationTitle": "Smart Campus Q&A",
+      "query": "what does campus monitor do",
+      "createdAt": "2026-10-02T15:20:10.000Z",
+      "verification": {
+        "label": "neutral",
+        "scores": {
+          "entailment": 0.04,
+          "contradiction": 0.01,
+          "neutral": 0.95
+        },
+        "groundingScore": 0.04,
+        "modelVersion": "grounding-v1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "ev_1",
+          "chunkId": "chunk_1",
+          "documentId": "doc_46101de2-1a54-4381-adbe-0eff5882429f",
+          "text": "Campus Monitor leverages IoT sensors...",
+          "pageNumber": 2,
+          "section": "1. Introduction"
+        }
+      ]
+    }
+  ]
+}
+```
+
+- **Error Cases**:
+  - `401 Unauthorized`: Missing or invalid JWT bearer token.
+  - `403 Forbidden`: Authenticated user does not have permission to access the project.
+  - `404 Not Found`: Project ID does not exist or does not belong to user.
+
+---
+
+# 11. Grounded Generations
+
+```http
+GET /v1/projects/:projectId/grounded-generations
+```
+
+- **Method**: `GET`
+- **Path**: `/v1/projects/:projectId/grounded-generations`
+- **Auth Requirement**: JWT Bearer token required in `Authorization` header.
+- **Ownership Requirement**: User must own or be authorized to access the project.
+- **Grounded Invariant**: Only generations possessing at least one factual claim (`HAVING COUNT(c.id) > 0`) are returned. Zero-claim social greetings (`hello`, `yo`) and project-boundary abstentions are excluded at the database level.
+- **Request Parameters**:
+  - `projectId` (path, string, required): ID of the project.
+- **Response Shape** (`application/json`, HTTP 200):
+
+```json
+{
+  "generations": [
+    {
+      "generationId": "gen_9bb9203b-6b27-468b-ad14-dc3697748213",
+      "conversationId": "conv_c2c3248e-0f0a-49c3-98a3-669bde25fb55",
+      "conversationTitle": "Smart Campus Q&A",
+      "query": "what does campus monitor do",
+      "createdAt": "2026-10-02T15:20:10.000Z",
+      "claimCounts": {
+        "total": 5,
+        "verified": 4,
+        "flagged": 0,
+        "recovered": 0,
+        "needsReview": 1
+      },
+      "sources": [
+        "campus_monitor.pdf"
+      ]
+    }
+  ]
+}
+```
+
+- **Error Cases**:
+  - `401 Unauthorized`: Missing or invalid JWT bearer token.
+  - `403 Forbidden`: Authenticated user not authorized for project.
+  - `404 Not Found`: Project ID does not exist.
+
+---
+
+# 12. Document Content (PDF Streaming)
+
+```http
+GET /v1/documents/:documentId/content
+```
+
+- **Method**: `GET`
+- **Path**: `/v1/documents/:documentId/content`
+- **Auth Requirement**: JWT Bearer token required in `Authorization` header (`Bearer <token>`). Query-string token authentication is not permitted.
+- **Ownership Requirement**: Authenticated user must own the project containing the requested document. Cross-project document access is strictly forbidden.
+- **Filesystem Security**: No absolute filesystem paths are accepted from or returned to the client. Path traversal outside the project storage sandbox is guarded with strict prefix matching.
+- **Request Parameters**:
+  - `documentId` (path, string, required): Unique document identifier.
+- **Response Shape**:
+  - **Content-Type**: `application/pdf`
+  - **Body**: Raw PDF binary stream (HTTP 200).
+- **Error Cases**:
+  - `401 Unauthorized`: Unauthenticated request, missing `Authorization` header, or expired token.
+  - `404 Not Found`: Inaccessible/cross-tenant document (user does not own the project that owns the document), non-existent document ID, or physical PDF file missing from disk.
+
+---
+
+# 13. M2 Internal API
 
 ```http
 POST /ingest

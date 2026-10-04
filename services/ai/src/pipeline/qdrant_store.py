@@ -64,8 +64,12 @@ class QdrantStore:
                         "Service failing closed: production requires a healthy external Qdrant cluster."
                     ) from e
 
-                path_to_try = self.path or "uploads/indexes/qdrant_embedded"
-                if path_to_try:
+                if self.path:
+                    path_to_try = self.path
+                    if not os.path.isabs(path_to_try):
+                        from pathlib import Path
+                        repo_root = Path(__file__).resolve().parent.parent.parent.parent
+                        path_to_try = str((repo_root / path_to_try).resolve())
                     logger.warning(
                         f"Could not connect to Qdrant server at {self.url} ({e}). "
                         f"Falling back to embedded disk Qdrant at {path_to_try} (development mode only)."

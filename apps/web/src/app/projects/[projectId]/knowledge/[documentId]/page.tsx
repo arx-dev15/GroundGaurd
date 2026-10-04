@@ -26,6 +26,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PDFSourceViewer } from '@/components/source/pdf-source-viewer';
 import { useDocument, useDeleteDocument } from '@/lib/documents-query';
 import type { DocumentStatus } from '@groundguard/types';
 
@@ -284,66 +285,15 @@ function DocumentDetailContent() {
             </div>
           )}
 
-          {/* Source Document Workspace */}
-          <div className="rounded-lg border border-border/70 bg-card/30 overflow-hidden">
-            <div className="p-4 border-b border-border/60 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <BookOpen className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-xs font-semibold text-foreground">Document Source Workspace</h2>
-              </div>
-
-              {pageParam ? (
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
-                  Citation target: page {pageParam}
-                </span>
-              ) : (
-                <span className="text-[11px] font-mono text-muted-foreground">
-                  Ingestion Record
-                </span>
-              )}
-            </div>
-
-            {/* Source Content Surface */}
-            <div className="p-6 text-center space-y-4">
-              <div className="h-10 w-10 mx-auto rounded-full bg-muted/60 text-muted-foreground flex items-center justify-center border border-border/60">
-                <FileText className="h-5 w-5" />
-              </div>
-
-              {pageParam ? (
-                <div className="space-y-1.5 max-w-md mx-auto">
-                  <h3 className="text-xs font-semibold text-foreground">
-                    Citation Anchor Preserved (Page {pageParam})
-                  </h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    This document URL preserves citation context (?page={pageParam}) for conversational evidence links.
-                    Source-page text rendering is not yet exposed by the current M3 API.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-1.5 max-w-md mx-auto">
-                  <h3 className="text-xs font-semibold text-foreground">
-                    Passage Index Active
-                  </h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    This document has {document.chunksCount} indexed passages available for
-                    project-scoped retrieval. Direct source-page text rendering is not currently exposed by the M3 API.
-                  </p>
-                </div>
-              )}
-
-              <div className="p-3 rounded-md bg-muted/30 border border-border/50 text-[11px] font-mono text-muted-foreground max-w-sm mx-auto text-left space-y-1">
-                <div className="flex justify-between">
-                  <span>Passage Store:</span>
-                  <span className="text-foreground">
-                    {document.chunksCount > 0 ? `${document.chunksCount} passages` : 'Pending'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Citation Support:</span>
-                  <span className="text-foreground">Preserves ?page=X parameter</span>
-                </div>
-              </div>
-            </div>
+          {/* Real Embedded PDF Source Viewer */}
+          <div className="h-[640px] rounded-xl overflow-hidden shadow-xs">
+            <PDFSourceViewer
+              documentId={document.id}
+              documentFilename={document.filename}
+              pageNumber={pageParam ? parseInt(pageParam, 10) : undefined}
+              showExcerpt={false}
+              className="h-full"
+            />
           </div>
         </div>
 

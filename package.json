@@ -10,6 +10,7 @@
   "scripts": {
     "dev:api": "npm --prefix apps/api run dev",
     "dev:web": "npm --prefix apps/web run dev",
+    "dev:3d-model": "npm --prefix 3d-model run dev",
     "dev:ai": "cd services/ai && python -m uvicorn src.main:app --host 127.0.0.1 --port 8000",
     "dev:ml": "cd services/ml && python -m uvicorn src.main:app --host 127.0.0.1 --port 8001",
     "build:web": "npm --prefix apps/web run build",

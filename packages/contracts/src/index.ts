@@ -234,6 +234,38 @@ export interface ClaimListResponse {
   claims: Claim[];
 }
 
+export interface ProjectClaimItem extends Claim {
+  generationId?: string;
+  conversationId?: string;
+  conversationTitle?: string;
+  query?: string;
+  createdAt?: string;
+}
+
+export interface ProjectClaimsResponse {
+  claims: ProjectClaimItem[];
+}
+
+export interface GroundedGenerationItem {
+  generationId: string;
+  conversationId: string | null;
+  conversationTitle: string;
+  query: string;
+  createdAt: string;
+  claimCounts: {
+    total: number;
+    verified: number;
+    flagged: number;
+    recovered: number;
+    needsReview: number;
+  };
+  sources: string[];
+}
+
+export interface ProjectGroundedGenerationsResponse {
+  generations: GroundedGenerationItem[];
+}
+
 export interface EvidenceListResponse {
   evidence: Evidence[];
 }

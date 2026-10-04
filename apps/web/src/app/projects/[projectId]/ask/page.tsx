@@ -125,6 +125,7 @@ export default function AskPage() {
   const [selectedClaim, setSelectedClaim] = React.useState<Claim | null>(null);
   const [selectedEvidence, setSelectedEvidence] = React.useState<EvidenceItem | null>(null);
   const [inspectorOpen, setInspectorOpen] = React.useState(false);
+  const [inspectorInitialTab, setInspectorInitialTab] = React.useState<string>('claim');
 
   // Global Evidence Lens reading mode
   const [isEvidenceLens, setIsEvidenceLens] = React.useState(false);
@@ -363,18 +364,55 @@ export default function AskPage() {
     router.push(`/projects/${projectId}/ask`);
   };
 
-  // Select a claim to inspect
-  const handleSelectClaim = (claim: Claim) => {
+  // Select a claim to inspect (synchronizes claim ↔ evidence ↔ PDF)
+  const handleSelectClaim = (claim: Claim, tab = 'claim') => {
     setSelectedClaim(claim);
-    setSelectedEvidence(null);
+    if (claim.evidence && claim.evidence.length > 0) {
+      setSelectedEvidence(claim.evidence[0]);
+    }
+    setInspectorInitialTab(tab);
     setInspectorOpen(true);
   };
 
-  // Select an evidence chunk to inspect
+  // Select an evidence chunk/citation to inspect (opens PDF directly beside answer)
   const handleSelectEvidence = (ev: EvidenceItem) => {
     setSelectedEvidence(ev);
+    const matchingClaim = Object.values(generationClaimsMap).flat().find((c) =>
+      (c.evidence || []).some((e) => (e.chunkId || e.text) === (ev.chunkId || ev.text))
+    );
+    if (matchingClaim) {
+      setSelectedClaim(matchingClaim);
+    }
+    setInspectorInitialTab('source');
     setInspectorOpen(true);
   };
+
+  // Keyboard navigation: Up/Down arrow through claims, Esc to close inspector
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && inspectorOpen) {
+        setInspectorOpen(false);
+        return;
+      }
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && selectedClaim) {
+        const activeGenClaims = Object.values(generationClaimsMap).find((claims) =>
+          claims.some((c) => c.claimId === selectedClaim.claimId)
+        );
+        if (activeGenClaims && activeGenClaims.length > 1) {
+          const currIdx = activeGenClaims.findIndex((c) => c.claimId === selectedClaim.claimId);
+          if (e.key === 'ArrowDown' && currIdx < activeGenClaims.length - 1) {
+            e.preventDefault();
+            handleSelectClaim(activeGenClaims[currIdx + 1]);
+          } else if (e.key === 'ArrowUp' && currIdx > 0) {
+            e.preventDefault();
+            handleSelectClaim(activeGenClaims[currIdx - 1]);
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [inspectorOpen, selectedClaim, generationClaimsMap]);
 
   const cleanMessages = React.useMemo(() => {
     return messages.filter((m) => {
@@ -559,13 +597,8 @@ export default function AskPage() {
             {/* Transcript Messages Scroll Area: Centered Reading Column */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin">
               <div className="max-w-[760px] mx-auto w-full space-y-6">
-                {cleanMessages.length > 0 && (
-                  <div className="flex justify-center pb-2">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 bg-muted/30 border border-border/30 px-2.5 py-0.5 rounded-full select-none">
-                      Continue where you left off
-                    </span>
-                  </div>
-                )}
+
+
 
                 {cleanMessages.map((msg, index) => {
                   const isUser = msg.role === 'user';
@@ -739,6 +772,7 @@ export default function AskPage() {
         claim={selectedClaim}
         selectedEvidence={selectedEvidence}
         projectId={projectId}
+        initialTab={inspectorInitialTab}
         generationId={
           selectedClaim
             ? Object.entries(generationClaimsMap).find(([_, claims]) =>

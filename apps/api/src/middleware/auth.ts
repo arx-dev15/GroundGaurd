@@ -68,11 +68,6 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
     token = authHeader.substring(7).trim();
-  } else if ((request.query as Record<string, unknown>)?.token) {
-    const queryToken = (request.query as Record<string, unknown>).token;
-    if (typeof queryToken === 'string') {
-      token = queryToken.trim();
-    }
   }
 
   if (!token) {

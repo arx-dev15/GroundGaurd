@@ -4,6 +4,8 @@ import type {
   Message,
   Claim,
   RecoveryAttempt,
+  ProjectClaimItem,
+  GroundedGenerationItem,
 } from '@groundguard/types';
 
 export interface SendMessageResponse {
@@ -86,4 +88,20 @@ export async function retryClaim(claimId: string): Promise<{ claim: Claim; recov
   return apiClient.post<{ claim: Claim; recoveryAttempts: RecoveryAttempt[] }>(
     `/v1/claims/${claimId}/retry`
   );
+}
+
+export type { ProjectClaimItem, GroundedGenerationItem } from '@groundguard/types';
+
+export async function getProjectClaims(projectId: string): Promise<ProjectClaimItem[]> {
+  const res = await apiClient.get<{ claims: ProjectClaimItem[] }>(
+    `/v1/projects/${projectId}/claims`
+  );
+  return res.claims || [];
+}
+
+export async function getProjectGroundedGenerations(projectId: string): Promise<GroundedGenerationItem[]> {
+  const res = await apiClient.get<{ generations: GroundedGenerationItem[] }>(
+    `/v1/projects/${projectId}/grounded-generations`
+  );
+  return res.generations || [];
 }

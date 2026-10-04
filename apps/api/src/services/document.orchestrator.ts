@@ -67,8 +67,20 @@ export class DocumentOrchestrator {
         data.requestId
       );
 
-      if (ingestRes.status === 'failed') {
-        const sanitizedMsg = ingestRes.errorMessage || 'Document processing failed';
+      const isIngestSuccessful =
+        (ingestRes.status === 'completed' || ingestRes.status === 'ready') &&
+        Boolean(ingestRes.indexStatus?.qdrant) &&
+        Boolean(ingestRes.indexStatus?.tantivy) &&
+        (ingestRes.chunksCreated > 0 || (ingestRes.chunks && ingestRes.chunks.length > 0));
+
+      if (!isIngestSuccessful) {
+        const sanitizedMsg = ingestRes.errorMessage || 'Document processing failed or retrieval artifacts were incomplete';
+        // Compensating cleanup if partial indexing occurred in derived stores
+        try {
+          await aiClient.deleteDocument(tempDoc.id, data.projectId);
+        } catch (_) {
+          // Compensating cleanup attempt completed
+        }
         const failedDoc = await documentRepository.updateStatus(tempDoc.id, 'failed', 0, sanitizedMsg);
         return toPublicDocument(failedDoc!);
       }
@@ -80,7 +92,7 @@ export class DocumentOrchestrator {
         await chunkRepository.saveChunks(tempDoc.id, ingestRes.chunks);
       }
 
-      // 4. M3 performs the final status transition to 'ready'
+      // 4. M3 performs the final status transition to 'ready' only after all required retrieval artifacts exist
       const readyDoc = await documentRepository.updateStatus(
         tempDoc.id,
         'ready',

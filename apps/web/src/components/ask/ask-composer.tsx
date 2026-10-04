@@ -94,8 +94,10 @@ export function AskComposer({
           rows={isHero ? 3 : 1}
           placeholder={
             placeholder ||
-            (disabled
+            (readyCount === 0
               ? 'Add knowledge to start asking grounded questions.'
+              : disabled
+              ? 'GroundGuard is temporarily unavailable...'
               : isHero
               ? 'Ask a question about this project...'
               : 'Ask a follow-up question...')
@@ -137,9 +139,10 @@ export function AskComposer({
             </PopoverTrigger>
             {readyCount > 0 && (
               <PopoverContent
-                side="top"
+                side={isHero ? 'bottom' : 'top'}
                 align="start"
-                className="w-72 p-3 text-xs bg-popover/95 backdrop-blur-sm border border-border shadow-md space-y-2 z-50 text-popover-foreground"
+                sideOffset={6}
+                className="w-64 p-2.5 text-xs bg-popover/95 backdrop-blur-sm border border-border shadow-md space-y-1.5 z-50 text-popover-foreground"
               >
                 <div className="flex items-center gap-1.5 font-semibold text-foreground border-b border-border/50 pb-1.5">
                   <Database className="h-3.5 w-3.5 text-primary" />

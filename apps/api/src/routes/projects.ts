@@ -130,4 +130,115 @@ export async function projectRoutes(fastify: FastifyInstance) {
       message: 'Project deleted successfully',
     });
   });
+
+  // GET /v1/projects/:projectId/claims
+  fastify.get('/v1/projects/:projectId/claims', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const userId = request.user!.id;
+
+    const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
+    if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
+
+    const { generationRepository } = await import('../repositories/generation.repository');
+    const rawClaims = await generationRepository.listClaimsByProjectId(projectId);
+
+    const enrichedClaims = await Promise.all(
+      rawClaims.map(async (c) => {
+        const ev = await generationRepository.listEvidenceByClaimId(c.id);
+        const metaList = ev.map((e) => {
+          const meta = typeof e.metadata === 'string' ? JSON.parse(e.metadata) : (e.metadata ?? {});
+          return {
+            evidenceId: e.id,
+            chunkId: e.chunkId,
+            documentId: e.documentId ?? undefined,
+            text: e.text,
+            retrievalScore: e.retrievalScore ?? undefined,
+            metadata: meta,
+            pageNumber: (meta?.pageNumber as number) ?? undefined,
+            section: (meta?.section as string) ?? undefined,
+            heading: (meta?.heading as string) ?? undefined,
+          };
+        });
+
+        const claimObj: Record<string, unknown> = {
+          claimId: c.id,
+          externalClaimId: c.externalClaimId ?? undefined,
+          text: c.text,
+          status: c.status,
+          ordinal: c.claimIndex,
+          generationId: c.generationId,
+          conversationId: c.conversationId ?? undefined,
+          conversationTitle: c.conversationTitle ?? 'Untitled conversation',
+          query: c.query,
+          createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : undefined,
+          evidence: metaList,
+        };
+
+        if (c.label) {
+          claimObj.verification = {
+            label: c.label,
+            scores: {
+              entailment: c.entailmentScore ?? 0,
+              contradiction: c.contradictionScore ?? 0,
+              neutral: c.neutralScore ?? 0,
+            },
+            groundingScore: c.groundingScore ?? 0,
+            modelVersion: c.modelVersion ?? '',
+          };
+        }
+
+        return claimObj;
+      })
+    );
+
+    return reply.status(200).send({ claims: enrichedClaims });
+  });
+
+  // GET /v1/projects/:projectId/grounded-generations
+  fastify.get('/v1/projects/:projectId/grounded-generations', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const userId = request.user!.id;
+
+    const project = await projectRepository.findProjectByIdAndUserId(projectId, userId);
+    if (!project) throw new NotFoundError('Project not found');
+    assertProjectAuthorized(request, projectId);
+
+    const { generationRepository } = await import('../repositories/generation.repository');
+    const groundedGens = await generationRepository.listGroundedGenerationsByProjectId(projectId);
+
+    // Collect source document filenames for each generation
+    const results = await Promise.all(
+      groundedGens.map(async (g) => {
+        const claims = await generationRepository.listClaimsByGenerationId(g.generationId);
+        const sourceNames = new Set<string>();
+        for (const c of claims) {
+          const evList = await generationRepository.listEvidenceByClaimId(c.id);
+          for (const ev of evList) {
+            const meta = typeof ev.metadata === 'string' ? JSON.parse(ev.metadata) : (ev.metadata ?? {});
+            const name = (meta?.filename as string) || (meta?.documentFilename as string) || ev.documentId;
+            if (name) sourceNames.add(name);
+          }
+        }
+
+        return {
+          generationId: g.generationId,
+          conversationId: g.conversationId,
+          conversationTitle: g.conversationTitle,
+          query: g.query,
+          createdAt: new Date(g.createdAt).toISOString(),
+          claimCounts: {
+            total: g.totalClaims,
+            verified: g.verifiedClaims,
+            flagged: g.flaggedClaims,
+            recovered: g.recoveredClaims,
+            needsReview: g.needsReviewClaims,
+          },
+          sources: Array.from(sourceNames),
+        };
+      })
+    );
+
+    return reply.status(200).send({ generations: results });
+  });
 }

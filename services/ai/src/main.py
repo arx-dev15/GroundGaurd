@@ -3,6 +3,7 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 import sys
+import re
 import uuid
 import logging
 from dotenv import load_dotenv
@@ -26,6 +27,18 @@ from src.pipeline.intent_classifier import (
     generate_conversational_response,
     generate_product_help_response,
     generate_unsupported_query_response,
+)
+from src.pipeline.conversational import (
+    generate_social_response,
+    generate_product_help_response as generate_product_help_llm,
+    generate_abstention_response as generate_abstention_llm,
+    generate_clarification_response as generate_clarification_llm,
+)
+from src.pipeline.query_understanding import (
+    understand_query,
+    QueryPlan,
+    build_telemetry,
+    _make_fallback_plan,
 )
 from src.pipeline.qdrant_store import qdrant_store
 from src.pipeline.tantivy_store import tantivy_store
@@ -342,26 +355,50 @@ async def sanity_search(projectId: str, query: str, topK: int = 5):
 @app.post("/generate", response_model=GenerateResult)
 async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Header(None)):
     """
-    Canonical Phase 5 Grounded Generation Pipeline:
-    1. Reuses canonical Phase 4 retrieve_evidence internally (zero self-HTTP)
-    2. Evaluates Deterministic Evidence Sufficiency Gate
-       - If insufficient / empty: abstains cleanly without calling LLM
-    3. If sufficient: builds bounded evidence context and safe prompt
-    4. Invokes Real LLM runtime (fails explicitly if unavailable)
-    5. Returns grounded answer, evidence provenance, and sufficiency metadata.
+    Canonical Phase 5 Grounded Generation Pipeline with Query Intelligence:
+    0a. Conversational/product-help fast path (no retrieval)
+    0b. Semantic QueryPlan via understand_query (1 Gemini call max; safe fallback on failure)
+    1.  QueryPlan-guided retrieval:
+        - focused: single retrieve_evidence call on standalone_query
+        - broad/comparative: multi-query retrieve_evidence, merge, deduplicate by chunkId
+    2.  Sufficiency gate (threshold=0.35, unchanged)
+    3.  On insufficient + plausibly-project-related: ONE semantic fallback expansion
+    4.  If clarification needed: return clarification question
+    5.  If still insufficient: abstain
+    6.  LLM grounded generation with claim extraction
+    M2 never calls M1. Planner failure MUST NOT cause 500.
     """
     req_id = payload.requestId or x_request_id or f"req_{uuid.uuid4().hex[:12]}"
     gen_id = payload.generationId or f"gen_{uuid.uuid4().hex[:12]}"
     top_k = (payload.options or {}).get("topK", 5)
 
-    logger.info(f"[/generate start] project_id={payload.projectId} req_id={req_id} gen_id={gen_id} query='{payload.query}'")
+    logger.info(
+        "[/generate start] project_id=%s req_id=%s gen_id=%s query='%s'",
+        payload.projectId, req_id, gen_id, payload.query
+    )
 
-    # Step 0: Conversational & Intent Routing Layer
+    # Step 0a: Legacy conversational/product-help fast path (fast deterministic routing -> natural LLM generation)
     intent, sub_intent = classify_intent(payload.query)
-    logger.info(f"[/generate intent] project_id={payload.projectId} req_id={req_id} intent={intent} sub_intent={sub_intent}")
+    logger.info(
+        "[/generate intent] project_id=%s req_id=%s intent=%s sub_intent=%s",
+        payload.projectId, req_id, intent, sub_intent
+    )
+
+    try:
+        proj_context = get_project_knowledge_summary(payload.projectId)
+    except Exception:
+        proj_context = {}
+    project_name = proj_context.get("projectName") if isinstance(proj_context, dict) else None
 
     if intent == "conversational":
-        reply = generate_conversational_response(sub_intent)
+        logger.info("[/generate responseMode] conversational_llm")
+        reply = await generate_social_response(
+            user_message=payload.query,
+            sub_intent=sub_intent or "greeting",
+            project_name=project_name,
+            recent_context=payload.conversationContext,
+            llm_runtime=llm_runtime,
+        )
         return GenerateResult(
             requestId=req_id,
             generationId=gen_id,
@@ -370,17 +407,18 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             evidence=[],
             sufficiency=None,
             modelVersion="groundguard-conversational",
-            metadata={
-                "intent": "conversational",
-                "subIntent": sub_intent,
-                "abstention": False,
-            },
+            metadata={"intent": "conversational", "subIntent": sub_intent, "abstention": False},
             claims=[]
         )
 
     if intent == "product_help":
-        doc_summary = get_project_knowledge_summary(payload.projectId)
-        reply = generate_product_help_response(doc_summary)
+        logger.info("[/generate responseMode] conversational_llm")
+        reply = await generate_product_help_llm(
+            user_message=payload.query,
+            project_name=project_name,
+            recent_context=payload.conversationContext,
+            llm_runtime=llm_runtime,
+        )
         return GenerateResult(
             requestId=req_id,
             generationId=gen_id,
@@ -389,52 +427,230 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             evidence=[],
             sufficiency=None,
             modelVersion="groundguard-product-help",
-            metadata={
-                "intent": "product_help",
-                "readyDocumentCount": doc_summary.get("readyCount", 0),
-                "abstention": False,
-            },
+            metadata={"intent": "product_help", "abstention": False},
             claims=[]
         )
 
-    # Step 1: Internal Phase 4 Retrieval Reuse (direct Python function call)
-    retrieval_query = payload.query
-    if payload.conversationContext and len(payload.conversationContext) > 0:
-        anaphoric_triggers = [
-            "the second", "the first", "which one", "its", "it", "they",
-            "this one", "that one", "the former", "the latter", "both", "either"
-        ]
-        lower_q = payload.query.lower()
-        if any(trig in lower_q for trig in anaphoric_triggers):
-            recent_turns = [t.get("content", "") for t in payload.conversationContext[-2:]]
-            recent_context_str = " ".join(recent_turns)
-            import re
-            tags = re.findall(r'\b(?:[A-Z]{1,4}-[0-9]{1,4}[A-Z]?|[A-Z]{2,}\d+)\b', recent_context_str)
-            if tags:
-                retrieval_query = f"{payload.query} {' '.join(set(tags))}"
-            elif len(recent_turns) > 0:
-                retrieval_query = f"{payload.query} {recent_turns[0][:100]}"
+    # Step 0b: Semantic Query Understanding (1 Gemini call; safe fallback on any failure)
+    try:
+        plan = await understand_query(
+            query=payload.query,
+            conversation_context=payload.conversationContext,
+            project_context=proj_context,
+        )
+    except Exception as plan_err:
+        logger.warning("[/generate planner error] %s — using fallback plan", plan_err)
+        plan = _make_fallback_plan(payload.query)
+
+    logger.info(
+        "[/generate plan] task=%s mode=%s queries=%d standalone='%s'",
+        plan.task, plan.retrieval_mode, len(plan.search_queries), plan.standalone_query[:80]
+    )
+
+    # If planner signals clarification needed, return naturally phrased clarification
+    if plan.needs_clarification:
+        logger.info("[/generate responseMode] clarification")
+        clarification_msg = await generate_clarification_llm(
+            user_query=payload.query,
+            structured_clarification=plan.clarification_question,
+            llm_runtime=llm_runtime,
+        )
+        return GenerateResult(
+            requestId=req_id,
+            generationId=gen_id,
+            status="completed",
+            answer=clarification_msg,
+            evidence=[],
+            sufficiency=None,
+            modelVersion="groundguard-clarification",
+            metadata={"intent": "clarification", "abstention": False, "task": plan.task},
+            claims=[]
+        )
+
+    # For social/product_help tasks from planner (for less-obvious phrasings the
+    # deterministic classifier missed, but planner recognized):
+    if plan.task == "social":
+        logger.info("[/generate responseMode] conversational_llm")
+        reply = await generate_social_response(
+            user_message=payload.query,
+            sub_intent="greeting",
+            project_name=project_name,
+            recent_context=payload.conversationContext,
+            llm_runtime=llm_runtime,
+        )
+        return GenerateResult(
+            requestId=req_id, generationId=gen_id, status="completed",
+            answer=reply, evidence=[], sufficiency=None,
+            modelVersion="groundguard-conversational",
+            metadata={"intent": "social", "abstention": False}, claims=[]
+        )
+    if plan.task == "product_help":
+        logger.info("[/generate responseMode] conversational_llm")
+        reply = await generate_product_help_llm(
+            user_message=payload.query,
+            project_name=project_name,
+            recent_context=payload.conversationContext,
+            llm_runtime=llm_runtime,
+        )
+        return GenerateResult(
+            requestId=req_id, generationId=gen_id, status="completed",
+            answer=reply, evidence=[], sufficiency=None,
+            modelVersion="groundguard-product-help",
+            metadata={"intent": "product_help", "abstention": False}, claims=[]
+        )
+
+    # Step 1: QueryPlan-guided retrieval
+    # For focused mode: single retrieve_evidence call.
+    # For broad/comparative mode: multi-query retrieve_evidence calls, merge and deduplicate.
+    search_queries = plan.search_queries if plan.search_queries else [plan.standalone_query or payload.query]
+    retrieval_mode = plan.retrieval_mode
+
+    def _merge_evidence(results_list):
+        """
+        Merge multiple RetrieveResponse.results lists.
+        Deduplicate by chunkId; first occurrence (highest-ranked) wins.
+        Returns merged list of EvidenceItem.
+        """
+        seen = set()
+        merged = []
+        for items in results_list:
+            for ev in items:
+                cid = ev.chunkId
+                if cid not in seen:
+                    seen.add(cid)
+                    merged.append(ev)
+        return merged
 
     try:
-        retrieval_res = retrieve_evidence(
-            project_id=payload.projectId,
-            query=retrieval_query,
-            top_k=top_k,
-            request_id=req_id
-        )
+        if retrieval_mode in ("broad", "comparative") and len(search_queries) > 1:
+            # Multi-query broad retrieval
+            all_results = []
+            last_sufficiency = None
+            for sq in search_queries:
+                try:
+                    sq_res = retrieve_evidence(
+                        project_id=payload.projectId,
+                        query=sq,
+                        top_k=top_k,
+                        request_id=req_id
+                    )
+                    all_results.append(sq_res.results)
+                    last_sufficiency = sq_res.sufficiency
+                except Exception as sq_err:
+                    logger.warning("[/generate broad sq error] sq='%s': %s", sq[:60], sq_err)
+
+            merged_items = _merge_evidence(all_results)
+            # For sufficiency in broad mode: sufficient if any merged items have a passing rerankScore
+            # OR if last single-query sufficiency was sufficient
+            if merged_items:
+                top_score = max(
+                    (ev.rerankScore or ev.score or 0.0) for ev in merged_items
+                )
+                from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals, SUFFICIENCY_THRESHOLD
+                broad_sufficient = top_score >= SUFFICIENCY_THRESHOLD
+                broad_suf = EvidenceSufficiency(
+                    sufficient=broad_sufficient,
+                    reason="Broad multi-query evidence sufficient" if broad_sufficient else "Broad multi-query evidence insufficient",
+                    score=top_score,
+                    signals=EvidenceSufficiencySignals(
+                        resultCount=len(merged_items),
+                        topRerankScore=top_score,
+                        identifierMatched=False,
+                        sourceCoverage=list({ev.documentId for ev in merged_items if ev.documentId}),
+                    )
+                )
+                retrieval_res = type(
+                    "_BroadResult", (),
+                    {"results": merged_items, "sufficiency": broad_suf}
+                )()
+            elif last_sufficiency:
+                retrieval_res = type(
+                    "_BroadResult", (),
+                    {"results": [], "sufficiency": last_sufficiency}
+                )()
+            else:
+                from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals
+                retrieval_res = type(
+                    "_BroadResult", (),
+                    {"results": [], "sufficiency": EvidenceSufficiency(
+                        sufficient=False, reason="No evidence retrieved", score=0.0,
+                        signals=EvidenceSufficiencySignals(
+                            resultCount=0, topRerankScore=0.0,
+                            identifierMatched=False, sourceCoverage=[]
+                        )
+                    )}
+                )()
+        else:
+            # Single-query focused retrieval: prioritize plan.search_queries[0] (clean factual terms)
+            # over raw standalone_query (which may contain transform/style instructions)
+            focused_q = (plan.search_queries[0] if plan.search_queries else None) or plan.standalone_query or payload.query
+            retrieval_res = retrieve_evidence(
+                project_id=payload.projectId,
+                query=focused_q,
+                top_k=top_k,
+                request_id=req_id
+            )
     except Exception as ret_err:
-        logger.error(f"[/generate retrieval error] project_id={payload.projectId} req_id={req_id}: {ret_err}")
+        logger.error(
+            "[/generate retrieval error] project_id=%s req_id=%s: %s",
+            payload.projectId, req_id, ret_err
+        )
         raise HTTPException(
             status_code=503,
             detail=f"Retrieval infrastructure failure during generation: {ret_err}"
         )
 
-    # Step 2: Deterministic Evidence Sufficiency Gate
+    # Step 2: Deterministic Evidence Sufficiency Gate (threshold=0.35 unchanged)
+    first_pass_sufficient = bool(
+        retrieval_res.sufficiency
+        and retrieval_res.sufficiency.sufficient
+        and retrieval_res.results
+    )
+    fallback_used = False
+
+    # Step 3: ONE bounded semantic fallback if insufficient and query is plausibly project-related
+    if not first_pass_sufficient and intent != "unsupported_query":
+        first_q = (plan.search_queries[0] if plan.search_queries else None) or plan.standalone_query or payload.query
+        fallback_q = plan.standalone_query if (plan.standalone_query and plan.standalone_query != first_q) else payload.query
+        if fallback_q and fallback_q != first_q:
+            logger.info(
+                "[/generate fallback] First pass insufficient, trying semantic fallback. fallback_q='%s'",
+                fallback_q[:80]
+            )
+            try:
+                fallback_res = retrieve_evidence(
+                    project_id=payload.projectId,
+                    query=fallback_q,
+                    top_k=top_k,
+                    request_id=req_id
+                )
+                if (
+                    fallback_res.sufficiency
+                    and fallback_res.sufficiency.sufficient
+                    and fallback_res.results
+                ):
+                    retrieval_res = fallback_res
+                    fallback_used = True
+                    logger.info("[/generate fallback] Fallback succeeded")
+            except Exception as fb_err:
+                logger.warning("[/generate fallback error] %s", fb_err)
+
     if not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results:
         reason = retrieval_res.sufficiency.reason if retrieval_res.sufficiency else "No evidence retrieved"
-        logger.info(f"[/generate abstained] project_id={payload.projectId} req_id={req_id} reason='{reason}'")
+        logger.info(
+            "[/generate abstained] project_id=%s req_id=%s reason='%s'",
+            payload.projectId, req_id, reason
+        )
+        logger.info("[/generate responseMode] grounded_abstention")
         doc_summary = get_project_knowledge_summary(payload.projectId)
-        unsupported_msg = generate_unsupported_query_response(payload.query, doc_summary)
+        doc_titles = doc_summary.get("filenames", []) if isinstance(doc_summary, dict) else []
+        unsupported_msg = await generate_abstention_llm(
+            query=payload.query,
+            insufficiency_reason=reason,
+            project_name=project_name,
+            doc_titles=doc_titles,
+            llm_runtime=llm_runtime,
+        )
         return GenerateResult(
             requestId=req_id,
             generationId=gen_id,
@@ -448,20 +664,25 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "reason": reason,
                 "candidateCount": len(retrieval_res.results),
                 "intent": "grounded_query_insufficient",
+                "task": plan.task,
+                "fallbackUsed": fallback_used,
             },
             claims=[]
         )
 
     # Step 3: Context Building & Prompt Construction
+    # Preserve BOTH: original instruction (payload.query) and resolved retrieval subject (plan.standalone_query)
     context_text, included_items, omitted_items = context_builder.build_context(retrieval_res.results)
     user_prompt = build_grounded_user_prompt(
-        payload.query,
-        context_text,
-        conversation_context=payload.conversationContext
+        query=payload.query,
+        evidence_context=context_text,
+        conversation_context=payload.conversationContext,
+        standalone_query=plan.standalone_query,
     )
 
     # Step 4: Real LLM Inference
     try:
+        logger.info("[/generate responseMode] grounded_generation")
         llm_res = await llm_runtime.generate_answer(user_prompt)
         logger.info(
             f"[/generate completed] project_id={payload.projectId} req_id={req_id} "
@@ -501,7 +722,10 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "omittedCount": len(omitted_items),
                 "llmLatencyMs": llm_res.latencyMs,
                 "provider": llm_res.provider,
-                "claimExtraction": claim_extraction_meta
+                "claimExtraction": claim_extraction_meta,
+                "task": plan.task,
+                "retrievalMode": plan.retrieval_mode,
+                "fallbackUsed": fallback_used,
             },
             claims=claims
         )

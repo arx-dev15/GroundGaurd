@@ -66,6 +66,11 @@ export class RecoveryOrchestrator {
       return { recovered: false, attempts: 0, finalClaim: claim };
     }
 
+    if (startAttempt > MAX_RECOVERY_ATTEMPTS) {
+      console.warn(`[recovery] Claim ${claim.id} startAttempt ${startAttempt} exceeds MAX_RECOVERY_ATTEMPTS (${MAX_RECOVERY_ATTEMPTS}).`);
+      return { recovered: false, attempts: 0, finalClaim: claim };
+    }
+
     // Failure diagnosis (Section 4)
     const diagnosis = this.diagnoseFailure(claim, existingEvidence);
     console.log(`[recovery] Diagnosed claim ${claim.id}: ${diagnosis}`);
@@ -108,18 +113,20 @@ export class RecoveryOrchestrator {
         );
       } catch (err: any) {
         console.error(`[recovery] M2 /recover call failed on attempt ${attempt}:`, err?.message || err);
-        // Persist audit record of failed attempt
-        await generationRepository.createRecoveryAttempt({
-          claimId: claim.id,
-          attemptNumber: attempt,
-          failureReason: diagnosis,
-          action: 'abstain',
-          originalText: claim.text,
-          candidateText: null,
-          verificationLabel: null,
-          modelVersion: null,
-          recoveryModelVersion: 'm2-error',
-        }).catch(() => {});
+        // Persist audit record of failed attempt only within bounds
+        if (attempt <= MAX_RECOVERY_ATTEMPTS) {
+          await generationRepository.createRecoveryAttempt({
+            claimId: claim.id,
+            attemptNumber: attempt,
+            failureReason: diagnosis,
+            action: 'abstain',
+            originalText: claim.text,
+            candidateText: null,
+            verificationLabel: null,
+            modelVersion: null,
+            recoveryModelVersion: 'm2-error',
+          }).catch(() => {});
+        }
         break; // Stop immediately on retrieval/AI infrastructure failure
       }
 
@@ -134,7 +141,7 @@ export class RecoveryOrchestrator {
           failureReason: diagnosis,
           action: 'abstain',
           originalText: claim.text,
-          candidateText: candidateClaim || claim.text,
+          candidateText: candidateClaim || null,
           verificationLabel: null,
           modelVersion: null,
           recoveryModelVersion: recoveryModelVersion || 'gemini',

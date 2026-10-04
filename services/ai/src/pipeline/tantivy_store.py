@@ -1,12 +1,22 @@
 import os
 import uuid
 import logging
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 import tantivy
 
 logger = logging.getLogger("m2-tantivy-store")
 
-TANTIVY_PATH = os.getenv("TANTIVY_PATH", "uploads/indexes/tantivy").strip()
+def _resolve_canonical_path(path_str: str) -> str:
+    cleaned = (path_str or "uploads/indexes/tantivy").strip()
+    if cleaned.lower() == ":memory:":
+        return ":memory:"
+    if os.path.isabs(cleaned):
+        return cleaned
+    repo_root = Path(__file__).resolve().parents[4]
+    return str((repo_root / cleaned).resolve())
+
+TANTIVY_PATH = _resolve_canonical_path(os.getenv("TANTIVY_PATH", "uploads/indexes/tantivy"))
 _MEMORY_MODE = TANTIVY_PATH.lower() == ":memory:"
 _ENV = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
 
@@ -35,12 +45,12 @@ class TantivyStore:
     Invariants:
     - Each project gets its own sub-directory: TANTIVY_PATH/{project_id}/
     - Isolated schema & indexes: queries never touch indexes of other projects.
-    - Safe default fallback to "uploads/indexes/tantivy".
+    - Safe default fallback to canonical "uploads/indexes/tantivy".
     - Explicit in-memory mode supported via TANTIVY_PATH=:memory: for unit tests.
     """
 
     def __init__(self, base_path: str = TANTIVY_PATH):
-        self.base_path = (base_path or "uploads/indexes/tantivy").strip()
+        self.base_path = _resolve_canonical_path(base_path)
         self.schema = _build_schema()
         self._indexes: Dict[str, tantivy.Index] = {}
 

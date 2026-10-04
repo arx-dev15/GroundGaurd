@@ -236,6 +236,11 @@ export async function generationRoutes(fastify: FastifyInstance) {
     const existingEvidence = await generationRepository.listEvidenceByClaimId(claim.id);
     const existingAttempts = await generationRepository.listRecoveryAttemptsByClaimId(claim.id);
 
+    const maxRecoveryAttempts = generation.maxRecoveryAttempts || 2;
+    if (existingAttempts.length >= maxRecoveryAttempts) {
+      throw new BadRequestError(`Recovery attempt limit reached (${maxRecoveryAttempts} attempts maximum).`);
+    }
+
     const result = await recoveryOrchestrator.recoverClaim({
       projectId: generation.projectId,
       generationId: generation.id,
