@@ -279,7 +279,10 @@ export function AskInspector({
           {/* ============================================================ */}
           {/* Tab 1: Contextual PDF Source Viewer with Evidence Highlighting*/}
           {/* ============================================================ */}
-          <TabsContent value="source" className="flex-1 overflow-hidden p-2 m-0 flex flex-col">
+          <TabsContent
+            value="source"
+            className="flex-1 min-h-0 overflow-hidden p-2 m-0 data-[state=active]:flex data-[state=active]:flex-col data-[state=inactive]:!hidden"
+          >
             <PDFSourceViewer
               documentId={currentEvidence?.documentId}
               documentFilename={
@@ -304,7 +307,10 @@ export function AskInspector({
           {/* ============================================================ */}
           {/* Tab 2: Verification (Top-aligned Claim ↔ Evidence Overview)   */}
           {/* ============================================================ */}
-          <TabsContent value="claim" className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 m-0 scrollbar-thin">
+          <TabsContent
+            value="claim"
+            className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 m-0 scrollbar-thin data-[state=inactive]:!hidden"
+          >
             <SelectedClaimHero
               claim={claim}
               selectedEvidence={currentEvidence}
@@ -322,7 +328,10 @@ export function AskInspector({
           {/* ============================================================ */}
           {/* Tab 3: Recovery Provenance & Playback                         */}
           {/* ============================================================ */}
-          <TabsContent value="recovery" className="flex-1 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin">
+          <TabsContent
+            value="recovery"
+            className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin data-[state=inactive]:!hidden"
+          >
             {/* Header with Title and Budget Indicator */}
             <div className="flex items-center justify-between border-b border-border/40 pb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
@@ -499,7 +508,10 @@ export function AskInspector({
           {/* ============================================================ */}
           {/* Tab 4: Diagnostics (Real Persisted Technical Telemetry)      */}
           {/* ============================================================ */}
-          <TabsContent value="advanced" className="flex-1 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin">
+          <TabsContent
+            value="advanced"
+            className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin data-[state=inactive]:!hidden"
+          >
             <div className="flex items-center justify-between border-b border-border/40 pb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                 <Cpu className="h-3.5 w-3.5 text-primary" />
