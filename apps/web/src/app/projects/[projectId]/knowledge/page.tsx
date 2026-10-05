@@ -248,7 +248,7 @@ function KnowledgePageContent() {
             <span>Knowledge Base</span>
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Documents GroundGuard can retrieve evidence from with project-scoped isolation.
+            Documents EvideX AI can retrieve evidence from with project-scoped isolation.
           </p>
         </div>
 
@@ -271,7 +271,7 @@ function KnowledgePageContent() {
           <div className="space-y-1.5">
             <h2 className="text-base font-semibold text-foreground">Add knowledge to this project</h2>
             <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-              Upload source documents GroundGuard can use as evidence. Once indexed, passages
+              Upload source documents EvideX AI can use as evidence. Once indexed, passages
               are available for retrieval during conversational evaluations.
             </p>
           </div>

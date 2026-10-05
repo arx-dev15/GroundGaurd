@@ -71,7 +71,7 @@ export function RecoveryPlayback({
           </div>
           <div>
             <h4 className="text-xs font-semibold text-foreground tracking-tight flex items-center gap-1.5">
-              <span>Failure-Aware Recovery Playback</span>
+              <span>Recovery Provenance & Playback</span>
               {isRecovered && (
                 <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-500/30">
                   Recovered

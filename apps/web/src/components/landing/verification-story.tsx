@@ -32,7 +32,7 @@ export function VerificationStory() {
             The Anatomy of a Recovered Claim
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground max-w-xl leading-relaxed">
-            Observe how GroundGuard intercepts an erroneous numerical hallucination before response
+            Observe how EvideX AI intercepts an erroneous numerical hallucination before response
             delivery and repairs the factual assertion.
           </p>
         </motion.div>

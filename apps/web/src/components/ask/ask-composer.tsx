@@ -55,12 +55,32 @@ export function AskComposer({
     el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
   }, [value, mode]);
 
+  const focusInput = React.useCallback(() => {
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }, []);
+
+  // Keep text box targeted on mount and whenever loading finishes
+  React.useEffect(() => {
+    if (!disabled && !isLoading) {
+      focusInput();
+    }
+  }, [disabled, isLoading, focusInput]);
+
+  const handleSubmit = React.useCallback(() => {
+    if (!disabled && !isLoading && value.trim().length > 0) {
+      onSubmit();
+      focusInput();
+      setTimeout(focusInput, 50);
+      setTimeout(focusInput, 150);
+    }
+  }, [disabled, isLoading, value, onSubmit, focusInput]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && !isLoading && value.trim().length > 0) {
-        onSubmit();
-      }
+      handleSubmit();
     }
   };
 
@@ -79,12 +99,12 @@ export function AskComposer({
       <div
         className={cn(
           'group relative rounded-xl border bg-card/95 transition-all duration-200',
-          'border-border/80 shadow-xs focus-within:border-border focus-within:shadow-sm focus-within:ring-1 focus-within:ring-border/80',
+          'border-border/80 shadow-xs focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/25 focus-within:shadow-sm',
           disabled && 'opacity-60 bg-muted/20 cursor-not-allowed',
           isHero ? 'p-3.5 sm:p-4' : 'p-2.5 sm:p-3'
         )}
       >
-        {/* Multiline Textarea */}
+        {/* Multiline Textarea - no ugly inner box outline, clean focus retention */}
         <textarea
           ref={textareaRef}
           value={value}
@@ -97,13 +117,13 @@ export function AskComposer({
             (readyCount === 0
               ? 'Add knowledge to start asking grounded questions.'
               : disabled
-              ? 'GroundGuard is temporarily unavailable...'
+              ? 'EvideX AI is temporarily unavailable...'
               : isHero
               ? 'Ask a question about this project...'
               : 'Ask a follow-up question...')
           }
           className={cn(
-            'w-full resize-none bg-transparent outline-none text-foreground placeholder:text-muted-foreground/70 leading-relaxed font-sans',
+            'w-full resize-none bg-transparent border-0 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ring-0 ring-offset-0 shadow-none text-foreground placeholder:text-muted-foreground/70 leading-relaxed font-sans',
             isHero ? 'text-sm sm:text-base min-h-[72px]' : 'text-xs sm:text-sm min-h-[36px]',
             'scrollbar-thin scrollbar-thumb-border'
           )}
@@ -149,7 +169,7 @@ export function AskComposer({
                   <span>Project Knowledge Scope</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  GroundGuard retrieves evidence exclusively from {readyCount} indexed and verified project documents:
+                  EvideX AI retrieves evidence exclusively from {readyCount} indexed and verified project documents:
                 </p>
                 <div className="max-h-40 overflow-y-auto space-y-1.5 pt-1 pr-1 scrollbar-thin">
                   {readyDocuments.map((doc) => (
@@ -175,7 +195,7 @@ export function AskComposer({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onSubmit}
+              onClick={handleSubmit}
               disabled={disabled || isLoading || value.trim().length === 0}
               className={cn(
                 'inline-flex items-center justify-center rounded-lg transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',

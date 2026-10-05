@@ -68,12 +68,12 @@ export default function LoginPage() {
             <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-status-verified ring-2 ring-background" />
           </div>
           <span className="text-sm font-semibold tracking-tight text-foreground">
-            GroundGuard
+            EvideX AI
           </span>
         </Link>
 
         <h1 className="text-xl font-bold tracking-tight text-foreground text-center">
-          Sign in to GroundGuard
+          Sign in to EvideX AI
         </h1>
         <p className="text-xs text-muted-foreground mt-1.5 text-center">
           Enter your credentials to access verified workspaces

@@ -84,7 +84,7 @@ export function HeroDemo({
         className
       )}
       role="region"
-      aria-label="Interactive GroundGuard verification demonstration"
+      aria-label="Interactive EvideX AI verification demonstration"
     >
       {/* Top Header / Mode Switcher */}
       <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-border/60">

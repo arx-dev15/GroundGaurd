@@ -209,7 +209,7 @@ export function AnswerView({
               I couldn&apos;t answer that from this project&apos;s sources.
             </p>
             <p className="text-xs text-muted-foreground leading-relaxed font-sans">
-              GroundGuard keeps project answers grounded in uploaded evidence.
+              EvideX AI keeps project answers grounded in uploaded evidence.
             </p>
 
             <div className="flex items-center gap-2 pt-1">

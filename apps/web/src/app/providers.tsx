@@ -7,6 +7,7 @@ import { getQueryClient } from '@/lib/query-client';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { AuthProvider } from '@/lib/auth-context';
+import { SmoothScrollProvider } from '@/components/providers/smooth-scroll-provider';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const queryClient = getQueryClient();
@@ -21,7 +22,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <TooltipProvider delayDuration={200}>
-            {children}
+            <SmoothScrollProvider>
+              {children}
+            </SmoothScrollProvider>
             <Toaster position="bottom-right" />
           </TooltipProvider>
         </AuthProvider>

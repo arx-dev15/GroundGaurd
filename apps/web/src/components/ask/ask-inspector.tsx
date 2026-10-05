@@ -2,13 +2,11 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
   X,
   ShieldCheck,
   FileText,
   Activity,
-  Layers,
   RotateCcw,
   Sparkles,
   ExternalLink,
@@ -22,16 +20,15 @@ import {
   Info,
   RefreshCw,
   Loader2,
-  ChevronDown,
   ChevronRight,
-  SplitSquareVertical,
+  Layers,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatusBadge } from '@/components/trust/status-badge';
 import { SelectedClaimHero } from '@/components/trust/selected-claim-hero';
-import { PDFSourceViewer } from '@/components/source/pdf-source-viewer';
+import { PDFSourceViewer, type CitationItem } from '@/components/source/pdf-source-viewer';
 import { useClaimRecoveryAttempts, useRetryClaim } from '@/lib/conversations-query';
 import { CLAIM_STATE_CONFIG, formatGroundingScore } from '@/lib/trust-utils';
 import { cn } from '@/lib/utils';
@@ -66,14 +63,14 @@ export function AskInspector({
   onOpenAnswer,
   initialTab,
 }: AskInspectorProps) {
-  const shouldReduceMotion = useReducedMotion();
   const [activeTab, setActiveTab] = React.useState<string>(initialTab || 'claim');
   const [selectedAttemptIndex, setSelectedAttemptIndex] = React.useState<number>(0);
+  const [selectedEvidenceIndex, setSelectedEvidenceIndex] = React.useState<number>(0);
   const [retryError, setRetryError] = React.useState<string | null>(null);
 
   // Fetch real recovery attempts from M3 if claim exists
   const { data: recoveryAttempts = [], refetch: refetchRecoveryAttempts } = useClaimRecoveryAttempts(claim?.claimId);
-  const activeAttempt = recoveryAttempts[selectedAttemptIndex] || recoveryAttempts[recoveryAttempts.length - 1];
+  const activeAttempt = recoveryAttempts[selectedAttemptIndex] || recoveryAttempts[recoveryAttempts.length - 1] || null;
 
   // Synchronize initialTab when provided
   React.useEffect(() => {
@@ -89,6 +86,14 @@ export function AskInspector({
     }
   }, [recoveryAttempts.length]);
 
+  // Reset selected evidence index when claim changes
+  React.useEffect(() => {
+    setSelectedEvidenceIndex(0);
+    if (claim && !initialTab) {
+      setActiveTab('claim');
+    }
+  }, [claim?.claimId]);
+
   // Retry claim mutation
   const retryMutation = useRetryClaim();
 
@@ -102,13 +107,6 @@ export function AskInspector({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose, variant]);
-
-  // Reset tab to primary overview whenever inspected claim changes
-  React.useEffect(() => {
-    if (claim) {
-      setActiveTab('claim');
-    }
-  }, [claim]);
 
   if (!isOpen || !claim) {
     if (variant === 'inline') {
@@ -135,16 +133,31 @@ export function AskInspector({
   const isNeedsReview = claim.status === 'needs_review';
   const isEligibleForRetry = isContradicted || isNeedsReview;
   const evidenceList = claim.evidence || [];
-  const primaryEvidence = evidenceList[0];
+
+  // Determine current active evidence item based on selected citation index
+  const currentEvidence = evidenceList[selectedEvidenceIndex] || selectedEvidence || evidenceList[0] || null;
+
+  // Format citations array for PDF viewer
+  const citations: CitationItem[] = evidenceList.map((ev, i) => ({
+    index: i + 1,
+    documentId: ev.documentId,
+    pageNumber: ev.pageNumber ?? (ev.metadata?.pageNumber as number | undefined),
+    text: ev.text,
+    chunkId: ev.chunkId,
+  }));
 
   const handleRetry = async () => {
-    if (!claim.claimId || retryMutation.isPending) return;
+    if (!claim.claimId || retryMutation.isPending || recoveryAttempts.length >= 2) return;
     setRetryError(null);
     try {
       const res = await retryMutation.mutateAsync(claim.claimId);
       if (res?.claim) {
         onClaimUpdated?.(res.claim);
-        refetchRecoveryAttempts();
+        const refetched = await refetchRecoveryAttempts();
+        const updatedList = refetched.data || res.recoveryAttempts || [];
+        if (updatedList.length > 0) {
+          setSelectedAttemptIndex(updatedList.length - 1);
+        }
         setActiveTab('recovery');
       }
     } catch (err: any) {
@@ -171,7 +184,7 @@ export function AskInspector({
           isInline
             ? 'w-full h-full rounded-xl border border-border/80 bg-card/50 shadow-xs'
             : cn(
-                'w-full max-w-md md:max-w-none md:w-[380px] lg:w-[420px] shrink-0 border-l border-border/70 bg-card/95 backdrop-blur-sm',
+                'w-full max-w-md md:max-w-none md:w-[420px] lg:w-[460px] shrink-0 border-l border-border/70 bg-card/95 backdrop-blur-sm',
                 'h-full shadow-2xl md:shadow-none z-40 md:z-30 transition-all duration-200',
                 'fixed inset-y-0 right-0 md:static'
               )
@@ -179,8 +192,8 @@ export function AskInspector({
         aria-label="Claim Inspector"
         role="region"
       >
-        {/* 1. Inspector Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/20 select-none">
+        {/* 1. Inspector Sticky Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/20 select-none shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <ShieldCheck className="h-4 w-4 text-primary shrink-0" />
             <div className="min-w-0">
@@ -211,7 +224,7 @@ export function AskInspector({
 
         {/* Optional Question Context Bar */}
         {contextTitle && (
-          <div className="px-4 py-1.5 bg-muted/30 border-b border-border/40 flex items-center justify-between text-[11px] text-muted-foreground">
+          <div className="px-4 py-1.5 bg-muted/30 border-b border-border/40 flex items-center justify-between text-[11px] text-muted-foreground shrink-0">
             <span className="truncate pr-2">
               Asked in: <strong className="text-foreground font-medium">{contextTitle}</strong>
             </span>
@@ -233,7 +246,7 @@ export function AskInspector({
           onValueChange={setActiveTab}
           className="flex-1 flex flex-col min-h-0"
         >
-          <div className="px-4 pt-2 border-b border-border/50 bg-muted/10">
+          <div className="px-4 pt-2 border-b border-border/50 bg-muted/10 shrink-0">
             <TabsList className="grid grid-cols-4 h-8 p-0.5 bg-muted/50 rounded-lg text-[11px]">
               <TabsTrigger value="source" className="py-1 px-1.5 text-[11px] flex items-center gap-1">
                 <FileText className="h-3 w-3" />
@@ -264,37 +277,37 @@ export function AskInspector({
           </div>
 
           {/* ============================================================ */}
-          {/* Tab 0: Contextual PDF Source Viewer                          */}
+          {/* Tab 1: Contextual PDF Source Viewer with Evidence Highlighting*/}
           {/* ============================================================ */}
           <TabsContent value="source" className="flex-1 overflow-hidden p-2 m-0 flex flex-col">
             <PDFSourceViewer
-              documentId={selectedEvidence?.documentId || primaryEvidence?.documentId}
+              documentId={currentEvidence?.documentId}
               documentFilename={
-                (selectedEvidence?.metadata?.filename as string) ||
-                (selectedEvidence?.metadata?.documentFilename as string) ||
-                (primaryEvidence?.metadata?.filename as string) ||
-                (primaryEvidence?.metadata?.documentFilename as string) ||
+                (currentEvidence?.metadata?.filename as string) ||
+                (currentEvidence?.metadata?.documentFilename as string) ||
                 'Project Document'
               }
               pageNumber={
-                selectedEvidence?.pageNumber ??
-                (selectedEvidence?.metadata?.pageNumber as number | undefined) ??
-                primaryEvidence?.pageNumber ??
-                (primaryEvidence?.metadata?.pageNumber as number | undefined)
+                currentEvidence?.pageNumber ??
+                (currentEvidence?.metadata?.pageNumber as number | undefined) ??
+                1
               }
-              highlightedExcerpt={selectedEvidence?.text || primaryEvidence?.text}
+              highlightedExcerpt={currentEvidence?.text}
+              citations={citations}
+              activeCitationIndex={selectedEvidenceIndex}
+              onSelectCitation={(idx) => setSelectedEvidenceIndex(idx)}
               onClose={onClose}
               className="h-full border-0 shadow-none"
             />
           </TabsContent>
 
           {/* ============================================================ */}
-          {/* Tab 1: Claim Overview + Central Editorial Comparison         */}
+          {/* Tab 2: Verification (Top-aligned Claim ↔ Evidence Overview)   */}
           {/* ============================================================ */}
           <TabsContent value="claim" className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 m-0 scrollbar-thin">
             <SelectedClaimHero
               claim={claim}
-              selectedEvidence={selectedEvidence || primaryEvidence}
+              selectedEvidence={currentEvidence}
               recoveryAttempts={recoveryAttempts}
               projectId={projectId}
               generationId={generationId}
@@ -307,201 +320,21 @@ export function AskInspector({
           </TabsContent>
 
           {/* ============================================================ */}
-          {/* Tab 2: Evidence Lens                                         */}
-          {/* ============================================================ */}
-          <TabsContent value="evidence" className="flex-1 overflow-y-auto p-4 space-y-3 m-0 scrollbar-thin">
-            <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-              <span>Supporting Evidence Chunks</span>
-              <span>{evidenceList.length} {evidenceList.length === 1 ? 'item' : 'items'}</span>
-            </div>
-
-            {evidenceList.length === 0 ? (
-              <div className="p-6 text-center text-xs text-muted-foreground border border-dashed border-border/60 rounded-lg space-y-1">
-                <p className="font-medium text-foreground">No supporting evidence</p>
-                <p className="text-[11px]">No supporting project evidence was attached to this claim.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {evidenceList.map((ev, i) => {
-                  const docId = ev.documentId;
-                  const pageNum = ev.pageNumber ?? (ev.metadata?.pageNumber as number | undefined);
-                  const filename =
-                    (ev.metadata?.filename as string) ||
-                    (ev.metadata?.documentFilename as string) ||
-                    'Knowledge Document';
-                  const knowledgeUrl = docId
-                    ? pageNum
-                      ? `/projects/${projectId}/knowledge/${docId}?page=${pageNum}`
-                      : `/projects/${projectId}/knowledge/${docId}`
-                    : null;
-
-                  return (
-                    <div
-                      key={ev.chunkId || i}
-                      className="p-3 rounded-lg border border-border/70 bg-card/60 space-y-2 text-xs"
-                    >
-                      <div className="flex items-center justify-between gap-2 border-b border-border/40 pb-1.5">
-                        <span className="font-semibold text-foreground flex items-center gap-1.5 truncate">
-                          <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
-                          <span className="truncate">{filename}</span>
-                        </span>
-                        {pageNum !== undefined && (
-                          <span className="text-[10px] font-mono text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60 border border-border/40 shrink-0">
-                            Page {pageNum}
-                          </span>
-                        )}
-                      </div>
-
-                      {ev.heading && (
-                        <div className="text-[10px] font-mono text-muted-foreground">
-                          Section: <span className="text-foreground">{ev.heading}</span>
-                        </div>
-                      )}
-
-                      <div className="text-xs text-foreground/90 leading-relaxed italic bg-muted/20 p-2.5 rounded border border-border/30 select-text whitespace-pre-wrap">
-                        &ldquo;{ev.text}&rdquo;
-                      </div>
-
-                      {knowledgeUrl && (
-                        <div className="pt-1 flex items-center justify-end">
-                          <Link
-                            href={knowledgeUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-medium"
-                          >
-                            <span>Open in Knowledge Base</span>
-                            <ExternalLink className="h-3 w-3" />
-                          </Link>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </TabsContent>
-
-          {/* ============================================================ */}
-          {/* Tab 3: Verification Details                                  */}
-          {/* ============================================================ */}
-          <TabsContent value="verification" className="flex-1 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin">
-            <div className="p-3 rounded-lg border border-border/70 bg-card/60 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  Verification Verdict
-                </span>
-                <StatusBadge status={claim.status} size="sm" />
-              </div>
-
-              <p className="text-xs text-foreground leading-relaxed">
-                {claim.status === 'verified' && (
-                  <>Evidence directly <strong>entails</strong> and confirms the statement in this claim.</>
-                )}
-                {claim.status === 'recovered' && (
-                  <>This claim was autonomously revised to resolve a contradiction and re-verified against evidence.</>
-                )}
-                {claim.status === 'flagged' && (
-                  <>Evidence <strong>contradicts</strong> this statement or failed technical invariant checks.</>
-                )}
-                {claim.status === 'needs_review' && (
-                  <>Evidence is inconclusive or insufficient for complete factual verification.</>
-                )}
-                {claim.status === 'pending' && (
-                  <>Verification is queued or pending inference execution.</>
-                )}
-              </p>
-            </div>
-
-            {verification ? (
-              <div className="space-y-3 p-3.5 rounded-lg border border-border/70 bg-muted/20">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                    Neural Cross-Encoder
-                  </span>
-                  <span className="text-[10px] font-mono text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60 border border-border/40">
-                    {verification.modelVersion || 'DeBERTa-v3'}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-md bg-background/60 border border-border/50 flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Grounding Score:</span>
-                  <span className="font-mono text-sm font-bold text-foreground">
-                    {formatGroundingScore(verification.groundingScore)}
-                  </span>
-                </div>
-
-                <div className="space-y-2.5 pt-1 text-xs font-mono">
-                  {/* Entailment */}
-                  <div>
-                    <div className="flex justify-between text-[11px] mb-1">
-                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">Entailment</span>
-                      <span>{(verification.scores.entailment * 100).toFixed(1)}%</span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-500 rounded-full transition-all"
-                        style={{ width: `${Math.max(0, Math.min(100, verification.scores.entailment * 100))}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Neutral */}
-                  <div>
-                    <div className="flex justify-between text-[11px] mb-1">
-                      <span className="text-amber-600 dark:text-amber-400 font-medium">Neutral</span>
-                      <span>{(verification.scores.neutral * 100).toFixed(1)}%</span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full bg-amber-500 rounded-full transition-all"
-                        style={{ width: `${Math.max(0, Math.min(100, verification.scores.neutral * 100))}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Contradiction */}
-                  <div>
-                    <div className="flex justify-between text-[11px] mb-1">
-                      <span className="text-rose-600 dark:text-rose-400 font-medium">Contradiction</span>
-                      <span>{(verification.scores.contradiction * 100).toFixed(1)}%</span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full bg-rose-500 rounded-full transition-all"
-                        style={{ width: `${Math.max(0, Math.min(100, verification.scores.contradiction * 100))}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 text-center text-xs text-muted-foreground border border-dashed border-border/60 rounded-lg">
-                No cross-encoder scores available for this claim.
-              </div>
-            )}
-          </TabsContent>
-
-          {/* ============================================================ */}
-          {/* Tab 4: Recovery Playback (Observable Audit Trace)            */}
-          {/* ============================================================ */}
-          {/* ============================================================ */}
-          {/* Tab 3: Recovery Playback (One selected attempt at a time)     */}
+          {/* Tab 3: Recovery Provenance & Playback                         */}
           {/* ============================================================ */}
           <TabsContent value="recovery" className="flex-1 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin">
+            {/* Header with Title and Budget Indicator */}
             <div className="flex items-center justify-between border-b border-border/40 pb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
                 <RotateCcw className="h-3.5 w-3.5" />
-                <span>Autonomous Recovery Playback</span>
+                <span>Recovery Provenance & Playback</span>
               </div>
-              {recoveryAttempts.length > 0 && (
-                <span className="text-[10px] font-mono text-muted-foreground">
-                  {recoveryAttempts.length} / 2 attempts recorded
-                </span>
-              )}
+              <span className="text-[10px] font-mono text-muted-foreground">
+                {recoveryAttempts.length} / 2 attempts used
+              </span>
             </div>
 
-            {/* 1. Original Statement & Flag Reason (Shown ONCE at top) */}
+            {/* 1. Original Statement & Flag Reason */}
             <div className="space-y-2 p-3 rounded-lg border border-border/60 bg-muted/20">
               <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
                 Original Claim
@@ -519,7 +352,7 @@ export function AskInspector({
             {recoveryAttempts.length > 0 && (
               <div className="space-y-1.5">
                 <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  Attempts
+                  Attempts History
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {recoveryAttempts.map((att, idx) => {
@@ -543,7 +376,7 @@ export function AskInspector({
                         ) : att.candidateText ? (
                           <span className="text-muted-foreground">Revision</span>
                         ) : (
-                          <span className="text-amber-500 font-medium">No candidate</span>
+                          <span className="text-amber-500 font-medium">Abstain</span>
                         )}
                       </button>
                     );
@@ -633,7 +466,7 @@ export function AskInspector({
               </div>
             )}
 
-            {/* Retry Button with Limit Enforcement (Section 8, 9, 30, 31) */}
+            {/* Retry Button with Limit Enforcement */}
             {isEligibleForRetry && (
               <div className="pt-2 border-t border-border/40 space-y-2">
                 <Button
@@ -645,7 +478,7 @@ export function AskInspector({
                   {retryMutation.isPending ? (
                     <>
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      <span>Recovering…</span>
+                      <span>Recovering...</span>
                     </>
                   ) : recoveryAttempts.length >= 2 ? (
                     <span>Recovery attempt limit reached (2/2)</span>
@@ -664,71 +497,242 @@ export function AskInspector({
           </TabsContent>
 
           {/* ============================================================ */}
-          {/* Tab 5: Technical Trace                                       */}
+          {/* Tab 4: Diagnostics (Real Persisted Technical Telemetry)      */}
           {/* ============================================================ */}
-          <TabsContent value="advanced" className="flex-1 overflow-y-auto p-4 space-y-3 m-0 scrollbar-thin">
-            <div className="flex items-center justify-between">
+          <TabsContent value="advanced" className="flex-1 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin">
+            <div className="flex items-center justify-between border-b border-border/40 pb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                 <Cpu className="h-3.5 w-3.5 text-primary" />
-                <span>Trace & Diagnostic Metadata</span>
+                <span>Verification & System Diagnostics</span>
               </div>
-              <span className="text-[10px] font-mono text-muted-foreground">M3 / M1</span>
+              <span className="text-[10px] font-mono text-muted-foreground">M1 / M2 / M3</span>
             </div>
 
-            <div className="space-y-2 text-xs font-mono">
-              <div className="p-2 rounded border border-border/50 bg-muted/20 space-y-1">
-                <span className="text-[10px] text-muted-foreground uppercase">Claim ID</span>
-                <div className="truncate text-foreground select-all">{claim.claimId}</div>
+            {/* 1. M1 Neural NLI Signal Meters */}
+            <div className="p-3.5 rounded-lg border border-border/70 bg-card/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold">
+                  M1 Neural NLI Signals
+                </span>
+                <span className="text-[10px] font-mono text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60 border border-border/40">
+                  {verification?.modelVersion || 'groundguard-deberta-v1'}
+                </span>
               </div>
 
-              {generationId && (
-                <div className="p-2 rounded border border-border/50 bg-muted/20 space-y-1">
-                  <span className="text-[10px] text-muted-foreground uppercase">Generation ID</span>
-                  <div className="truncate text-foreground select-all">{generationId}</div>
+              {/* Truth-probability disclaimer (Section 12) */}
+              <div className="p-2 rounded bg-muted/30 border border-border/40 text-[11px] text-muted-foreground font-sans flex items-start gap-1.5 leading-relaxed">
+                <Info className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                <span>Model signal distribution — not a truth probability.</span>
+              </div>
+
+              {verification?.scores ? (
+                <div className="space-y-2.5 font-mono text-xs">
+                  {/* Entailment Meter */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">Entailment</span>
+                      <span>{(verification.scores.entailment * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 rounded-full transition-all"
+                        style={{ width: `${Math.max(0, Math.min(100, verification.scores.entailment * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Neutral Meter */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-amber-600 dark:text-amber-400 font-medium">Neutral</span>
+                      <span>{(verification.scores.neutral * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-amber-500 rounded-full transition-all"
+                        style={{ width: `${Math.max(0, Math.min(100, verification.scores.neutral * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Contradiction Meter */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-rose-600 dark:text-rose-400 font-medium">Contradiction</span>
+                      <span>{(verification.scores.contradiction * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-rose-500 rounded-full transition-all"
+                        style={{ width: `${Math.max(0, Math.min(100, verification.scores.contradiction * 100))}%` }}
+                      />
+                    </div>
+                  </div>
                 </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  Raw NLI score distribution is not available for this claim.
+                </p>
               )}
+            </div>
 
-              <div className="p-2 rounded border border-border/50 bg-muted/20 space-y-1">
-                <span className="text-[10px] text-muted-foreground uppercase">Canonical Status</span>
-                <div className="text-foreground capitalize">{claim.status}</div>
+            {/* 2. Recovery Attempt Budget Meter (Section 14, 16) */}
+            <div className="p-3.5 rounded-lg border border-border/70 bg-card/60 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold">
+                  Recovery Attempt Budget
+                </span>
+                <span className="font-mono text-xs font-semibold text-foreground">
+                  {recoveryAttempts.length} / 2 consumed
+                </span>
               </div>
 
-              <div className="p-2 rounded border border-border/50 bg-muted/20 space-y-1">
-                <span className="text-[10px] text-muted-foreground uppercase">Ordinal Index</span>
-                <div className="text-foreground">Index #{claim.ordinal ?? 0}</div>
-              </div>
-
-              {verification?.modelVersion && (
-                <div className="p-2 rounded border border-border/50 bg-muted/20 space-y-1">
-                  <span className="text-[10px] text-muted-foreground uppercase">Verification Model</span>
-                  <div className="truncate text-foreground">{verification.modelVersion}</div>
+              {/* 2-segment visual meter */}
+              <div className="grid grid-cols-2 gap-2">
+                <div
+                  className={cn(
+                    'p-2 rounded border text-center font-mono text-[11px] transition-colors',
+                    recoveryAttempts.length >= 1
+                      ? 'bg-blue-500/15 border-blue-500/40 text-blue-700 dark:text-blue-300 font-medium'
+                      : 'bg-muted/30 border-border/40 text-muted-foreground'
+                  )}
+                >
+                  Attempt 1: {recoveryAttempts.length >= 1 ? 'Executed' : 'Available'}
                 </div>
-              )}
-
-              {verification?.groundingScore !== undefined && (
-                <div className="p-2 rounded border border-border/50 bg-muted/20 space-y-1">
-                  <span className="text-[10px] text-muted-foreground uppercase">Grounding Score</span>
-                  <div className="text-foreground">{formatGroundingScore(verification.groundingScore)}</div>
+                <div
+                  className={cn(
+                    'p-2 rounded border text-center font-mono text-[11px] transition-colors',
+                    recoveryAttempts.length >= 2
+                      ? 'bg-blue-500/15 border-blue-500/40 text-blue-700 dark:text-blue-300 font-medium'
+                      : 'bg-muted/30 border-border/40 text-muted-foreground'
+                  )}
+                >
+                  Attempt 2: {recoveryAttempts.length >= 2 ? 'Executed' : 'Available'}
                 </div>
-              )}
-
-              <div className="p-2 rounded border border-border/50 bg-muted/20 space-y-1">
-                <span className="text-[10px] text-muted-foreground uppercase">Evidence Linkage</span>
-                <div className="text-foreground">{evidenceList.length} chunk{evidenceList.length === 1 ? '' : 's'} linked</div>
               </div>
 
-              {evidenceList.length > 0 && (
-                <div className="p-2 rounded border border-border/50 bg-muted/20 space-y-1">
-                  <span className="text-[10px] text-muted-foreground uppercase">Chunk IDs</span>
-                  <div className="space-y-0.5 max-h-24 overflow-y-auto scrollbar-thin">
-                    {evidenceList.map((ev, i) => (
-                      <div key={ev.chunkId || i} className="text-[11px] text-muted-foreground truncate select-all">
-                        {ev.chunkId}
-                      </div>
-                    ))}
+              {activeAttempt && (
+                <div className="pt-2 border-t border-border/40 text-xs font-mono space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Recovery Model:</span>
+                    <span className="text-foreground">{activeAttempt.recoveryModelVersion || 'gemini/gemini-flash-lite-latest'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Candidate Produced:</span>
+                    <span className="text-foreground">{activeAttempt.candidateText ? 'Yes' : 'No'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Recovery Evidence Count:</span>
+                    <span className="text-foreground">{activeAttempt.recoveryEvidence?.length || 0} chunks</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Reverification Label:</span>
+                    <span className="text-foreground capitalize">{activeAttempt.verificationLabel || 'None'}</span>
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* 3. Evidence Metadata (Section 13) */}
+            <div className="p-3.5 rounded-lg border border-border/70 bg-card/60 space-y-2">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold">
+                Evidence Linkage Metadata
+              </span>
+
+              <div className="space-y-1.5 text-xs font-mono">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Attached Chunks:</span>
+                  <span className="text-foreground">{evidenceList.length}</span>
+                </div>
+                {currentEvidence?.documentId && (
+                  <div className="flex justify-between truncate">
+                    <span className="text-muted-foreground">Document:</span>
+                    <span className="text-foreground truncate max-w-[200px]" title={currentEvidence.documentId}>
+                      {(currentEvidence.metadata?.filename as string) || currentEvidence.documentId}
+                    </span>
+                  </div>
+                )}
+                {currentEvidence?.pageNumber !== undefined && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Page:</span>
+                    <span className="text-foreground">Page {currentEvidence.pageNumber}</span>
+                  </div>
+                )}
+                {currentEvidence?.chunkId && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Chunk ID:</span>
+                    <span className="text-foreground truncate max-w-[180px] select-all">{currentEvidence.chunkId}</span>
+                  </div>
+                )}
+                {/* Rerank score ONLY if actually persisted in metadata (Section 13) */}
+                {currentEvidence?.metadata?.score !== undefined && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Rerank Score:</span>
+                    <span className="text-foreground font-semibold">{Number(currentEvidence.metadata.score).toFixed(4)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Compact Real Claim Lifecycle Timeline (Section 15, 16) */}
+            <div className="p-3.5 rounded-lg border border-border/70 bg-card/60 space-y-2.5">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold">
+                Claim Lifecycle Stages
+              </span>
+
+              <div className="space-y-2 text-xs font-mono pl-2 border-l border-border/60">
+                {/* Stage 1: Generated */}
+                <div className="relative pl-3">
+                  <div className="absolute -left-[17px] top-1 h-2 w-2 rounded-full bg-primary" />
+                  <span className="font-semibold text-foreground">1. Generated</span>
+                  <p className="text-[11px] text-muted-foreground font-sans">
+                    Extracted from model response via claim decomposition.
+                  </p>
+                </div>
+
+                {/* Stage 2: Initial Verification */}
+                <div className="relative pl-3">
+                  <div className={cn(
+                    'absolute -left-[17px] top-1 h-2 w-2 rounded-full',
+                    claim.status === 'verified' ? 'bg-emerald-500' : claim.status === 'flagged' ? 'bg-rose-500' : 'bg-amber-500'
+                  )} />
+                  <span className="font-semibold text-foreground">2. Initial Verification</span>
+                  <p className="text-[11px] text-muted-foreground font-sans">
+                    Verdict: <strong className="capitalize">{claim.status}</strong> via DeBERTa-v1 NLI cross-encoder.
+                  </p>
+                </div>
+
+                {/* Stage 3: Recovery Attempt #1 (if occurred) */}
+                {recoveryAttempts.length >= 1 && (
+                  <div className="relative pl-3">
+                    <div className="absolute -left-[17px] top-1 h-2 w-2 rounded-full bg-blue-500" />
+                    <span className="font-semibold text-foreground">3. Recovery Attempt #1</span>
+                    <p className="text-[11px] text-muted-foreground font-sans">
+                      Action: {recoveryAttempts[0].action || 'abstain'} · Reverification: {recoveryAttempts[0].verificationLabel || 'unverified'}
+                    </p>
+                  </div>
+                )}
+
+                {/* Stage 4: Recovery Attempt #2 (if occurred) */}
+                {recoveryAttempts.length >= 2 && (
+                  <div className="relative pl-3">
+                    <div className="absolute -left-[17px] top-1 h-2 w-2 rounded-full bg-blue-500" />
+                    <span className="font-semibold text-foreground">4. Recovery Attempt #2</span>
+                    <p className="text-[11px] text-muted-foreground font-sans">
+                      Action: {recoveryAttempts[1].action || 'abstain'} · Reverification: {recoveryAttempts[1].verificationLabel || 'unverified'}
+                    </p>
+                  </div>
+                )}
+
+                {/* Terminal Stage: Settled Status */}
+                <div className="relative pl-3">
+                  <div className={cn(
+                    'absolute -left-[17px] top-1 h-2 w-2 rounded-full',
+                    claim.status === 'verified' || claim.status === 'recovered' ? 'bg-emerald-500' : 'bg-amber-500'
+                  )} />
+                  <span className="font-semibold text-foreground">Terminal: {claim.status.toUpperCase()}</span>
+                </div>
+              </div>
             </div>
           </TabsContent>
         </Tabs>

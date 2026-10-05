@@ -187,7 +187,7 @@ export default function RealProjectOverviewPage() {
             className="text-xs gap-1.5 self-start sm:self-center shrink-0"
           >
             <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
-            <span>How GroundGuard works</span>
+            <span>How EvideX AI works</span>
           </Button>
         </div>
 
@@ -202,7 +202,7 @@ export default function RealProjectOverviewPage() {
               Ready to establish your verified knowledge base
             </h2>
             <p className="text-xs sm:text-sm text-muted-foreground max-w-xl leading-relaxed">
-              GroundGuard isolates this workspace so evidence, citations, and conversation history
+              EvideX AI isolates this workspace so evidence, citations, and conversation history
               never bleed across projects. Follow three steps to get started.
             </p>
           </div>
@@ -277,7 +277,7 @@ export default function RealProjectOverviewPage() {
         <Dialog open={learnModalOpen} onOpenChange={setLearnModalOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-base font-semibold">How GroundGuard Works</DialogTitle>
+              <DialogTitle className="text-base font-semibold">How EvideX AI Works</DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
                 Strict factual grounding architecture with autonomous recovery.
               </DialogDescription>
@@ -299,7 +299,7 @@ export default function RealProjectOverviewPage() {
               <div className="p-3 rounded-md border border-border/60 bg-accent/30 space-y-1">
                 <span className="font-semibold text-foreground block">3. Autonomous Recovery Rail</span>
                 <p>
-                  If a generated assertion is contradicted or neutral, GroundGuard re-queries the passage index to repair
+                  If a generated assertion is contradicted or neutral, EvideX AI re-queries the passage index to repair
                   the claim before presenting it to you.
                 </p>
               </div>
@@ -346,7 +346,7 @@ export default function RealProjectOverviewPage() {
             className="text-xs h-8 gap-1.5"
           >
             <MessageSquareCode className="h-3.5 w-3.5" />
-            <span>Ask GroundGuard</span>
+            <span>Ask EvideX AI</span>
           </Button>
         </div>
       </div>

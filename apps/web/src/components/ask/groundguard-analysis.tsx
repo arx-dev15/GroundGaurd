@@ -77,18 +77,18 @@ export function GroundGuardAnalysis({
   const highLevelExplanation = React.useMemo(() => {
     if (totalClaims === 0) return null;
     if (verifiedCount === totalClaims) {
-      return `GroundGuard verified all ${totalClaims} factual claims against project documentation.`;
+      return `EvideX AI verified all ${totalClaims} factual claims against project documentation.`;
     }
     if (recoveredCount > 0 && verifiedCount + recoveredCount === totalClaims) {
-      return `GroundGuard verified ${verifiedCount} claims and successfully repaired ${recoveredCount} claim against project evidence.`;
+      return `EvideX AI verified ${verifiedCount} claims and successfully repaired ${recoveredCount} claim against project evidence.`;
     }
     if (contradictedCount > 0) {
-      return `GroundGuard identified ${contradictedCount} statement that conflicts with project documentation.`;
+      return `EvideX AI identified ${contradictedCount} statement that conflicts with project documentation.`;
     }
     if (reviewCount > 0) {
-      return `GroundGuard could not verify ${reviewCount} statement due to insufficient evidence in the project documentation.`;
+      return `EvideX AI could not verify ${reviewCount} statement due to insufficient evidence in the project documentation.`;
     }
-    return `GroundGuard verified ${verifiedCount} of ${totalClaims} claims against retrieved project evidence.`;
+    return `EvideX AI verified ${verifiedCount} of ${totalClaims} claims against retrieved project evidence.`;
   }, [totalClaims, verifiedCount, recoveredCount, contradictedCount, reviewCount]);
 
   // LIVE STAGE VIEW (during active generation/verification)
@@ -126,7 +126,7 @@ export function GroundGuardAnalysis({
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
           </span>
-          <span>GroundGuard is analyzing</span>
+          <span>EvideX AI is analyzing</span>
         </div>
 
         <div className="space-y-1.5 pl-1 text-xs">
@@ -178,7 +178,7 @@ export function GroundGuardAnalysis({
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-3.5 w-3.5 text-primary shrink-0" />
           <span className="font-semibold text-foreground tracking-tight text-[11px] sm:text-xs">
-            How GroundGuard worked
+            How EvideX AI worked
           </span>
           <span className="text-border">·</span>
           <span className="text-[11px] text-muted-foreground font-mono truncate">

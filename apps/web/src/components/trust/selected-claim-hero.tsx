@@ -91,9 +91,9 @@ export function SelectedClaimHero({
       case 'flagged':
         return 'Project evidence conflicts with this claim.';
       case 'needs_review':
-        return 'GroundGuard could not find enough evidence to verify this claim.';
+        return 'EvideX AI could not find enough evidence to verify this claim.';
       case 'recovered':
-        return 'GroundGuard revised this claim and verified the revision against project evidence.';
+        return 'EvideX AI revised this claim and verified the revision against project evidence.';
       default:
         return 'Checking claim against project evidence...';
     }
@@ -156,7 +156,7 @@ export function SelectedClaimHero({
         )}
       >
         {/* LEFT: VERIFIED DOCUMENT SLICE */}
-        <div className="rounded-xl border border-border/80 bg-muted/20 p-3.5 space-y-2 flex flex-col justify-between">
+        <div className="rounded-xl border border-border/80 bg-muted/20 p-3.5 space-y-2 flex flex-col justify-start">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-[11px] font-mono">
               <span className="flex items-center gap-1.5 font-semibold text-muted-foreground uppercase tracking-wider">
@@ -205,7 +205,7 @@ export function SelectedClaimHero({
         </div>
 
         {/* RIGHT: CLAIM */}
-        <div className="rounded-xl border border-border/80 bg-card p-3.5 space-y-2 flex flex-col justify-between">
+        <div className="rounded-xl border border-border/80 bg-card p-3.5 space-y-2 flex flex-col justify-start">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-[11px] font-mono">
               <span className="flex items-center gap-1.5 font-semibold text-muted-foreground uppercase tracking-wider">
@@ -244,7 +244,7 @@ export function SelectedClaimHero({
       {/* BOTTOM: VERIFICATION RESULT BANNER */}
       <div
         className={cn(
-          'p-3 rounded-lg border flex items-center justify-between text-xs font-sans transition-colors',
+          'p-3 rounded-lg border flex items-center justify-between text-xs font-sans transition-colors gap-3 flex-wrap sm:flex-nowrap',
           status === 'verified' && 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-200',
           status === 'recovered' && 'bg-blue-500/10 border-blue-500/30 text-blue-800 dark:text-blue-200',
           status === 'flagged' && 'bg-rose-500/10 border-rose-500/30 text-rose-800 dark:text-rose-200',
@@ -252,17 +252,17 @@ export function SelectedClaimHero({
           status === 'pending' && 'bg-muted/40 border-border/60 text-muted-foreground'
         )}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {status === 'verified' && <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />}
           {status === 'recovered' && <RotateCcw className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />}
           {status === 'flagged' && <AlertTriangle className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />}
           {status === 'needs_review' && <HelpCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />}
           {status === 'pending' && <Clock className="h-4 w-4 text-muted-foreground shrink-0" />}
-          <span className="font-medium text-xs sm:text-sm">
+          <span className="font-medium text-xs sm:text-sm truncate">
             {status === 'verified' && 'Verified · Project evidence supports this claim.'}
-            {status === 'recovered' && 'Recovered · GroundGuard revised this claim and verified the revision against project evidence.'}
+            {status === 'recovered' && 'Recovered · EvideX AI revised this claim and verified the revision against project evidence.'}
             {status === 'flagged' && 'Contradicted · Project evidence conflicts with this claim.'}
-            {status === 'needs_review' && 'Needs Review · GroundGuard could not find enough evidence to verify this claim.'}
+            {status === 'needs_review' && 'Needs Review · EvideX AI could not find enough evidence to verify this claim.'}
             {status === 'pending' && 'Evaluating claim against project evidence...'}
           </span>
         </div>
@@ -273,15 +273,22 @@ export function SelectedClaimHero({
             size="sm"
             variant="outline"
             onClick={onRetry}
-            disabled={isRetrying}
-            className="h-7 text-xs gap-1.5 border-current hover:bg-background/40"
+            disabled={recoveryAttempts.length >= 2 || isRetrying}
+            className="h-7 text-xs gap-1.5 border-current hover:bg-background/40 shrink-0"
           >
             {isRetrying ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>Recovering...</span>
+              </>
+            ) : recoveryAttempts.length >= 2 ? (
+              <span>Recovery attempt limit reached (2/2)</span>
             ) : (
-              <RefreshCw className="h-3 w-3" />
+              <>
+                <RefreshCw className="h-3 w-3" />
+                <span>Retry Recovery</span>
+              </>
             )}
-            <span>Retry Recovery</span>
           </Button>
         )}
       </div>

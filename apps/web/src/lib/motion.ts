@@ -1,7 +1,7 @@
 import type { Transition, Variants } from 'framer-motion';
 
 /**
- * GroundGuard Motion Foundation
+ * EvideX AI Motion Foundation
  * Enhanced with scroll-triggered pop-up, morphing, and lively spring physics.
  */
 

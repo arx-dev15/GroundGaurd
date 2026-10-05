@@ -50,7 +50,7 @@ FALLBACK_SOCIAL_ACK = "Sure — what would you like to check next?"
 FALLBACK_PRODUCT_HELP = (
     "I can help you explore this project's documents, compare what different "
     "sources say, and trace factual claims back to their evidence. If something "
-    "isn't well supported, GroundGuard can flag it for review."
+    "isn't well supported, EvideX AI can flag it for review."
 )
 FALLBACK_ABSTENTION = "I couldn't find enough evidence in this project's sources to answer that confidently."
 FALLBACK_CLARIFICATION = "Could you clarify which systems or documents you would like to compare?"
@@ -59,7 +59,7 @@ FALLBACK_CLARIFICATION = "Could you clarify which systems or documents you would
 # ---------------------------------------------------------------------------
 # Section 7: Natural Social Response Generation
 # ---------------------------------------------------------------------------
-SOCIAL_SYSTEM_PROMPT = """You are GroundGuard, an enterprise AI assistant for evidence-grounded project documentation.
+SOCIAL_SYSTEM_PROMPT = """You are EvideX AI, an enterprise AI assistant for evidence-grounded project documentation.
 Respond naturally and briefly to the user's social message (greeting, thanks, farewell, or acknowledgment).
 
 RULES:
@@ -159,8 +159,8 @@ async def generate_social_response(
 # ---------------------------------------------------------------------------
 # Section 9 & 10: Natural Product Help Generation
 # ---------------------------------------------------------------------------
-PRODUCT_HELP_SYSTEM_PROMPT = f"""You are GroundGuard, an enterprise AI assistant for evidence-grounded project documentation.
-Your job is to explain what GroundGuard can do in a natural, helpful, conversational way.
+PRODUCT_HELP_SYSTEM_PROMPT = f"""You are EvideX AI, an enterprise AI assistant for evidence-grounded project documentation.
+Your job is to explain what EvideX AI can do in a natural, helpful, conversational way.
 
 CRITICAL INVARIANT - ALLOWED CAPABILITY MANIFEST:
 You may ONLY describe capabilities from this exact list of TRUE features:
@@ -176,7 +176,7 @@ STRICT RULES:
    - NO world-knowledge answering
 3. Do NOT mention internal technical jargon like DeBERTa, RRF, Tantivy, Qdrant, chunk IDs, or embeddings.
 4. Keep the explanation concise and direct (2-4 sentences max).
-5. GroundGuard keeps all answers strictly grounded in uploaded project documentation.
+5. EvideX AI keeps all answers strictly grounded in uploaded project documentation.
 6. NO DOMAIN LEAKAGE: Do NOT assume, infer, or mention any specific engineering, scientific, or academic domain (such as 'industrial engineering') unless explicitly stated in the project context.
 """
 
@@ -197,7 +197,7 @@ async def generate_product_help_response(
     user_prompt = (
         f"{proj_str}\n"
         f"User asked: \"{user_message.strip()}\"\n\n"
-        f"Explain GroundGuard's true capabilities clearly and naturally for this project:"
+        f"Explain EvideX AI's true capabilities clearly and naturally for this project:"
     )
 
     try:
@@ -217,7 +217,7 @@ async def generate_product_help_response(
 # ---------------------------------------------------------------------------
 # Section 24 & 25: Natural Grounded Abstention Generation
 # ---------------------------------------------------------------------------
-ABSTENTION_SYSTEM_PROMPT = """You are GroundGuard, an enterprise AI assistant for evidence-grounded project documentation.
+ABSTENTION_SYSTEM_PROMPT = """You are EvideX AI, an enterprise AI assistant for evidence-grounded project documentation.
 The user asked a question, but there is insufficient evidence in the uploaded project documents to answer it.
 Your job is to explain this naturally, politely, and concisely to the user.
 
@@ -277,7 +277,7 @@ async def generate_abstention_response(
 # ---------------------------------------------------------------------------
 # Section 26: Natural Clarification Prompt Generation
 # ---------------------------------------------------------------------------
-CLARIFICATION_SYSTEM_PROMPT = """You are GroundGuard, an enterprise AI assistant for evidence-grounded project documentation.
+CLARIFICATION_SYSTEM_PROMPT = """You are EvideX AI, an enterprise AI assistant for evidence-grounded project documentation.
 The user asked an ambiguous question (such as 'compare them' without clear targets or referents).
 Ask a natural, direct, concise clarification question to understand what specific systems, documents, or topics they want to examine.
 

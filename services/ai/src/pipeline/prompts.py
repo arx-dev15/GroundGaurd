@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any
 UNTRUSTED_CONTEXT_HEADER = "=== BEGIN UNTRUSTED EVIDENCE CONTEXT ==="
 UNTRUSTED_CONTEXT_FOOTER = "=== END UNTRUSTED EVIDENCE CONTEXT ==="
 
-GROUNDGUARD_SYSTEM_PROMPT = """You are GroundGuard, an enterprise AI assistant for evidence-grounded project documentation.
+GROUNDGUARD_SYSTEM_PROMPT = """You are EvideX AI, an enterprise AI assistant for evidence-grounded project documentation.
 Your role is to provide accurate, grounded, and natural answers to user questions based STRICTLY and ONLY on the provided evidence blocks.
 
 OPERATIONAL INVARIANTS:
@@ -18,6 +18,7 @@ OPERATIONAL INVARIANTS:
    - Simple definition questions (e.g. "What is Campus Monitor?") should receive concise, natural answers (typically 2–4 coherent sentences) that directly synthesize identity, core technologies, and primary purpose into a readable answer, rather than an exhaustive multi-heading claim dump.
    - Avoid repetitive robotic boilerplate prefixes in every sentence.
    - Preserve exact equipment tags (e.g. P-101A, V-204, XV-204), line identifiers (e.g. 100-CW-024), numbers (e.g. 42.5, 120), units (e.g. bar, MPa, m³/h, °C), dates, and operational states without modification. In engineering queries with specific tags, explicitly identify the tag when stating its attributes.
+   - For parameter and specification questions (e.g. voltages, pin connections, baud rates, reading intervals/delays, operating ranges): report the specific numeric values, units, configuration statements, and pinout labels established in the evidence (such as connection voltages on power/VIN pins, baud rates in communication setup, or loop delays/intervals), rather than abstaining when the exact abstract noun is omitted in the source.
 3. SEMANTIC DEDUPLICATION:
    - When describing technologies, capabilities, or components, consolidate overlapping terms and near-synonyms into coherent conceptual groups (e.g., IoT sensing devices, machine learning/AI algorithms, computer vision techniques, wireless sensor networks) rather than repeating near-duplicates under slightly different names.
 4. MINIMUM SUFFICIENT ANSWER & RELATED-WORK DISCIPLINE:
@@ -47,11 +48,13 @@ def build_grounded_user_prompt(
     evidence_context: str,
     conversation_context: Optional[List[Dict[str, Any]]] = None,
     standalone_query: Optional[str] = None,
+    operation: Optional[str] = None,
 ) -> str:
     """
     Constructs the user message payload with strict delimitation between query and untrusted evidence.
     Preserves both the original user instruction and the resolved retrieval subject.
     Includes bounded previous conversation turns if provided for pronoun and referent interpretation.
+    Adheres to requested operation shape (outline, summarize, procedure, extract, locate, lookup, compare).
     """
     context_section = ""
     if conversation_context and len(conversation_context) > 0:
@@ -71,6 +74,7 @@ def build_grounded_user_prompt(
     is_transform = bool(
         any(k in query.lower() for k in ["simply", "simpler", "plain language", "plain english", "in simple terms", "shorten", "summarize", "in bullets"])
         or (standalone_query and any(k in standalone_query.lower() for k in ["simply", "simpler", "plain language", "in simple terms"]))
+        or operation == "transform"
     )
     transform_instruction = ""
     if is_transform:
@@ -82,6 +86,41 @@ def build_grounded_user_prompt(
             "facts more clearly and concisely. If previous assistant conversation context is not present, explain the subject simply using the retrieved evidence without expanding into tangential topics.\n\n"
         )
 
+    # Operation-specific shape guidance
+    operation_instruction = ""
+    if operation == "outline":
+        operation_instruction = (
+            "OPERATION INSTRUCTION (OUTLINE):\n"
+            "The user is requesting an outline of contents/topics. Provide a clean, structured bulleted outline "
+            "identifying the major sections, components, and topics covered in the document evidence. Do not write a long narrative.\n\n"
+        )
+    elif operation == "summarize":
+        operation_instruction = (
+            "OPERATION INSTRUCTION (SUMMARY):\n"
+            "The user is requesting a summary. Provide a coherent, well-structured narrative synthesis summarizing the key contents.\n\n"
+        )
+    elif operation == "procedure":
+        operation_instruction = (
+            "OPERATION INSTRUCTION (PROCEDURE / STEPS):\n"
+            "The user is asking for instructions or steps. Present the steps in the exact sequential, chronological order "
+            "established by the documentation. Number the steps clearly.\n\n"
+        )
+    elif operation == "extract":
+        operation_instruction = (
+            "OPERATION INSTRUCTION (LIST EXTRACTION):\n"
+            "Extract a concise, grounded list of the requested items (e.g. libraries, specifications, or components). Do not extrapolate.\n\n"
+        )
+    elif operation == "locate":
+        operation_instruction = (
+            "OPERATION INSTRUCTION (LOCATION LOOKUP):\n"
+            "State the document name, page number, section heading, and a brief supporting excerpt for where this information is discussed.\n\n"
+        )
+    elif operation == "compare":
+        operation_instruction = (
+            "OPERATION INSTRUCTION (COMPARISON):\n"
+            "Provide a balanced comparison covering each requested entity or approach. If evidence for one side is absent from the documentation, explicitly state that the comparison is partial/incomplete.\n\n"
+        )
+
     return (
         f"{context_section}"
         f"USER QUESTION:\n"
@@ -90,17 +129,20 @@ def build_grounded_user_prompt(
         f"RETRIEVED DOCUMENT EVIDENCE:\n"
         f"{evidence_context}\n\n"
         f"{transform_instruction}"
+        f"{operation_instruction}"
         f"INSTRUCTION: Answer the question above using ONLY facts established in the RETRIEVED DOCUMENT EVIDENCE.\n"
         f"- Be concise and direct (typically 2-4 sentences for definition questions, or clear grouped points for multi-part questions).\n"
         f"- Answer ONLY what was asked. Focus on the project's own technologies and capabilities, omitting prior literature preambles unless explicitly requested.\n"
         f"- Consolidate semantic near-duplicates into clean conceptual groupings.\n"
+        f"- PARTIAL SUPPORT: If the user asks about multiple facets and only some are supported by the evidence, answer the supported parts directly and explicitly state which facet(s) are not mentioned or supported in project documents.\n"
+        f"- SPECIFICATION & TECHNICAL VALUE EXTRACTION: When asked about numeric specifications, parameters, intervals, rates, electrical values (e.g. voltages, currents), or code behavior, carefully inspect the evidence for corresponding numbers, units, configuration settings, pin labels (e.g. VIN, GND, VCC), and code calls (e.g. delays, timers, initialization calls), and state what the source documentation specifies.\n"
         f"- Follow user-requested style while remaining strictly grounded in the retrieved documentation.\n"
         f"- Use conversation context to interpret pronouns and referents, but do not treat conversation history as evidence."
     )
 
 
 
-CLAIM_EXTRACTION_SYSTEM_PROMPT = """You are GroundGuard's Claim Extraction & Provenance Engine.
+CLAIM_EXTRACTION_SYSTEM_PROMPT = """You are EvideX AI's Claim Extraction & Provenance Engine.
 Your task is to decompose a generated technical answer into atomic, independently verifiable factual claims and associate each claim with candidate evidence chunks.
 
 RULES:

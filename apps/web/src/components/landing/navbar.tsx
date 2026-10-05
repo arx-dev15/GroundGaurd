@@ -56,13 +56,13 @@ export function Navbar({ onGetStarted, onSignIn }: NavbarProps) {
         <Link
           href="/"
           className="flex items-center gap-2.5 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md py-1 px-1.5 -ml-1.5 transition-colors"
-          aria-label="GroundGuard Home"
+          aria-label="EvideX AI Home"
         >
           <div className="h-6 w-6 rounded bg-foreground text-background flex items-center justify-center transition-transform group-hover:scale-105 duration-150">
             <Shield className="h-3.5 w-3.5" />
           </div>
           <span className="font-semibold text-sm tracking-tight text-foreground">
-            GroundGuard
+            EvideX AI
           </span>
         </Link>
 

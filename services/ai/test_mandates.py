@@ -187,7 +187,7 @@ cb_state = {
     "claim_id": "c_cb",
     "original_claim": "Pump P-101A flows at 100 m3/h.",
     "failure_reason": "CONTRADICTION",
-    "attempt": 2,
+    "attempt": 3,
     "max_attempts": 2
 }
 cb_res = node_diagnose_failure(cb_state)
@@ -231,12 +231,12 @@ async def verify_langgraph_execution():
         claim_id="c_test_exec",
         claim="Unknown asset X-999 operates at 999 bar.",
         failure_reason="ZERO_EVIDENCE",
-        attempt=2,
+        attempt=3,
         max_attempts=2
     )
     assert res.action == "abstain", f"Expected abstain, got {res.action}"
-    assert "[Unverified SOP]" in res.candidateClaim, f"Expected '[Unverified SOP]', got {res.candidateClaim}"
-    print(f"Mandate 10 - Circuit breaker redacted claim to: {res.candidateClaim}")
+    assert res.candidateClaim is None, f"Expected None candidateClaim on circuit breaker, got {res.candidateClaim}"
+    print(f"Mandate 10 - Circuit breaker safely abstained without candidate claim (candidateClaim={res.candidateClaim})")
 
 asyncio.run(verify_langgraph_execution())
 print("[OK] Mandate 10 (LangGraph StateGraph Compilation & Execution): COMPLIANT")

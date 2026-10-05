@@ -281,6 +281,8 @@ export async function generationRoutes(fastify: FastifyInstance) {
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
+      'Access-Control-Allow-Origin': request.headers.origin || '*',
+      'Access-Control-Allow-Credentials': 'true',
     });
 
     const lastEventIdStr = request.headers['last-event-id'];

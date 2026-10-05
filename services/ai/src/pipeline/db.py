@@ -101,17 +101,19 @@ def get_project_knowledge_summary(project_id: str) -> Dict[str, Any]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT filename FROM documents
+                SELECT id, filename FROM documents
                 WHERE project_id = %s AND status = 'ready'
                 ORDER BY created_at ASC;
                 """,
                 (project_id,)
             )
             rows = cur.fetchall()
-            filenames = [r[0] for r in rows if r[0]]
+            ready_docs = [{"id": str(r[0]), "filename": str(r[1])} for r in rows if r[1]]
+            filenames = [d["filename"] for d in ready_docs]
             return {
                 "readyCount": len(filenames),
-                "filenames": filenames
+                "filenames": filenames,
+                "readyDocs": ready_docs,
             }
     except Exception as e:
         logger.error(f"Error fetching project knowledge summary: {e}")

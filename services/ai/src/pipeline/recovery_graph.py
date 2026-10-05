@@ -30,7 +30,7 @@ logger = logging.getLogger("m2-langgraph-recovery")
 
 MAX_RECOVERY_ATTEMPTS = int(os.getenv("MAX_RECOVERY_ATTEMPTS", "2"))
 
-RECOVERY_SYSTEM_PROMPT = """You are GroundGuard's Claim Recovery Engine.
+RECOVERY_SYSTEM_PROMPT = """You are EvideX AI's Claim Recovery Engine.
 Your task is to evaluate a single failed atomic factual claim against newly retrieved recovery evidence and determine whether the claim can be verified as-is, revised, or must be abstained.
 
 OPERATIONAL INVARIANTS:
@@ -98,7 +98,7 @@ class RecoveryState(TypedDict):
     evidence_items: List[EvidenceItem]
     raw_llm_response: str
     action: str  # "keep" | "revise" | "abstain" | "circuit_breaker"
-    candidate_claim: str
+    candidate_claim: Optional[str]
     reason: str
     model_version: str
     error: Optional[str]
@@ -120,8 +120,8 @@ def node_diagnose_failure(state: RecoveryState) -> Dict[str, Any]:
     attempt = state.get("attempt", 1)
     max_att = state.get("max_attempts", MAX_RECOVERY_ATTEMPTS)
 
-    if attempt >= max_att:
-        logger.info(f"[LangGraph-Diagnose] Claim '{state['claim_id']}' reached attempt limit ({attempt}>={max_att}) -> Circuit Breaker")
+    if attempt > max_att:
+        logger.info(f"[LangGraph-Diagnose] Claim '{state['claim_id']}' exceeded attempt limit ({attempt}>{max_att}) -> Circuit Breaker")
         return {"diagnosis_branch": "circuit_breaker"}
 
     claim_text = state["original_claim"].lower()
@@ -226,16 +226,17 @@ def node_formulate_unit_repair(state: RecoveryState) -> Dict[str, Any]:
 def node_circuit_breaker_fallback(state: RecoveryState) -> Dict[str, Any]:
     """
     Branch 5: Circuit Breaker Fallback
-    Safe claim redaction: Redacts unverified or contradictory claim to '[Unverified SOP]'.
+    Safe claim handling: Returns action='abstain' with null candidate claim when attempts exhausted.
+    NEVER persist [Unverified SOP] or invent candidate text.
     """
     logger.warning(
         f"[LangGraph-CircuitBreaker] Triggered for claim '{state['claim_id']}'. "
-        f"Redacting claim to '[Unverified SOP]'."
+        f"Attempts exhausted ({state['attempt']} > {state.get('max_attempts', MAX_RECOVERY_ATTEMPTS)}). Abstaining with no candidate."
     )
     return {
         "action": "abstain",
-        "candidate_claim": "[Unverified SOP]",
-        "reason": f"Circuit breaker activated after {state['attempt']} attempts: {state['failure_reason']}",
+        "candidate_claim": None,
+        "reason": f"Circuit breaker activated: recovery attempt limit reached ({state['failure_reason']})",
         "evidence_items": state.get("evidence_items", []),
         "model_version": llm_runtime.get_model_version()
     }
@@ -524,7 +525,7 @@ recovery_graph = build_enterprise_recovery_graph()
 
 class RecoveryGraphResult(BaseModel):
     action: str = "abstain"  # "keep" | "revise" | "abstain"
-    candidateClaim: str
+    candidateClaim: Optional[str] = None
     recoveryEvidence: List[EvidenceItem] = Field(default_factory=list)
     modelVersion: str = ""
     reason: str = ""
@@ -564,9 +565,12 @@ async def run_langgraph_recovery(
 
     final_state = await recovery_graph.ainvoke(initial_state)
 
+    action = final_state.get("action", "abstain")
+    candidate_claim = final_state.get("candidate_claim") if action != "abstain" else None
+
     return RecoveryGraphResult(
-        action=final_state.get("action", "abstain"),
-        candidateClaim=final_state.get("candidate_claim", claim),
+        action=action,
+        candidateClaim=candidate_claim,
         recoveryEvidence=final_state.get("evidence_items", []),
         modelVersion=final_state.get("model_version", llm_runtime.get_model_version()),
         reason=final_state.get("reason", "Recovery completed via LangGraph workflow"),

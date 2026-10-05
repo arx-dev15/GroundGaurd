@@ -248,7 +248,7 @@ export function TrustInspectorPreview() {
                         </div>
                         <div className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border border-border/50">
                           <span className="text-muted-foreground">Verification Model</span>
-                          <span className="text-foreground">groundguard-deberta-v1</span>
+                          <span className="text-foreground">evidex-deberta-v1</span>
                         </div>
                         <div className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border border-border/50">
                           <span className="text-muted-foreground">Verification Latency</span>

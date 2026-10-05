@@ -85,7 +85,7 @@ export function AppSidebar() {
           <Link
             href={`/projects/${currentProjectId}/overview`}
             className="flex items-center gap-2.5 min-w-0 outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md p-1 group"
-            aria-label="GroundGuard Home"
+            aria-label="EvideX AI Home"
           >
             <div className="h-6 w-6 rounded bg-foreground text-background flex items-center justify-center shrink-0 shadow-xs relative">
               <Shield className="h-3.5 w-3.5 fill-current" />
@@ -94,7 +94,7 @@ export function AppSidebar() {
 
             {!sidebarCollapsed && (
               <span className="text-xs font-semibold tracking-tight text-foreground truncate">
-                GroundGuard
+                EvideX AI
               </span>
             )}
           </Link>

@@ -13,7 +13,7 @@ export default function NotFound() {
         <div className="space-y-1.5">
           <h1 className="text-lg font-semibold text-foreground">Page not found</h1>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            The requested location does not exist or has been relocated within GroundGuard.
+            The requested location does not exist or has been relocated within EvideX AI.
           </p>
         </div>
 

@@ -14,7 +14,7 @@ export function Footer() {
             <Shield className="h-3 w-3" />
           </div>
           <span className="font-semibold text-xs tracking-tight text-foreground">
-            GroundGuard
+            EvideX AI
           </span>
           <span className="text-[11px] text-muted-foreground/60 font-mono ml-2">
             Verifiable Claim Grounding
@@ -45,7 +45,7 @@ export function Footer() {
 
         {/* Copyright */}
         <div className="text-[11px] font-mono text-muted-foreground/70">
-          © {currentYear} GroundGuard. All rights reserved.
+          © {currentYear} EvideX AI. All rights reserved.
         </div>
       </div>
     </footer>

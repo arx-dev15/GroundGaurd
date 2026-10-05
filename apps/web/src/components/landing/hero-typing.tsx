@@ -70,7 +70,7 @@ export function HeroTyping({ onQuestionChange }: HeroTypingProps) {
     <div className="w-full max-w-xl mx-auto select-none" aria-label="Illustrative verification inquiry">
       {/* Screen reader static version */}
       <span className="sr-only">
-        Can I trust this answer? GroundGuard traces factual claims to evidence and verifies them.
+        Can I trust this answer? EvideX AI traces factual claims to evidence and verifies them.
       </span>
 
       {/* Visual live typing presentation */}

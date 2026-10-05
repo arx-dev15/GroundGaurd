@@ -78,7 +78,7 @@ export default function SignupPage() {
             <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-status-verified ring-2 ring-background" />
           </div>
           <span className="text-sm font-semibold tracking-tight text-foreground">
-            GroundGuard
+            EvideX AI
           </span>
         </Link>
 

@@ -122,7 +122,7 @@ export function TrustPrinciple() {
 
           <div className="space-y-2 pt-2">
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight text-foreground font-sans">
-              GroundGuard checks the claim itself.
+              EvideX AI checks the claim itself.
             </h2>
             <p className="text-xs sm:text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
               We decompose drafts into isolated propositions, verify them against immutable document

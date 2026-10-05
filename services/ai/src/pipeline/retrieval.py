@@ -454,6 +454,10 @@ def detect_candidate_conflicts(
 
                     # Also compare if high content word overlap between cross-document candidates discussing same topic
                     if not common_idents:
+                        # If both candidates have distinct, non-empty equipment identifiers (e.g. P-101A vs P-888),
+                        # they refer to different equipment tags, NOT a single shared topic conflict.
+                        if c1_idents and c2_idents and not (c1_idents & c2_idents):
+                            continue
                         w1 = set(w for w in re.findall(r'[a-zA-Z0-9_\-]+', c1.text.lower()) if w not in STOPWORDS and len(w) >= 3)
                         w2 = set(w for w in re.findall(r'[a-zA-Z0-9_\-]+', c2.text.lower()) if w not in STOPWORDS and len(w) >= 3)
                         overlap_c = len(w1 & w2) / max(1, min(len(w1), len(w2)))
@@ -1194,9 +1198,11 @@ def retrieve_evidence(
     # 2b. Tantivy Lexical Retrieval
     if route.lexical:
         try:
+            # Safe query sanitization at orchestration layer: preserve technical tokens while replacing syntax-breaking delimiters
+            clean_lexical_query = re.sub(r'[()\[\]{}:^~*?<>]', ' ', query).strip()
             raw_lexical_hits = tantivy_store.search_project(
                 project_id=project_id,
-                query=query,
+                query=clean_lexical_query or query,
                 top_k=LEXICAL_CANDIDATE_K
             )
         except Exception as e:
@@ -1447,7 +1453,8 @@ def retrieve_evidence(
             "denseRank": cand.denseRank,
             "lexicalRank": cand.lexicalRank,
             "graphRank": cand.graphRank,
-            "sources": cand.sources
+            "sources": cand.sources,
+            "chunkIndex": cand.chunkIndex
         }
         if cand.metadata:
             cand_meta.update(cand.metadata)

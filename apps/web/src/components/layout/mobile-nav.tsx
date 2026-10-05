@@ -97,7 +97,7 @@ export function MobileNav() {
               <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-status-verified ring-2 ring-background" />
             </div>
             <SheetTitle className="text-xs font-semibold text-foreground">
-              GroundGuard Workspace
+              EvideX AI Workspace
             </SheetTitle>
           </SheetHeader>
 

@@ -45,7 +45,7 @@ export default function CompleteLandingPage() {
         {/* 03: Trust Principle Section */}
         <TrustPrinciple />
 
-        {/* 04: How GroundGuard Works (Interactive 5-stage pipeline) */}
+        {/* 04: How EvideX AI Works (Interactive 5-stage pipeline) */}
         <HowItWorks />
 
         {/* 05: Verification Story (Claim vs Evidence & Autonomous Recovery) */}

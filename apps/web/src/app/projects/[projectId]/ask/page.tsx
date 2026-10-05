@@ -258,6 +258,10 @@ export default function AskPage() {
 
     setPendingUserMessage(tempMsg);
     setInputValue('');
+    setTimeout(() => {
+      const textarea = document.querySelector('textarea');
+      textarea?.focus();
+    }, 20);
     setIsSubmitting(true);
     setStatusLabel('Retrieving project evidence...');
 
@@ -350,6 +354,10 @@ export default function AskPage() {
     } finally {
       setIsSubmitting(false);
       abortControllerRef.current = null;
+      setTimeout(() => {
+        const textarea = document.querySelector('textarea');
+        textarea?.focus();
+      }, 50);
     }
   };
 
@@ -419,6 +427,7 @@ export default function AskPage() {
       if (m.role === 'assistant') {
         const c = m.content.toLowerCase();
         if (
+          c.includes('evidex ai was unable to complete grounded verification') ||
           c.includes('groundguard was unable to complete grounded verification') ||
           c.includes('generation service unavailable') ||
           c.includes('service is temporarily unreachable')
@@ -508,7 +517,7 @@ export default function AskPage() {
               <p className="text-xs sm:text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
                 {readyDocuments.length > 0
                   ? greetingSub
-                  : 'GroundGuard answers from evidence in this project once documents are uploaded.'}
+                  : 'EvideX AI answers from evidence in this project once documents are uploaded.'}
               </p>
 
               <div className="text-[11px] text-muted-foreground/75 font-mono">
@@ -521,7 +530,7 @@ export default function AskPage() {
               <div className="w-full max-w-xl mb-4 p-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>GroundGuard is temporarily unavailable for new answers.</span>
+                  <span>EvideX AI is temporarily unavailable for new answers.</span>
                 </div>
                 <Button variant="ghost" size="sm" onClick={checkReadiness} className="h-6 text-[11px] px-2">
                   Check again
@@ -625,7 +634,7 @@ export default function AskPage() {
                     <div key={msg.id || index} className="space-y-2 pb-6">
                       <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                         <Shield className="h-3.5 w-3.5 text-primary" />
-                        <span>GROUNDGUARD</span>
+                        <span>EvideX AI</span>
                       </div>
 
                       <AnswerView
@@ -682,7 +691,7 @@ export default function AskPage() {
                       <AlertCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
                       <div className="space-y-1 flex-1">
                         <h4 className="text-sm font-semibold text-foreground">
-                          GroundGuard can&apos;t generate a grounded answer right now.
+                          EvideX AI can&apos;t generate a grounded answer right now.
                         </h4>
                         <p className="text-xs text-muted-foreground leading-relaxed">
                           Your question is safe. Try again in a moment.
@@ -745,7 +754,7 @@ export default function AskPage() {
                   <div className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                      <span>GroundGuard is temporarily unavailable for new answers.</span>
+                      <span>EvideX AI is temporarily unavailable for new answers.</span>
                     </div>
                     <Button variant="ghost" size="sm" onClick={checkReadiness} className="h-6 text-[11px] px-2">
                       Check again

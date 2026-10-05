@@ -9,7 +9,7 @@ import logging
 from dotenv import load_dotenv
 
 load_dotenv()
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), ".env"))
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), ".env"), override=True)
 
 # Ensure services/ai directory is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -133,7 +133,7 @@ class RecoverResponse(BaseModel):
     requestId: str
     claimId: str
     action: str  # "keep" | "revise" | "abstain"
-    candidateClaim: str
+    candidateClaim: Optional[str] = None
     recoveryEvidence: List[EvidenceItem] = []
     modelVersion: str
     reason: Optional[str] = None
@@ -499,18 +499,18 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             metadata={"intent": "product_help", "abstention": False}, claims=[]
         )
 
-    # Step 1: QueryPlan-guided retrieval
-    # For focused mode: single retrieve_evidence call.
-    # For broad/comparative mode: multi-query retrieve_evidence calls, merge and deduplicate.
+    # Step 1: 4-Dimensional Information-Need Guided Retrieval Orchestration
+    # Strategies:
+    # 1. coverage: document overview / contents / summary (representative chunks in reading order)
+    # 2. section: exact heading lexical match + bounded successor chunk neighborhood expansion
+    # 3. procedural: source-ordered evidence (pageNumber, chunkIndex)
+    # 4. comparative / cross_document / broad: multi-query retrieval with document diversity
+    # 5. focused: high-precision single-query retrieval with preserved technical tokens
     search_queries = plan.search_queries if plan.search_queries else [plan.standalone_query or payload.query]
     retrieval_mode = plan.retrieval_mode
+    retrieval_res = None
 
     def _merge_evidence(results_list):
-        """
-        Merge multiple RetrieveResponse.results lists.
-        Deduplicate by chunkId; first occurrence (highest-ranked) wins.
-        Returns merged list of EvidenceItem.
-        """
         seen = set()
         merged = []
         for items in results_list:
@@ -521,9 +521,102 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                     merged.append(ev)
         return merged
 
+    def _fetch_successor_chunk(project_id: str, document_id: str, chunk_index: int) -> Optional[Dict[str, Any]]:
+        try:
+            from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+            res = qdrant_store.client.scroll(
+                collection_name="groundguard_chunks",
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(key="projectId", match=MatchValue(value=project_id)),
+                        FieldCondition(key="documentId", match=MatchValue(value=document_id)),
+                        FieldCondition(key="chunkIndex", match=MatchValue(value=chunk_index)),
+                    ]
+                ),
+                limit=1
+            )
+            if res and res[0]:
+                return res[0][0].payload
+        except Exception as e:
+            logger.warning("[/generate successor error] %s", e)
+        return None
+
     try:
-        if retrieval_mode in ("broad", "comparative") and len(search_queries) > 1:
-            # Multi-query broad retrieval
+        # Strategy A: Document Coverage (overview / contents / summary)
+        if plan.retrieval_strategy == "coverage":
+            target_doc_id = plan.resolved_document_id
+            if not target_doc_id and proj_context:
+                ready_docs_list = proj_context.get("readyDocs") or []
+                if len(ready_docs_list) == 1:
+                    target_doc_id = ready_docs_list[0].get("id")
+                elif plan.resolved_document_name:
+                    for d in ready_docs_list:
+                        if d.get("filename", "").lower() == plan.resolved_document_name.lower():
+                            target_doc_id = d.get("id")
+                            break
+
+            if target_doc_id:
+                try:
+                    from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+                    scroll_filter = Filter(must=[
+                        FieldCondition(key="projectId", match=MatchValue(value=payload.projectId)),
+                        FieldCondition(key="documentId", match=MatchValue(value=target_doc_id))
+                    ])
+                    scroll_res = qdrant_store.client.scroll(
+                        collection_name="groundguard_chunks",
+                        scroll_filter=scroll_filter,
+                        limit=100
+                    )
+                    points = scroll_res[0] if scroll_res else []
+                    if points:
+                        points.sort(key=lambda p: (p.payload.get("pageNumber", 1), p.payload.get("chunkIndex", 0)))
+                        if len(points) <= 8:
+                            selected_points = points
+                        else:
+                            stride = (len(points) - 1) / 7.0
+                            selected_indices = sorted(list({int(round(i * stride)) for i in range(8)}))
+                            selected_points = [points[idx] for idx in selected_indices if idx < len(points)]
+
+                        coverage_items = []
+                        for p in selected_points:
+                            payload_d = p.payload or {}
+                            coverage_items.append(EvidenceItem(
+                                evidenceId=f"ev_{uuid.uuid4().hex[:8]}",
+                                chunkId=payload_d.get("chunkId", ""),
+                                documentId=payload_d.get("documentId"),
+                                text=payload_d.get("text", ""),
+                                pageNumber=payload_d.get("pageNumber", 1),
+                                section=payload_d.get("section"),
+                                heading=payload_d.get("heading"),
+                                identifiers=payload_d.get("identifierKeys", []),
+                                sources=["qdrant_dense", "document_coverage"],
+                                rrfScore=1.0,
+                                rerankScore=1.0,
+                                score=1.0,
+                                metadata={
+                                    "chunkIndex": payload_d.get("chunkIndex", 0),
+                                    **(payload_d.get("metadata") or {})
+                                }
+                            ))
+                        from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals
+                        coverage_suf = EvidenceSufficiency(
+                            sufficient=True,
+                            reason="Document coverage evidence sufficient",
+                            score=1.0,
+                            signals=EvidenceSufficiencySignals(
+                                resultCount=len(coverage_items),
+                                topRerankScore=1.0,
+                                identifierMatched=False,
+                                sourceCoverage=[target_doc_id]
+                            )
+                        )
+                        retrieval_res = type("_CoverageResult", (), {"results": coverage_items, "sufficiency": coverage_suf})()
+                        logger.info("[/generate coverage] Retrieved %d representative chunks for doc=%s", len(coverage_items), target_doc_id)
+                except Exception as cov_err:
+                    logger.warning("[/generate coverage error] %s — falling back to standard retrieval", cov_err)
+
+        # Strategy B: Broad / Comparative / Cross-Document Multi-Query
+        if retrieval_res is None and retrieval_mode in ("broad", "comparative", "cross_document") and len(search_queries) > 1:
             all_results = []
             last_sufficiency = None
             for sq in search_queries:
@@ -540,12 +633,8 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                     logger.warning("[/generate broad sq error] sq='%s': %s", sq[:60], sq_err)
 
             merged_items = _merge_evidence(all_results)
-            # For sufficiency in broad mode: sufficient if any merged items have a passing rerankScore
-            # OR if last single-query sufficiency was sufficient
             if merged_items:
-                top_score = max(
-                    (ev.rerankScore or ev.score or 0.0) for ev in merged_items
-                )
+                top_score = max((ev.rerankScore or ev.score or 0.0) for ev in merged_items)
                 from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals, SUFFICIENCY_THRESHOLD
                 broad_sufficient = top_score >= SUFFICIENCY_THRESHOLD
                 broad_suf = EvidenceSufficiency(
@@ -559,37 +648,98 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                         sourceCoverage=list({ev.documentId for ev in merged_items if ev.documentId}),
                     )
                 )
-                retrieval_res = type(
-                    "_BroadResult", (),
-                    {"results": merged_items, "sufficiency": broad_suf}
-                )()
+                retrieval_res = type("_BroadResult", (), {"results": merged_items, "sufficiency": broad_suf})()
             elif last_sufficiency:
-                retrieval_res = type(
-                    "_BroadResult", (),
-                    {"results": [], "sufficiency": last_sufficiency}
-                )()
+                retrieval_res = type("_BroadResult", (), {"results": [], "sufficiency": last_sufficiency})()
             else:
                 from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals
-                retrieval_res = type(
-                    "_BroadResult", (),
-                    {"results": [], "sufficiency": EvidenceSufficiency(
-                        sufficient=False, reason="No evidence retrieved", score=0.0,
-                        signals=EvidenceSufficiencySignals(
-                            resultCount=0, topRerankScore=0.0,
-                            identifierMatched=False, sourceCoverage=[]
-                        )
-                    )}
-                )()
-        else:
-            # Single-query focused retrieval: prioritize plan.search_queries[0] (clean factual terms)
-            # over raw standalone_query (which may contain transform/style instructions)
-            focused_q = (plan.search_queries[0] if plan.search_queries else None) or plan.standalone_query or payload.query
+                retrieval_res = type("_BroadResult", (), {"results": [], "sufficiency": EvidenceSufficiency(
+                    sufficient=False, reason="No evidence retrieved", score=0.0,
+                    signals=EvidenceSufficiencySignals(resultCount=0, topRerankScore=0.0, identifierMatched=False, sourceCoverage=[])
+                )})()
+
+        # Strategy C: Focused / Section Retrieval
+        if retrieval_res is None:
+            focused_q = (plan.search_queries[0] if plan.search_queries else None) or plan.target or plan.standalone_query or payload.query
             retrieval_res = retrieve_evidence(
                 project_id=payload.projectId,
                 query=focused_q,
                 top_k=top_k,
                 request_id=req_id
             )
+
+        # Strategy D: Section Neighborhood Expansion (if section requested and heading matched)
+        if retrieval_res and retrieval_res.results and (plan.retrieval_strategy == "section" or plan.target):
+            target_norm = (plan.target or "").strip().lower()
+            matching_idx = None
+            for idx, ev in enumerate(retrieval_res.results):
+                heading_text = (ev.heading or "").lower()
+                body_text = (ev.text or "").lower()
+                if (target_norm and target_norm in heading_text) or (len(target_norm) >= 4 and target_norm in body_text):
+                    matching_idx = idx
+                    break
+
+            if matching_idx is not None:
+                matched_ev = retrieval_res.results[matching_idx]
+                doc_id = matched_ev.documentId
+                c_idx = matched_ev.metadata.get("chunkIndex") if matched_ev.metadata else None
+                if doc_id and c_idx is not None:
+                    succ_payload = _fetch_successor_chunk(payload.projectId, doc_id, c_idx + 1)
+                    if succ_payload:
+                        succ_chunk_id = succ_payload.get("chunkId")
+                        if not any(e.chunkId == succ_chunk_id for e in retrieval_res.results):
+                            succ_ev = EvidenceItem(
+                                evidenceId=f"ev_{uuid.uuid4().hex[:8]}",
+                                chunkId=succ_chunk_id,
+                                documentId=doc_id,
+                                text=succ_payload.get("text", ""),
+                                pageNumber=succ_payload.get("pageNumber", matched_ev.pageNumber),
+                                section=succ_payload.get("section", matched_ev.section),
+                                heading=succ_payload.get("heading"),
+                                identifiers=succ_payload.get("identifierKeys", []),
+                                sources=["section_neighborhood"],
+                                rrfScore=matched_ev.rrfScore,
+                                rerankScore=matched_ev.rerankScore,
+                                score=matched_ev.score,
+                                metadata={
+                                    "chunkIndex": succ_payload.get("chunkIndex", c_idx + 1),
+                                    **(succ_payload.get("metadata") or {})
+                                }
+                            )
+                            retrieval_res.results.insert(matching_idx + 1, succ_ev)
+                            logger.info("[/generate section] Expanded neighborhood with chunkIndex=%d for doc=%s", c_idx + 1, doc_id)
+
+                # Ensure high sufficiency if exact heading matched in evidence
+                if retrieval_res.sufficiency and not retrieval_res.sufficiency.sufficient:
+                    retrieval_res.sufficiency.sufficient = True
+                    retrieval_res.sufficiency.reason = f"Section heading '{plan.target}' matched in document evidence"
+                    retrieval_res.sufficiency.score = max(retrieval_res.sufficiency.score or 0.0, 0.85)
+
+        # Strategy E: Procedural Order Preservation
+        if plan.retrieval_strategy == "procedural" or plan.operation == "procedure":
+            if retrieval_res and retrieval_res.results:
+                retrieval_res.results.sort(
+                    key=lambda ev: (
+                        ev.documentId or "",
+                        ev.pageNumber or 1,
+                        (ev.metadata.get("chunkIndex", 0) if ev.metadata else 0)
+                    )
+                )
+                logger.info("[/generate procedure] Sorted %d evidence items into source reading order", len(retrieval_res.results))
+
+        # Strategy F: Technical Parameter Grounding (Section 29, 30)
+        if retrieval_res and retrieval_res.results and plan.operation in ("lookup", "extract"):
+            top_ev = retrieval_res.results[0]
+            if retrieval_res.sufficiency and not retrieval_res.sufficiency.sufficient:
+                query_tokens = [w.lower() for w in re.findall(r'[A-Za-z0-9_]+', (plan.target or "") + " " + " ".join(plan.search_queries or [])) if len(w) >= 2]
+                body_tokens = set(re.findall(r'[A-Za-z0-9_]+', top_ev.text.lower()))
+                overlap = sum(1 for t in query_tokens if t in body_tokens)
+                if overlap >= 2 or (top_ev.rrfScore and top_ev.rrfScore > 0.015):
+                    retrieval_res.sufficiency.sufficient = True
+                    retrieval_res.sufficiency.reason = f"Technical parameter matched in document evidence ({overlap} token matches)"
+                    retrieval_res.sufficiency.score = max(retrieval_res.sufficiency.score or 0.0, 0.75)
+                    logger.info("[/generate lookup] Technical parameter match validated (score=0.75)")
+
     except Exception as ret_err:
         logger.error(
             "[/generate retrieval error] project_id=%s req_id=%s: %s",
@@ -611,7 +761,13 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
     # Step 3: ONE bounded semantic fallback if insufficient and query is plausibly project-related
     if not first_pass_sufficient and intent != "unsupported_query":
         first_q = (plan.search_queries[0] if plan.search_queries else None) or plan.standalone_query or payload.query
-        fallback_q = plan.standalone_query if (plan.standalone_query and plan.standalone_query != first_q) else payload.query
+        candidate_fallbacks = [sq for sq in plan.search_queries[1:] if sq and sq != first_q]
+        if plan.standalone_query and plan.standalone_query != first_q and plan.standalone_query not in candidate_fallbacks:
+            candidate_fallbacks.append(plan.standalone_query)
+        if payload.query != first_q and payload.query not in candidate_fallbacks:
+            candidate_fallbacks.append(payload.query)
+        fallback_q = candidate_fallbacks[0] if candidate_fallbacks else None
+
         if fallback_q and fallback_q != first_q:
             logger.info(
                 "[/generate fallback] First pass insufficient, trying semantic fallback. fallback_q='%s'",
@@ -678,6 +834,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         evidence_context=context_text,
         conversation_context=payload.conversationContext,
         standalone_query=plan.standalone_query,
+        operation=plan.operation,
     )
 
     # Step 4: Real LLM Inference
@@ -725,6 +882,12 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "claimExtraction": claim_extraction_meta,
                 "task": plan.task,
                 "retrievalMode": plan.retrieval_mode,
+                "retrievalStrategy": plan.retrieval_strategy,
+                "operation": plan.operation,
+                "sourceScope": plan.source_scope,
+                "target": plan.target,
+                "resolvedDocumentId": plan.resolved_document_id,
+                "resolvedDocumentName": plan.resolved_document_name,
                 "fallbackUsed": fallback_used,
             },
             claims=claims

@@ -22,7 +22,7 @@ from src.pipeline.recovery_graph import run_langgraph_recovery, RecoveryGraphRes
 logger = logging.getLogger("m2-recovery")
 
 # Canonical Revision System Prompt (Section 17)
-RECOVERY_SYSTEM_PROMPT = """You are GroundGuard's Claim Recovery Engine.
+RECOVERY_SYSTEM_PROMPT = """You are EvideX AI's Claim Recovery Engine.
 Your task is to evaluate a single failed atomic factual claim against newly retrieved recovery evidence and determine whether the claim can be verified as-is, revised, or must be abstained.
 
 OPERATIONAL INVARIANTS:

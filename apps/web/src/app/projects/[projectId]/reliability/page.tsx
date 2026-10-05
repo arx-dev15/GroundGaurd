@@ -187,7 +187,7 @@ export default function ReliabilityPage() {
               Reliability
             </h1>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Review what GroundGuard verified, repaired, or could not support against authoritative project documents.
+              Review what EvideX AI verified, repaired, or could not support against authoritative project documents.
             </p>
 
             <div className="pt-2 flex items-center gap-3 text-xs font-mono flex-wrap">
@@ -309,7 +309,7 @@ export default function ReliabilityPage() {
                       No claims need review.
                     </h4>
                     <p className="text-xs text-muted-foreground max-w-xs mx-auto leading-relaxed">
-                      GroundGuard has no unresolved claims in the selected scope.
+                      EvideX AI has no unresolved claims in the selected scope.
                     </p>
                     {allClaimItems.length > 0 && filterMode !== 'all' && (
                       <Button
@@ -497,7 +497,7 @@ export default function ReliabilityPage() {
                         </span>
                       </div>
 
-                      {/* Signature GroundGuard Claim State Strip */}
+                      {/* Signature EvideX AI Claim State Strip */}
                       <ClaimStateStrip statuses={statuses} showCounts={true} size="default" />
                     </div>
 

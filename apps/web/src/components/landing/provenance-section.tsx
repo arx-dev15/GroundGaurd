@@ -120,7 +120,7 @@ export function ProvenanceSection() {
             Every Claim Has an Address
           </h2>
           <p className="text-base text-muted-foreground max-w-xl leading-relaxed">
-            In GroundGuard, statements are never orphaned strings. Follow the verifiable chain
+            In EvideX AI, statements are never orphaned strings. Follow the verifiable chain
             from response word to original page, coordinate, and highlighted sentence.
           </p>
         </motion.div>

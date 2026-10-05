@@ -53,7 +53,7 @@ const TRACE_STEPS: TraceStep[] = [
     latency: '38ms',
     summary: 'Premise-hypothesis entailment validation against source citation chunks',
     details: [
-      { label: 'Verification Model', value: 'groundguard-deberta-v1', isMono: true },
+      { label: 'Verification Model', value: 'evidex-deberta-v1', isMono: true },
       { label: 'Entailment Score', value: '0.982 (threshold: 0.850)', isMono: true },
       { label: 'Contradiction Probability', value: '0.012', isMono: true },
       { label: 'Neutral Probability', value: '0.006', isMono: true },
@@ -129,7 +129,7 @@ export function ReliabilityPreview() {
                 Total: <strong className="text-zinc-200">118ms</strong>
               </span>
               <span>
-                Model: <strong className="text-zinc-200">groundguard-deberta-v1</strong>
+                Model: <strong className="text-zinc-200">evidex-deberta-v1</strong>
               </span>
             </div>
           </div>
@@ -241,7 +241,7 @@ export function ReliabilityPreview() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-zinc-800 text-center">
             {[
               { title: '2 Assertions', subtitle: 'Decomposed in Example', isMono: false },
-              { title: 'groundguard-deberta-v1', subtitle: 'Verification Model', isMono: true },
+              { title: 'evidex-deberta-v1', subtitle: 'Verification Model', isMono: true },
               { title: 'Page & Slice', subtitle: 'Coordinate Anchors', isMono: true, highlight: true },
               { title: 'OpenTelemetry', subtitle: 'Span Compatibility', isMono: true },
             ].map((metric, idx) => (

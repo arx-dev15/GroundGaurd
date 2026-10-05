@@ -9,6 +9,7 @@ import { EvidenceProbe } from '@/components/landing/evidence-probe';
 import { HeroTyping } from '@/components/landing/hero-typing';
 import { HeroDemo } from '@/components/landing/hero-demo';
 import { transitions } from '@/lib/motion';
+import gsap from 'gsap';
 
 interface HeroProps {
   onGetStarted?: () => void;
@@ -19,6 +20,22 @@ export function Hero({ onGetStarted }: HeroProps) {
   const shouldReduceMotion = useReducedMotion();
   const [activeQuestionIndex, setActiveQuestionIndex] = React.useState(0);
   const [ctaOffset, setCtaOffset] = React.useState({ x: 0, y: 0 });
+
+  // GSAP ambient micro-animation for hero reliability indicator
+  React.useEffect(() => {
+    if (shouldReduceMotion || !heroRef.current) return;
+    const ctx = gsap.context(() => {
+      gsap.to('.hero-accent-pulse', {
+        scale: 1.15,
+        opacity: 0.9,
+        repeat: -1,
+        yoyo: true,
+        duration: 2.4,
+        ease: 'sine.inOut',
+      });
+    }, heroRef);
+    return () => ctx.revert();
+  }, [shouldReduceMotion]);
 
   const handleCtaMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (shouldReduceMotion) return;
@@ -70,8 +87,8 @@ export function Hero({ onGetStarted }: HeroProps) {
               transition={{ ...transitions.bouncy, delay: 0.05 }}
               className="mb-4 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border/70 bg-card/70 backdrop-blur-md text-[11px] font-mono uppercase tracking-wider text-muted-foreground select-none shadow-xs"
             >
-              <span className="h-2 w-2 rounded-full bg-status-verified animate-subtle-pulse" />
-              <span>Evidence-Grounded Reliability</span>
+              <span className="hero-accent-pulse h-2 w-2 rounded-full bg-status-verified animate-subtle-pulse" />
+              <span>Evidence-Grounded AI Reliability</span>
             </motion.div>
 
             {/* Headline */}
@@ -91,7 +108,7 @@ export function Hero({ onGetStarted }: HeroProps) {
               transition={{ ...transitions.spring, delay: 0.18 }}
               className="mt-4 mb-6 text-sm sm:text-base text-muted-foreground max-w-lg leading-relaxed font-normal"
             >
-              GroundGuard traces factual claims to evidence, surfaces conflicts, and can repair failed claims before you rely on them.
+              EvideX AI traces factual claims to evidence, surfaces conflicts, and can repair failed claims before you rely on them.
             </motion.p>
 
             {/* Primary & Secondary Actions */}

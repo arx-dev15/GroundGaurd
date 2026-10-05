@@ -15,7 +15,7 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), ".env"))
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), ".env"), override=True)
 
 from src.pipeline.prompts import GROUNDGUARD_SYSTEM_PROMPT, CLAIM_EXTRACTION_SYSTEM_PROMPT
 

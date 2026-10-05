@@ -78,7 +78,7 @@ export function FinalCTA({ onGetStarted, onExploreProduct }: FinalCTAProps) {
       </div>
 
       <div className="max-w-4xl mx-auto flex flex-col items-center text-center space-y-6 relative z-10">
-        {/* GroundGuard Central Emblem with Pulsating Shield */}
+        {/* EvideX AI Central Emblem with Pulsating Shield */}
         <motion.div
           initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
           whileInView={{ opacity: 1, scale: 1 }}

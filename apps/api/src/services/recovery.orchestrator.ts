@@ -113,20 +113,8 @@ export class RecoveryOrchestrator {
         );
       } catch (err: any) {
         console.error(`[recovery] M2 /recover call failed on attempt ${attempt}:`, err?.message || err);
-        // Persist audit record of failed attempt only within bounds
-        if (attempt <= MAX_RECOVERY_ATTEMPTS) {
-          await generationRepository.createRecoveryAttempt({
-            claimId: claim.id,
-            attemptNumber: attempt,
-            failureReason: diagnosis,
-            action: 'abstain',
-            originalText: claim.text,
-            candidateText: null,
-            verificationLabel: null,
-            modelVersion: null,
-            recoveryModelVersion: 'm2-error',
-          }).catch(() => {});
-        }
+        // Section 4: System / transport / internal service exceptions should NOT consume
+        // one of the 2 recovery attempts if no recovery execution completed.
         break; // Stop immediately on retrieval/AI infrastructure failure
       }
 
@@ -134,17 +122,17 @@ export class RecoveryOrchestrator {
 
       // 2. Stop condition: Gemini returned abstain or no useful evidence
       if (action === 'abstain' || !recoveryEvidence || recoveryEvidence.length === 0) {
-        console.log(`[recovery] Attempt ${attempt}: Gemini returned '${action}' or empty evidence. Stopping attempt.`);
+        console.log(`[recovery] Attempt ${attempt}: Recovery returned '${action}' or empty evidence. Recording valid completed attempt.`);
         await generationRepository.createRecoveryAttempt({
           claimId: claim.id,
           attemptNumber: attempt,
           failureReason: diagnosis,
           action: 'abstain',
           originalText: claim.text,
-          candidateText: candidateClaim || null,
+          candidateText: null, // Section 3: Valid recovery with no support must have candidate_text = null
           verificationLabel: null,
           modelVersion: null,
-          recoveryModelVersion: recoveryModelVersion || 'gemini',
+          recoveryModelVersion: recoveryModelVersion && recoveryModelVersion !== 'm2-error' ? recoveryModelVersion : 'gemini',
         }).catch(() => {});
 
         // If attempt 1 had insufficient evidence, attempt 2 may try reformulated retrieval
@@ -177,18 +165,7 @@ export class RecoveryOrchestrator {
         m1Batch = await mlClient.verifyBatch(batchPayload, requestId);
       } catch (m1Err: any) {
         console.error(`[recovery] Reverification M1 call failed on attempt ${attempt}:`, m1Err?.message || m1Err);
-        await generationRepository.createRecoveryAttempt({
-          claimId: claim.id,
-          attemptNumber: attempt,
-          failureReason: diagnosis,
-          action,
-          originalText: claim.text,
-          candidateText: targetClaimText,
-          verificationLabel: null,
-          modelVersion: 'groundguard-m1-unavailable',
-          recoveryModelVersion,
-        }).catch(() => {});
-        break;
+        break; // Service failure should not consume attempt budget
       }
 
       const m1Res = m1Batch.results[0];

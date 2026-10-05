@@ -26,8 +26,8 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: {
-    default: 'GroundGuard — Evidence-Grounded AI Reliability',
-    template: '%s | GroundGuard',
+    default: 'EvideX AI — Evidence-Grounded AI Reliability',
+    template: '%s | EvideX AI',
   },
   description:
     'Calm, precise AI reliability platform. Trace, verify, and recover factual claims with verifiable evidence.',

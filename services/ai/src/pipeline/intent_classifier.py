@@ -8,11 +8,11 @@ IntentType = Literal["conversational", "product_help", "grounded_query", "unsupp
 
 # 1. Conversational Patterns (Greetings, Thanks, Farewells, Acknowledgments)
 GREETING_PATTERNS = [
-    re.compile(r'^\s*(?:hi|hey|hello|heyy+|hiya|howdy|greetings|good\s+(?:morning|afternoon|evening|day)|what\'?s\s+up|sup|yo)(?:\s+(?:there|groundguard|bot|assistant|bro|dude|man|mate|pal))?[\s!.,?]*$', re.IGNORECASE),
+    re.compile(r'^\s*(?:hi|hey|hello|heyy+|hiya|howdy|greetings|good\s+(?:morning|afternoon|evening|day)|what\'?s\s+up|sup|yo)(?:\s+(?:there|evidex|evidex\s+ai|groundguard|bot|assistant|bro|dude|man|mate|pal))?[\s!.,?]*$', re.IGNORECASE),
 ]
 
 THANKS_PATTERNS = [
-    re.compile(r'^\s*(?:thanks|thank\s+you|thx|ty|many\s+thanks|much\s+appreciated|thanks\s+a\s+lot|thank\s+you\s+so\s+much)(?:\s+(?:bro|dude|man|mate|pal|there|groundguard|bot))?[\s!.,?]*$', re.IGNORECASE),
+    re.compile(r'^\s*(?:thanks|thank\s+you|thx|ty|many\s+thanks|much\s+appreciated|thanks\s+a\s+lot|thank\s+you\s+so\s+much)(?:\s+(?:bro|dude|man|mate|pal|there|evidex|evidex\s+ai|groundguard|bot))?[\s!.,?]*$', re.IGNORECASE),
 ]
 
 FAREWELL_PATTERNS = [
@@ -25,7 +25,7 @@ ACK_PATTERNS = [
 
 # 2. Product / Help Patterns
 HELP_PATTERNS = [
-    re.compile(r'^\s*(?:what\s+(?:can|should|to)\s+(?:i|we)\s+ask(?:\s+you)?|what\s+to\s+ask|how\s+(?:do\s+i\s+use\s+this|to\s+use\s+this|does\s+(?:this|groundguard)\s+work)|how\s+(?:do\s+i|to)\s+verify\s+(?:a\s+)?claim[s]?|what\s+can\s+(?:you|groundguard|this)\s+do|what\s+you\s+can\s+do|what\s+(?:is\s+this|is\s+groundguard)|what\s+are\s+your\s+capabilities|how\s+can\s+you\s+help|what\s+documents\s+do\s+i\s+have|help|help\s+me|explain\s+groundguard)(?:\s+(?:bro|dude|man|mate|pal))?[\s!.,?]*$', re.IGNORECASE),
+    re.compile(r'^\s*(?:what\s+(?:can|should|to)\s+(?:i|we)\s+ask(?:\s+you)?|what\s+to\s+ask|how\s+(?:do\s+i\s+use\s+this|to\s+use\s+this|does\s+(?:this|evidex|evidex\s+ai|groundguard)\s+work)|how\s+(?:do\s+i|to)\s+verify\s+(?:a\s+)?claim[s]?|what\s+can\s+(?:you|evidex|evidex\s+ai|groundguard|this)\s+do|what\s+you\s+can\s+do|what\s+(?:is\s+this|is\s+evidex|is\s+evidex\s+ai|is\s+groundguard)|what\s+are\s+your\s+capabilities|how\s+can\s+you\s+help|what\s+documents\s+do\s+i\s+have|help|help\s+me|explain\s+(?:evidex|evidex\s+ai|groundguard))(?:\s+(?:bro|dude|man|mate|pal))?[\s!.,?]*$', re.IGNORECASE),
     re.compile(r'^(?:how\s+to\s+use|features|instructions|usage)[\s!.,?]*$', re.IGNORECASE),
 ]
 
@@ -112,7 +112,7 @@ def generate_product_help_response(project_info: Optional[Any] = None) -> str:
     return (
         "I can help you work with this project's uploaded evidence. You can ask "
         "questions, compare information across sources, inspect the evidence behind "
-        "individual claims, and review claims GroundGuard verified, flagged, or recovered.\n\n"
+        "individual claims, and review claims EvideX AI verified, flagged, or recovered.\n\n"
         f"What would you like to check in {target}?"
     )
 
@@ -122,5 +122,5 @@ def generate_unsupported_query_response(query: str, doc_summary: Optional[Dict[s
     """
     return (
         "I couldn't answer that from this project's sources.\n\n"
-        "GroundGuard keeps project answers grounded in uploaded evidence."
+        "EvideX AI keeps project answers grounded in uploaded evidence."
     )
