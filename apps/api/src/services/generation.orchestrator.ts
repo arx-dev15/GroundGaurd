@@ -115,6 +115,8 @@ export class GenerationOrchestrator {
               (m) =>
                 m.content !== generation.query &&
                 !m.content.startsWith('GroundGuard was unable') &&
+                !m.content.startsWith('EVIDEX was unable') &&
+                !m.content.startsWith('EvideX was unable') &&
                 !m.content.startsWith('Generation service unavailable')
             )
             .slice(-6);
@@ -142,7 +144,7 @@ export class GenerationOrchestrator {
         } catch (_) {}
       }
 
-      const result = await aiClient.generate(
+      const result = await aiClient.generateStream(
         {
           projectId: generation.projectId,
           query: generation.query,
@@ -151,6 +153,12 @@ export class GenerationOrchestrator {
           conversationId: generation.conversationId ?? undefined,
           conversationContext,
           options: { maxRecoveryAttempts: generation.maxRecoveryAttempts },
+        },
+        (eventType, eventData) => {
+          // Forward stream events through canonical SSE bus
+          if (eventType === 'retrieval.completed' || eventType === 'answer.started' || eventType === 'answer.delta' || eventType === 'answer.completed') {
+            generationEvents.publish(generationId, eventType, eventData);
+          }
         },
         generation.requestId,
         abortController.signal
@@ -308,6 +316,8 @@ export class GenerationOrchestrator {
             (m) =>
               m.id !== userMsg.id &&
               !m.content.startsWith('GroundGuard was unable') &&
+              !m.content.startsWith('EVIDEX was unable') &&
+              !m.content.startsWith('EvideX was unable') &&
               !m.content.startsWith('Generation service unavailable')
           )
           .slice(-6);
@@ -334,14 +344,22 @@ export class GenerationOrchestrator {
         // Fallback: continue without context if prior message fetch fails
       }
 
-      const result = await aiClient.generate({
-        projectId: data.projectId,
-        query: data.query,
-        requestId,
-        generationId: generation.id,
-        conversationId: data.conversationId,
-        conversationContext: conversationContext.length > 0 ? conversationContext : undefined,
-      });
+      const result = await aiClient.generateStream(
+        {
+          projectId: data.projectId,
+          query: data.query,
+          requestId,
+          generationId: generation.id,
+          conversationId: data.conversationId,
+          conversationContext: conversationContext.length > 0 ? conversationContext : undefined,
+        },
+        (eventType, eventData) => {
+          if (eventType === 'retrieval.completed' || eventType === 'answer.started' || eventType === 'answer.delta' || eventType === 'answer.completed') {
+            generationEvents.publish(generation.id, eventType, eventData);
+          }
+        },
+        requestId
+      );
 
       const totalLatencyMs = Date.now() - startedAt;
 

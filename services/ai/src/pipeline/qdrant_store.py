@@ -64,8 +64,8 @@ class QdrantStore:
                         "Service failing closed: production requires a healthy external Qdrant cluster."
                     ) from e
 
-                if self.path:
-                    path_to_try = self.path
+                path_to_try = self.path or "uploads/indexes/qdrant_embedded"
+                if path_to_try:
                     if not os.path.isabs(path_to_try):
                         from pathlib import Path
                         repo_root = Path(__file__).resolve().parent.parent.parent.parent

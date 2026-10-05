@@ -156,6 +156,104 @@ export class AIClient {
     return res.json();
   }
 
+  public async generateStream(
+    payload: GenerationRequest & { projectId: string; requestId?: string; generationId?: string },
+    onEvent: (event: string, data: any) => void,
+    requestId?: string,
+    signal?: AbortSignal
+  ): Promise<GenerationResult> {
+    const reqId = payload.requestId || requestId;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    };
+    if (reqId) headers['x-request-id'] = reqId;
+
+    const STREAM_TIMEOUT_MS = 120_000;
+    const res = await this.fetchWithTimeout(
+      `${this.baseUrl}/generate/stream`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ...payload, requestId: reqId }),
+      },
+      STREAM_TIMEOUT_MS,
+      signal
+    );
+
+    if (!res.ok) {
+      throw new ServiceUnavailableError('AI Service (/generate/stream)');
+    }
+
+    if (!res.body) {
+      throw new ServiceUnavailableError('AI Service (/generate/stream): empty stream body');
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalResult: GenerationResult | null = null;
+
+    while (true) {
+      if (signal?.aborted) {
+        reader.cancel().catch(() => {});
+        const err = new Error('Request was aborted by user');
+        (err as any).name = 'AbortError';
+        throw err;
+      }
+
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() || '';
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        let eventType = 'message';
+        let dataStr = '';
+
+        for (const rawLine of block.split('\n')) {
+          const line = rawLine.trim();
+          if (line.startsWith('event:')) {
+            eventType = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataStr = line.slice(5).trim();
+          }
+        }
+
+        if (dataStr) {
+          try {
+            const data = JSON.parse(dataStr);
+            onEvent(eventType, data);
+            if (eventType === 'generation.completed') {
+              finalResult = data as GenerationResult;
+            } else if (eventType === 'generation.failed') {
+              finalResult = {
+                requestId: reqId || '',
+                generationId: payload.generationId || '',
+                status: 'failed',
+                answer: '',
+                evidence: [],
+                error: data,
+                claims: [],
+              };
+            }
+          } catch (_) {
+            // Ignore malformed chunks
+          }
+        }
+      }
+    }
+
+    if (!finalResult) {
+      throw new ServiceUnavailableError('AI Service (/generate/stream): stream ended without terminal event');
+    }
+
+    return finalResult;
+  }
+
   public async recover(payload: RecoverRequest, requestId?: string, signal?: AbortSignal): Promise<RecoverResponse> {
     const reqId = payload.requestId || requestId;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };

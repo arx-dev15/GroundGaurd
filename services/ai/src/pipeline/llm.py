@@ -125,6 +125,33 @@ class RealLLMRuntime:
             latencyMs=latency_ms
         )
 
+    async def stream_answer(self, user_prompt: str, system_prompt: str = GROUNDGUARD_SYSTEM_PROMPT):
+        """
+        Executes real LLM streaming inference with greedy temperature=0.0 decoding.
+        Yields newly generated user-visible text chunks as they arrive from the native model stream.
+        Fails fast if no real LLM is configured.
+        """
+        if not self.is_configured():
+            raise LLMUnavailableError(
+                "PHASE 5 BLOCKED — REAL LLM RUNTIME NOT CONFIGURED: "
+                "No valid LLM_PROVIDER or LLM_API_KEY configured in environment."
+            )
+
+        if self.provider == "gemini":
+            async for delta in self._stream_gemini(system_prompt, user_prompt):
+                yield delta
+        elif self.provider == "groq":
+            async for delta in self._stream_groq(system_prompt, user_prompt):
+                yield delta
+        elif self.provider == "openai":
+            async for delta in self._stream_openai(system_prompt, user_prompt):
+                yield delta
+        elif self.provider == "ollama":
+            async for delta in self._stream_ollama(system_prompt, user_prompt):
+                yield delta
+        else:
+            raise LLMUnavailableError(f"Unsupported LLM provider: '{self.provider}'")
+
     async def extract_claims(self, user_prompt: str, system_prompt: str = CLAIM_EXTRACTION_SYSTEM_PROMPT) -> str:
         """
         Executes real LLM structured claim extraction with temperature=0.0 and JSON response mode.
@@ -263,6 +290,151 @@ class RealLLMRuntime:
                 raise LLMUnavailableError(f"Ollama API error (HTTP {res.status_code}): {res.text}")
             data = res.json()
             return data.get("response", "")
+
+    async def _stream_gemini(self, system_prompt: str, user_prompt: str):
+        import json
+        import re
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:streamGenerateContent?alt=sse"
+        headers = {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json"
+        }
+        generation_config: Dict[str, Any] = {
+            "temperature": 0.0,
+            "maxOutputTokens": 1024
+        }
+        payload = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"parts": [{"text": user_prompt}]}],
+            "generationConfig": generation_config
+        }
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                if response.status_code != 200:
+                    err_body = await response.aread()
+                    raise LLMUnavailableError(f"Gemini streaming error (HTTP {response.status_code}): {err_body.decode('utf-8', errors='ignore')}")
+
+                buffer = ""
+                async for chunk in response.aiter_text():
+                    buffer += chunk
+                    while True:
+                        match = re.search(r'\r?\n\r?\n', buffer)
+                        if not match:
+                            break
+                        block = buffer[:match.start()]
+                        buffer = buffer[match.end():]
+                        for line in block.splitlines():
+                            line = line.strip()
+                            if line.startswith("data:"):
+                                raw_data = line[5:].strip()
+                                try:
+                                    data = json.loads(raw_data)
+                                    parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                                    # Extract ONLY user-visible answer text; do NOT expose thought or private reasoning
+                                    delta = "".join(p.get("text", "") for p in parts if "text" in p and not p.get("thought"))
+                                    if delta:
+                                        yield delta
+                                except Exception:
+                                    pass
+
+    async def _stream_groq(self, system_prompt: str, user_prompt: str):
+        import json
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.0,
+            "max_tokens": 1024,
+            "stream": True
+        }
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                if response.status_code != 200:
+                    err_body = await response.aread()
+                    raise LLMUnavailableError(f"Groq streaming error (HTTP {response.status_code}): {err_body.decode('utf-8', errors='ignore')}")
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if line.startswith("data:"):
+                        raw_data = line[5:].strip()
+                        if raw_data == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(raw_data)
+                            delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            if delta:
+                                yield delta
+                        except Exception:
+                            pass
+
+    async def _stream_openai(self, system_prompt: str, user_prompt: str):
+        import json
+        base = self.base_url or "https://api.openai.com/v1"
+        url = f"{base.rstrip('/')}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.0,
+            "max_tokens": 1024,
+            "stream": True
+        }
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                if response.status_code != 200:
+                    err_body = await response.aread()
+                    raise LLMUnavailableError(f"OpenAI streaming error (HTTP {response.status_code}): {err_body.decode('utf-8', errors='ignore')}")
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if line.startswith("data:"):
+                        raw_data = line[5:].strip()
+                        if raw_data == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(raw_data)
+                            delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            if delta:
+                                yield delta
+                        except Exception:
+                            pass
+
+    async def _stream_ollama(self, system_prompt: str, user_prompt: str):
+        import json
+        base = self.base_url or os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        url = f"{base.rstrip('/')}/api/generate"
+        payload: Dict[str, Any] = {
+            "model": self.model,
+            "system": system_prompt,
+            "prompt": user_prompt,
+            "stream": True,
+            "options": {"temperature": 0.0}
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("POST", url, json=payload) as response:
+                if response.status_code != 200:
+                    err_body = await response.aread()
+                    raise LLMUnavailableError(f"Ollama streaming error (HTTP {response.status_code}): {err_body.decode('utf-8', errors='ignore')}")
+                async for line in response.aiter_lines():
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            delta = data.get("response", "")
+                            if delta:
+                                yield delta
+                        except Exception:
+                            pass
 
 # Singleton runtime instance
 llm_runtime = RealLLMRuntime()

@@ -5,6 +5,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 import sys
 import re
 import uuid
+import time
 import logging
 from dotenv import load_dotenv
 
@@ -14,8 +15,10 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path
 # Ensure services/ai directory is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, AsyncIterator
+import json
 from fastapi import FastAPI, Header, Request, Response, File, UploadFile, Form, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.pipeline.parser import parse_pdf
@@ -924,6 +927,340 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             },
             claims=[]
         )
+
+@app.post("/generate/stream")
+async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] = Header(None)):
+    """
+    Internal streaming generation endpoint consumed by M3:
+    1. Executes pre-generation stages (intent classification, query planning, retrieval, sufficiency gate).
+    2. Immediately upon sufficiency, emits `answer.started`.
+    3. Streams REAL model tokens as `answer.delta` SSE events as soon as Gemini begins producing them.
+    4. Upon completion of LLM stream, emits `answer.completed`.
+    5. Runs claim extraction on the completed answer text and emits `claims.completed`.
+    6. Emits final `generation.completed` with all evidence, claims, and metadata.
+    """
+    req_id = payload.requestId or x_request_id or f"req_{uuid.uuid4().hex[:12]}"
+    gen_id = payload.generationId or f"gen_{uuid.uuid4().hex[:12]}"
+    top_k = (payload.options or {}).get("topK", 5)
+
+    async def event_generator():
+        seq = 1
+
+        def _format_sse(evt_type: str, data: dict) -> str:
+            return f"event: {evt_type}\ndata: {json.dumps(data)}\n\n"
+
+        yield _format_sse("generation.started", {"generationId": gen_id, "requestId": req_id})
+
+        # Step 0a: Intent classification
+        intent, sub_intent = classify_intent(payload.query)
+        try:
+            proj_context = get_project_knowledge_summary(payload.projectId)
+        except Exception:
+            proj_context = {}
+        project_name = proj_context.get("projectName") if isinstance(proj_context, dict) else None
+
+        if intent == "conversational":
+            reply = await generate_social_response(
+                user_message=payload.query,
+                sub_intent=sub_intent or "greeting",
+                project_name=project_name,
+                recent_context=payload.conversationContext,
+                llm_runtime=llm_runtime,
+            )
+            yield _format_sse("answer.started", {"generationId": gen_id})
+            yield _format_sse("answer.delta", {"generationId": gen_id, "delta": reply, "sequence": seq})
+            seq += 1
+            yield _format_sse("answer.completed", {"generationId": gen_id, "answer": reply})
+            yield _format_sse("claims.completed", {"generationId": gen_id, "claims": []})
+            final_res = GenerateResult(
+                requestId=req_id,
+                generationId=gen_id,
+                status="completed",
+                answer=reply,
+                evidence=[],
+                sufficiency=None,
+                modelVersion="groundguard-conversational",
+                metadata={"intent": "conversational", "subIntent": sub_intent, "abstention": False},
+                claims=[]
+            )
+            yield _format_sse("generation.completed", final_res.model_dump())
+            return
+
+        if intent == "product_help":
+            reply = await generate_product_help_llm(
+                user_message=payload.query,
+                project_name=project_name,
+                recent_context=payload.conversationContext,
+                llm_runtime=llm_runtime,
+            )
+            yield _format_sse("answer.started", {"generationId": gen_id})
+            yield _format_sse("answer.delta", {"generationId": gen_id, "delta": reply, "sequence": seq})
+            seq += 1
+            yield _format_sse("answer.completed", {"generationId": gen_id, "answer": reply})
+            yield _format_sse("claims.completed", {"generationId": gen_id, "claims": []})
+            final_res = GenerateResult(
+                requestId=req_id,
+                generationId=gen_id,
+                status="completed",
+                answer=reply,
+                evidence=[],
+                sufficiency=None,
+                modelVersion="groundguard-product-help",
+                metadata={"intent": "product_help", "abstention": False},
+                claims=[]
+            )
+            yield _format_sse("generation.completed", final_res.model_dump())
+            return
+
+        # Step 0b: Semantic Query Understanding
+        try:
+            plan = await understand_query(
+                query=payload.query,
+                conversation_context=payload.conversationContext,
+                project_context=proj_context,
+            )
+        except Exception as plan_err:
+            logger.warning("[/generate/stream planner error] %s — using fallback plan", plan_err)
+            plan = _make_fallback_plan(payload.query)
+
+        if plan.needs_clarification:
+            clarification_msg = await generate_clarification_llm(
+                user_query=payload.query,
+                structured_clarification=plan.clarification_question,
+                llm_runtime=llm_runtime,
+            )
+            yield _format_sse("answer.started", {"generationId": gen_id})
+            yield _format_sse("answer.delta", {"generationId": gen_id, "delta": clarification_msg, "sequence": seq})
+            seq += 1
+            yield _format_sse("answer.completed", {"generationId": gen_id, "answer": clarification_msg})
+            yield _format_sse("claims.completed", {"generationId": gen_id, "claims": []})
+            final_res = GenerateResult(
+                requestId=req_id,
+                generationId=gen_id,
+                status="completed",
+                answer=clarification_msg,
+                evidence=[],
+                sufficiency=None,
+                modelVersion="groundguard-clarification",
+                metadata={"intent": "clarification", "abstention": False, "task": plan.task},
+                claims=[]
+            )
+            yield _format_sse("generation.completed", final_res.model_dump())
+            return
+
+        if plan.task == "social":
+            reply = await generate_social_response(
+                user_message=payload.query,
+                sub_intent="greeting",
+                project_name=project_name,
+                recent_context=payload.conversationContext,
+                llm_runtime=llm_runtime,
+            )
+            yield _format_sse("answer.started", {"generationId": gen_id})
+            yield _format_sse("answer.delta", {"generationId": gen_id, "delta": reply, "sequence": seq})
+            seq += 1
+            yield _format_sse("answer.completed", {"generationId": gen_id, "answer": reply})
+            yield _format_sse("claims.completed", {"generationId": gen_id, "claims": []})
+            final_res = GenerateResult(
+                requestId=req_id, generationId=gen_id, status="completed",
+                answer=reply, evidence=[], sufficiency=None,
+                modelVersion="groundguard-conversational",
+                metadata={"intent": "social", "abstention": False}, claims=[]
+            )
+            yield _format_sse("generation.completed", final_res.model_dump())
+            return
+
+        if plan.task == "product_help":
+            reply = await generate_product_help_llm(
+                user_message=payload.query,
+                project_name=project_name,
+                recent_context=payload.conversationContext,
+                llm_runtime=llm_runtime,
+            )
+            yield _format_sse("answer.started", {"generationId": gen_id})
+            yield _format_sse("answer.delta", {"generationId": gen_id, "delta": reply, "sequence": seq})
+            seq += 1
+            yield _format_sse("answer.completed", {"generationId": gen_id, "answer": reply})
+            yield _format_sse("claims.completed", {"generationId": gen_id, "claims": []})
+            final_res = GenerateResult(
+                requestId=req_id, generationId=gen_id, status="completed",
+                answer=reply, evidence=[], sufficiency=None,
+                modelVersion="groundguard-product-help",
+                metadata={"intent": "product_help", "abstention": False}, claims=[]
+            )
+            yield _format_sse("generation.completed", final_res.model_dump())
+            return
+
+        # Step 1: Retrieval
+        search_queries = plan.search_queries if plan.search_queries else [plan.standalone_query or payload.query]
+        retrieval_mode = plan.retrieval_mode
+        retrieval_res = None
+
+        try:
+            # Focused or broad retrieval
+            focused_q = (plan.search_queries[0] if plan.search_queries else None) or plan.target or plan.standalone_query or payload.query
+            retrieval_res = retrieve_evidence(
+                project_id=payload.projectId,
+                query=focused_q,
+                top_k=top_k,
+                request_id=req_id
+            )
+        except Exception as ret_err:
+            logger.error("[/generate/stream retrieval error] %s", ret_err)
+            yield _format_sse("generation.failed", {"code": "RETRIEVAL_ERROR", "message": str(ret_err)})
+            return
+
+        yield _format_sse("retrieval.completed", {"generationId": gen_id, "evidenceCount": len(retrieval_res.results)})
+
+        # Sufficiency check
+        first_pass_sufficient = bool(
+            retrieval_res.sufficiency
+            and retrieval_res.sufficiency.sufficient
+            and retrieval_res.results
+        )
+        fallback_used = False
+        if not first_pass_sufficient and intent != "unsupported_query":
+            candidate_fallbacks = [sq for sq in plan.search_queries[1:] if sq and sq != focused_q]
+            if plan.standalone_query and plan.standalone_query != focused_q and plan.standalone_query not in candidate_fallbacks:
+                candidate_fallbacks.append(plan.standalone_query)
+            if payload.query != focused_q and payload.query not in candidate_fallbacks:
+                candidate_fallbacks.append(payload.query)
+            fallback_q = candidate_fallbacks[0] if candidate_fallbacks else None
+            if fallback_q:
+                try:
+                    fallback_res = retrieve_evidence(
+                        project_id=payload.projectId,
+                        query=fallback_q,
+                        top_k=top_k,
+                        request_id=req_id
+                    )
+                    if fallback_res.sufficiency and fallback_res.sufficiency.sufficient and fallback_res.results:
+                        retrieval_res = fallback_res
+                        fallback_used = True
+                except Exception:
+                    pass
+
+        if not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results:
+            reason = retrieval_res.sufficiency.reason if retrieval_res.sufficiency else "No evidence retrieved"
+            doc_summary = get_project_knowledge_summary(payload.projectId)
+            doc_titles = doc_summary.get("filenames", []) if isinstance(doc_summary, dict) else []
+            unsupported_msg = await generate_abstention_llm(
+                query=payload.query,
+                insufficiency_reason=reason,
+                project_name=project_name,
+                doc_titles=doc_titles,
+                llm_runtime=llm_runtime,
+            )
+            yield _format_sse("answer.started", {"generationId": gen_id})
+            yield _format_sse("answer.delta", {"generationId": gen_id, "delta": unsupported_msg, "sequence": seq})
+            seq += 1
+            yield _format_sse("answer.completed", {"generationId": gen_id, "answer": unsupported_msg})
+            yield _format_sse("claims.completed", {"generationId": gen_id, "claims": []})
+            final_res = GenerateResult(
+                requestId=req_id,
+                generationId=gen_id,
+                status="completed",
+                answer=unsupported_msg,
+                evidence=retrieval_res.results,
+                sufficiency=retrieval_res.sufficiency,
+                modelVersion="groundguard-abstention-gate",
+                metadata={
+                    "abstention": True,
+                    "reason": reason,
+                    "candidateCount": len(retrieval_res.results),
+                    "intent": "grounded_query_insufficient",
+                    "task": plan.task,
+                    "fallbackUsed": fallback_used,
+                },
+                claims=[]
+            )
+            yield _format_sse("generation.completed", final_res.model_dump())
+            return
+
+        # Context & prompt
+        context_text, included_items, omitted_items = context_builder.build_context(retrieval_res.results)
+        user_prompt = build_grounded_user_prompt(
+            query=payload.query,
+            evidence_context=context_text,
+            conversation_context=payload.conversationContext,
+            standalone_query=plan.standalone_query,
+            operation=plan.operation,
+        )
+
+        # Real LLM Streaming
+        full_answer_chunks: List[str] = []
+        yield _format_sse("answer.started", {"generationId": gen_id})
+
+        t_llm_start = time.perf_counter()
+        try:
+            async for chunk in llm_runtime.stream_answer(user_prompt):
+                if chunk:
+                    full_answer_chunks.append(chunk)
+                    yield _format_sse("answer.delta", {"generationId": gen_id, "delta": chunk, "sequence": seq})
+                    seq += 1
+        except Exception as stream_err:
+            logger.error("[/generate/stream LLM failure] %s", stream_err)
+            yield _format_sse("generation.failed", {"code": "LLM_ERROR", "message": f"LLM stream failed: {stream_err}"})
+            return
+
+        llm_latency_ms = int((time.perf_counter() - t_llm_start) * 1000)
+        full_answer = "".join(full_answer_chunks).strip()
+        yield _format_sse("answer.completed", {"generationId": gen_id, "answer": full_answer})
+
+        # Claim extraction on completed answer
+        claims: List[ClaimItem] = []
+        claim_meta = {"status": "skipped"}
+        try:
+            raw_claims = await extract_and_validate_claims(
+                answer=full_answer,
+                evidence=included_items
+            )
+            claims = [ClaimItem(**c) for c in raw_claims]
+            claim_meta = {"status": "completed", "claimCount": len(claims)}
+        except Exception as c_err:
+            logger.error("[/generate/stream claim extraction error] %s", c_err)
+            claim_meta = {"status": "failed", "error": str(c_err)}
+
+        yield _format_sse("claims.completed", {"generationId": gen_id, "claims": [c.model_dump() for c in claims]})
+
+        final_res = GenerateResult(
+            requestId=req_id,
+            generationId=gen_id,
+            status="completed",
+            answer=full_answer,
+            evidence=included_items,
+            sufficiency=retrieval_res.sufficiency,
+            modelVersion=llm_runtime.get_model_version(),
+            metadata={
+                "abstention": False,
+                "evidenceCount": len(included_items),
+                "omittedCount": len(omitted_items),
+                "llmLatencyMs": llm_latency_ms,
+                "provider": llm_runtime.provider,
+                "claimExtraction": claim_meta,
+                "task": plan.task,
+                "retrievalMode": plan.retrieval_mode,
+                "retrievalStrategy": plan.retrieval_strategy,
+                "operation": plan.operation,
+                "sourceScope": plan.source_scope,
+                "target": plan.target,
+                "resolvedDocumentId": plan.resolved_document_id,
+                "resolvedDocumentName": plan.resolved_document_name,
+                "fallbackUsed": fallback_used,
+            },
+            claims=claims
+        )
+        yield _format_sse("generation.completed", final_res.model_dump())
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 @app.post("/recover", response_model=RecoverResponse)
 async def recover(payload: RecoverRequest, x_request_id: Optional[str] = Header(None)):

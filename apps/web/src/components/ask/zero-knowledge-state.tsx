@@ -21,7 +21,7 @@ export function ZeroKnowledgeState({ projectId }: ZeroKnowledgeStateProps) {
           No ready knowledge yet
         </h2>
         <p className="text-xs text-muted-foreground leading-relaxed">
-          GroundGuard needs project knowledge before it can produce evidence-grounded answers.
+          EVIDEX needs project knowledge before it can produce evidence-grounded answers.
         </p>
       </div>
 

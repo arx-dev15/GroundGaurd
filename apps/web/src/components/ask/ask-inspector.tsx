@@ -418,7 +418,7 @@ export function AskInspector({
                   <div className="text-[10px] font-mono uppercase text-muted-foreground">
                     Candidate Revision
                   </div>
-                  {activeAttempt.candidateText ? (
+                  {activeAttempt.candidateText && activeAttempt.candidateText !== '[Unverified SOP]' ? (
                     <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20 text-xs text-foreground font-medium select-text">
                       {activeAttempt.candidateText}
                     </div>
@@ -515,7 +515,7 @@ export function AskInspector({
                   M1 Neural NLI Signals
                 </span>
                 <span className="text-[10px] font-mono text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60 border border-border/40">
-                  {verification?.modelVersion || 'groundguard-deberta-v1'}
+                  {verification?.modelVersion || 'Unavailable'}
                 </span>
               </div>
 

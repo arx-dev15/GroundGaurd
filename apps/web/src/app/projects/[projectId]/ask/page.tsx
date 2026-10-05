@@ -174,16 +174,34 @@ export default function AskPage() {
 
   // In-flight generation tracking & meaningful stages
   const [activeGenerationId, setActiveGenerationId] = React.useState<string | null>(null);
-  const [statusLabel, setStatusLabel] = React.useState<string>('Retrieving project evidence...');
+  const [statusLabel, setStatusLabel] = React.useState<string>('Searching project evidence...');
+  const [streamingText, setStreamingText] = React.useState<string>('');
+  const [isStreamActive, setIsStreamActive] = React.useState<boolean>(true);
+  const pendingCompleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
   const abortControllerRef = React.useRef<AbortController | null>(null);
 
-  // SSE runtime events subscription for live verification updates
+  const executeCompletion = React.useCallback(async () => {
+    if (pendingCompleteActionRef.current) {
+      const action = pendingCompleteActionRef.current;
+      pendingCompleteActionRef.current = null;
+      await action();
+    }
+  }, []);
+
+  // SSE runtime events subscription for live verification updates & real-time answer streaming
   const { cancel: cancelGenerationEvents } = useGenerationEvents({
     generationId: activeGenerationId,
     enabled: Boolean(activeGenerationId && isSubmitting),
+    onAnswerDelta: ({ delta }) => {
+      setStreamingText((prev) => prev + delta);
+    },
     onEvent: (event) => {
       if (event === 'generation.started') {
-        setStatusLabel('Generating grounded answer...');
+        setStatusLabel('Searching project evidence...');
+      } else if (event === 'retrieval.completed') {
+        setStatusLabel('Synthesizing project evidence...');
+      } else if (event === 'answer.started') {
+        setStatusLabel('Generating answer...');
       } else if (event === 'sentence.verified' || event === 'sentence.flagged') {
         setStatusLabel('Verifying claims against project knowledge...');
       } else if (event === 'recovery.started') {
@@ -206,8 +224,70 @@ export default function AskPage() {
         });
       }
     },
-    onCancelled: () => {
+    onCompleted: async () => {
+      setIsStreamActive(false);
+
+      const finish = async () => {
+        setStreamingText('');
+        setIsSubmitting(false);
+        setPendingUserMessage(null);
+        if (activeConversationId) {
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: conversationQueryKeys.messages(activeConversationId) }),
+            queryClient.invalidateQueries({ queryKey: conversationQueryKeys.projectList(projectId) }),
+          ]);
+          if (activeGenerationId) {
+            apiClient
+              .get<{ claims: Claim[] }>(`/v1/generations/${activeGenerationId}/claims`)
+              .then((res) => {
+                if (res?.claims) {
+                  setGenerationClaimsMap((prev) => ({
+                    ...prev,
+                    [activeGenerationId]: res.claims,
+                  }));
+                  queryClient.setQueryData(
+                    conversationQueryKeys.generationClaims(activeGenerationId),
+                    res.claims
+                  );
+                }
+              })
+              .catch(() => null);
+          }
+        }
+        setActiveGenerationId(null);
+      };
+
+      if (!streamingText) {
+        await finish();
+      } else {
+        pendingCompleteActionRef.current = finish;
+        // Safety timeout: ensure completion triggers even if stream was already empty
+        setTimeout(() => {
+          if (pendingCompleteActionRef.current) {
+            executeCompletion();
+          }
+        }, 1800);
+      }
+    },
+    onFailed: (err) => {
+      setIsStreamActive(false);
+      pendingCompleteActionRef.current = null;
+      setStreamingText('');
       setIsSubmitting(false);
+      setPendingUserMessage(null);
+      setActiveGenerationId(null);
+      setGenerationError({
+        message: err?.message || "We couldn't generate this answer.",
+        code: err?.code || 'GENERATION_FAILED',
+        queryText: inputValue,
+      });
+    },
+    onCancelled: () => {
+      setIsStreamActive(false);
+      pendingCompleteActionRef.current = null;
+      setStreamingText('');
+      setIsSubmitting(false);
+      setPendingUserMessage(null);
       setActiveGenerationId(null);
     },
   });
@@ -222,6 +302,9 @@ export default function AskPage() {
       await cancelGenerationEvents();
     }
     setIsSubmitting(false);
+    setIsStreamActive(false);
+    pendingCompleteActionRef.current = null;
+    setStreamingText('');
 
     if (activeConversationId) {
       const cancelMsg: Message = {
@@ -245,6 +328,9 @@ export default function AskPage() {
     const textToSend = (overrideText ?? inputValue).trim();
     if (!textToSend || isSubmitting) return;
 
+    setIsStreamActive(true);
+    pendingCompleteActionRef.current = null;
+    setStreamingText('');
     setGenerationError(null);
     setShowErrorDetails(false);
 
@@ -263,7 +349,7 @@ export default function AskPage() {
       textarea?.focus();
     }, 20);
     setIsSubmitting(true);
-    setStatusLabel('Retrieving project evidence...');
+    setStatusLabel('Searching project evidence...');
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -280,69 +366,25 @@ export default function AskPage() {
         router.replace(`/projects/${projectId}/ask?c=${newConv.id}`);
       }
 
-      setStatusLabel('Generating grounded answer...');
-
-      // 2. Send query message to M3
+      // 2. Start generation on M3 (returns 202 Accepted immediately with generationId)
       const res = await apiClient.post<any>(
-        `/v1/projects/${projectId}/conversations/${targetConvId}/messages`,
-        { content: textToSend },
+        `/v1/projects/${projectId}/generations`,
+        { query: textToSend, conversationId: targetConvId },
         { signal: controller.signal }
       );
 
-      // Track active generation ID
+      // Track active generation ID immediately to start SSE streaming
       if (res?.generationId) {
         setActiveGenerationId(res.generationId);
       }
-
-      // Cache returned claims for this generation
-      if (res?.generationId && res?.claims) {
-        setGenerationClaimsMap((prev) => ({
-          ...prev,
-          [res.generationId]: res.claims,
-        }));
-        queryClient.setQueryData(
-          conversationQueryKeys.generationClaims(res.generationId),
-          res.claims
-        );
-      }
-
-      // Check if generation returned a failed status
-      if (res?.status === 'failed') {
-        setGenerationError({
-          message: res?.error?.message || "We couldn't generate this answer.",
-          code: res?.error?.code || 'GENERATION_FAILED',
-          requestId: res?.requestId,
-          queryText: textToSend,
-        });
-      }
-
-      // 3. Update TanStack query cache directly for instantaneous display
-      if (res?.userMessage && res?.message) {
-        queryClient.setQueryData<Message[]>(
-          conversationQueryKeys.messages(targetConvId),
-          (old = []) => {
-            const filtered = old.filter((m) => !m.id.startsWith('temp-'));
-            const hasUser = filtered.some((m) => m.id === res.userMessage.id);
-            const hasAssistant = filtered.some((m) => m.id === res.message.id);
-            const next = [...filtered];
-            if (!hasUser) next.push(res.userMessage);
-            if (!hasAssistant) next.push(res.message);
-            return next;
-          }
-        );
-      }
-
-      setPendingUserMessage(null);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: conversationQueryKeys.messages(targetConvId) }),
-        queryClient.invalidateQueries({ queryKey: conversationQueryKeys.projectList(projectId) }),
-      ]);
     } catch (err: any) {
       if (err.name === 'AbortError') {
         return;
       }
-      console.error('Failed to send message:', err);
+      console.error('Failed to start generation:', err);
       setPendingUserMessage(null);
+      setIsSubmitting(false);
+      setStreamingText('');
 
       const isApiErr = err instanceof GroundGuardAPIError;
       setGenerationError({
@@ -352,7 +394,6 @@ export default function AskPage() {
         queryText: textToSend,
       });
     } finally {
-      setIsSubmitting(false);
       abortControllerRef.current = null;
       setTimeout(() => {
         const textarea = document.querySelector('textarea');
@@ -365,6 +406,7 @@ export default function AskPage() {
   const handleNewConversation = () => {
     setActiveConversationId(null);
     setPendingUserMessage(null);
+    setStreamingText('');
     setGenerationError(null);
     setSelectedClaim(null);
     setSelectedEvidence(null);
@@ -428,6 +470,7 @@ export default function AskPage() {
         const c = m.content.toLowerCase();
         if (
           c.includes('evidex ai was unable to complete grounded verification') ||
+          c.includes('evidex was unable to complete grounded verification') ||
           c.includes('groundguard was unable to complete grounded verification') ||
           c.includes('generation service unavailable') ||
           c.includes('service is temporarily unreachable')
@@ -453,11 +496,28 @@ export default function AskPage() {
     greetingSub = `${docNames.join(' and ')} ${docNames.length === 1 ? 'is' : 'are'} ready.`;
   }
 
-  // Auto-scroll messages container to bottom on update
+  // Auto-scroll messages container to bottom on update with intelligent near-bottom tracking
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const isNearBottomRef = React.useRef<boolean>(true);
+
+  const handleScroll = React.useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distanceToBottom <= 120;
+  }, []);
+
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    isNearBottomRef.current = true;
   }, [cleanMessages.length, isSubmitting, generationError]);
+
+  React.useEffect(() => {
+    if (streamingText && isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
+  }, [streamingText]);
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
@@ -604,10 +664,13 @@ export default function AskPage() {
             </div>
 
             {/* Transcript Messages Scroll Area: Centered Reading Column */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin">
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              data-lenis-prevent
+              className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin"
+            >
               <div className="max-w-[760px] mx-auto w-full space-y-6">
-
-
 
                 {cleanMessages.map((msg, index) => {
                   const isUser = msg.role === 'user';
@@ -658,9 +721,9 @@ export default function AskPage() {
                   );
                 })}
 
-                {/* In-flight Generating Indicator with Cancel Action */}
+                {/* In-flight Generating Indicator with Cancel Action & Live Answer Streaming */}
                 {isSubmitting && (
-                  <div className="space-y-2 animate-in fade-in duration-200">
+                  <div className="space-y-3 animate-in fade-in duration-200">
                     <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-muted-foreground pl-1">
                       <div className="flex items-center gap-1.5">
                         <Loader2 className="h-3 w-3 animate-spin text-primary" />
@@ -677,10 +740,33 @@ export default function AskPage() {
                         <span>Cancel</span>
                       </Button>
                     </div>
-                    <GroundGuardAnalysis
-                      mode="live"
-                      currentStage={statusLabel}
-                    />
+
+                    {streamingText ? (
+                      <div className="space-y-2 pb-2 p-4 rounded-xl border border-primary/20 bg-card/40 backdrop-blur-sm shadow-sm">
+                        <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                          <Shield className="h-3.5 w-3.5 text-primary" />
+                          <span>EvideX AI</span>
+                        </div>
+                        <AnswerView
+                          answerText={streamingText}
+                          claims={[]}
+                          isStreaming={isStreamActive}
+                          onStreamFlushComplete={executeCompletion}
+                          generationStatus="generating"
+                          projectId={projectId}
+                          selectedClaimId={null}
+                          onSelectClaim={() => {}}
+                          onSelectEvidence={() => {}}
+                          isEvidenceLens={isEvidenceLens}
+                          onToggleEvidenceLens={() => setIsEvidenceLens(!isEvidenceLens)}
+                        />
+                      </div>
+                    ) : (
+                      <GroundGuardAnalysis
+                        mode="live"
+                        currentStage={statusLabel}
+                      />
+                    )}
                   </div>
                 )}
 

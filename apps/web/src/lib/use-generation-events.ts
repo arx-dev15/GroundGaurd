@@ -8,6 +8,7 @@ import type { Claim, GenerationStatus } from '@groundguard/types';
 export interface UseGenerationEventsOptions {
   generationId?: string | null;
   onEvent?: (event: string, data: any) => void;
+  onAnswerDelta?: (data: { delta: string; sequence: number }) => void;
   onClaimUpdate?: (claim: Claim) => void;
   onCompleted?: (data: { generationId: string; answer?: string }) => void;
   onCancelled?: () => void;
@@ -26,6 +27,7 @@ export interface UseGenerationEventsReturn {
 export function useGenerationEvents({
   generationId,
   onEvent,
+  onAnswerDelta,
   onClaimUpdate,
   onCompleted,
   onCancelled,
@@ -41,10 +43,12 @@ export function useGenerationEvents({
   const abortControllerRef = React.useRef<AbortController | null>(null);
   const lastEventIdRef = React.useRef<string | null>(null);
 
+  const maxSequenceRef = React.useRef<number>(0);
+
   // Store callbacks in ref to avoid re-triggering reconnection
-  const callbacksRef = React.useRef({ onEvent, onClaimUpdate, onCompleted, onCancelled, onFailed });
+  const callbacksRef = React.useRef({ onEvent, onAnswerDelta, onClaimUpdate, onCompleted, onCancelled, onFailed });
   React.useEffect(() => {
-    callbacksRef.current = { onEvent, onClaimUpdate, onCompleted, onCancelled, onFailed };
+    callbacksRef.current = { onEvent, onAnswerDelta, onClaimUpdate, onCompleted, onCancelled, onFailed };
   });
 
   React.useEffect(() => {
@@ -57,6 +61,7 @@ export function useGenerationEvents({
       return;
     }
 
+    maxSequenceRef.current = 0;
     let isClosed = false;
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -75,6 +80,17 @@ export function useGenerationEvents({
       setStatusLabel(label);
 
       callbacksRef.current.onEvent?.(event, data);
+
+      if (event === 'answer.delta') {
+        const seq = typeof data?.sequence === 'number' ? data.sequence : maxSequenceRef.current + 1;
+        // Strictly prevent duplicate text when replaying SSE events on reconnect
+        if (seq > maxSequenceRef.current) {
+          maxSequenceRef.current = seq;
+          if (data?.delta) {
+            callbacksRef.current.onAnswerDelta?.({ delta: data.delta, sequence: seq });
+          }
+        }
+      }
 
       if (event === 'sentence.verified' || event === 'sentence.flagged' || event === 'recovery.completed') {
         if (data?.claim) {

@@ -176,5 +176,62 @@ html.lenis body {
   }
 }
 
+/* Real-time Streaming Smooth Appearance */
+@keyframes streamAppear {
+  0% {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateY(2px);
+  }
+  50% {
+    opacity: 0.85;
+    filter: blur(0.5px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+.animate-stream-appear {
+  display: inline;
+  animation: streamAppear 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform, filter;
+}
+
+@keyframes streamCursorPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.15;
+    transform: scale(0.92);
+  }
+}
+
+.animate-stream-cursor {
+  animation: streamCursorPulse 0.85s ease-in-out infinite;
+}
+
+/* Progressive word/token streaming reveal (ChatGPT style) */
+@keyframes tokenReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(1.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-token-reveal {
+  display: inline;
+  animation: tokenReveal 110ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform;
+}
+
 
 

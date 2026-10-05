@@ -589,7 +589,7 @@ export default function ReliabilityPage() {
                 <div className="p-3 rounded-lg border border-border/50 bg-background/60 space-y-1">
                   <span className="text-[10px] font-mono text-muted-foreground uppercase">Verifier Model</span>
                   <div className="text-xs font-mono font-medium text-foreground truncate" title="groundguard-deberta-v1-finetuned">
-                    DeBERTa-v1
+                    groundguard-deberta-v1-finetuned
                   </div>
                 </div>
 

@@ -19,46 +19,286 @@ import {
   SlidersHorizontal,
   FileText,
 } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { GroundingRail } from './grounding-rail';
 import { CitationPill } from './citation-pill';
 import { TrustSummary } from './trust-summary';
 import { GroundGuardAnalysis } from './groundguard-analysis';
 import { StatusBadge } from '@/components/trust/status-badge';
 import { CLAIM_STATE_CONFIG } from '@/lib/trust-utils';
+import { mapAnswerToClaims } from '@/lib/sentence-claim-mapper';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Claim, EvidenceItem, GenerationStatus } from '@groundguard/types';
 
+export interface StreamingChunk {
+  id: string | number;
+  text: string;
+  isInitial?: boolean;
+}
+
 interface AnswerViewProps {
   answerText: string;
+  streamingChunks?: StreamingChunk[];
   claims?: Claim[];
   generationStatus?: GenerationStatus;
+  isStreaming?: boolean;
+  onStreamFlushComplete?: () => void;
   projectId: string;
   selectedClaimId?: string | null;
   onSelectClaim: (claim: Claim) => void;
   onSelectEvidence?: (evidence: EvidenceItem) => void;
-  isEvidenceLens: boolean;
-  onToggleEvidenceLens: () => void;
+  isEvidenceLens?: boolean;
+  onToggleEvidenceLens?: () => void;
   onAskAnother?: () => void;
   className?: string;
 }
 
-const STOP_WORDS = new Set([
-  'the', 'is', 'a', 'an', 'to', 'of', 'and', 'in', 'on', 'for', 'as', 'with', 'it', 'that', 'this',
-  'system', 'campus', 'monitor', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
-  'do', 'does', 'did', 'at', 'by', 'from', 'also', 'such', 'more', 'than', 'into', 'their', 'which',
-  'there', 'they', 'them', 'these', 'those', 'about', 'over', 'both', 'between', 'through', 'during'
-]);
+function renderFormattedMarkdown(text: string) {
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      return (
+        <strong key={idx} className="font-semibold text-foreground">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return part;
+  });
+}
+
+export interface VisibleToken {
+  id: number;
+  text: string;
+  isBold?: boolean;
+}
+
+interface MemoizedTokenProps {
+  text: string;
+  isBold?: boolean;
+}
+
+function renderTokenFormatted(text: string) {
+  if (text.includes('**')) {
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+        return (
+          <strong key={idx} className="font-semibold text-foreground">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      return part;
+    });
+  }
+  return text;
+}
+
+const MemoizedToken = React.memo(function MemoizedToken({ text, isBold }: MemoizedTokenProps) {
+  const content = renderTokenFormatted(text);
+  return (
+    <span className="inline animate-token-reveal">
+      {isBold ? <strong className="font-semibold text-foreground">{content}</strong> : content}
+    </span>
+  );
+});
+
+function extractNextToken(
+  text: string,
+  isStreaming: boolean
+): { token: string; rest: string } | null {
+  if (!text) return null;
+
+  // 1. Whitespace or newlines
+  const wsMatch = text.match(/^(\s+)/);
+  if (wsMatch && wsMatch[0].length > 0) {
+    const ws = wsMatch[0];
+    return { token: ws, rest: text.slice(ws.length) };
+  }
+
+  // 2. Word with trailing horizontal whitespace
+  const wordMatch = text.match(/^([^\s\n]+[^\S\r\n]*)/);
+  if (wordMatch && wordMatch[0].length > 0) {
+    const word = wordMatch[0];
+    const rest = text.slice(word.length);
+
+    // If word doesn't end with space, rest is empty, and stream is still active,
+    // hold briefly for the rest of the word from network packet
+    if (!/[^\S\r\n]$/.test(word) && rest.length === 0 && isStreaming) {
+      return null;
+    }
+
+    return { token: word, rest };
+  }
+
+  return { token: text.slice(0, 1), rest: text.slice(1) };
+}
+
+export function StreamingTextRenderer({
+  text = '',
+  chunks,
+  fallbackText = '',
+  isStreaming = true,
+  onFlushComplete,
+}: {
+  text?: string;
+  chunks?: StreamingChunk[];
+  fallbackText?: string;
+  isStreaming?: boolean;
+  onFlushComplete?: () => void;
+}) {
+  const effectiveText = text || fallbackText || (chunks ? chunks.map((c) => c.text).join('') : '');
+  const [visibleTokens, setVisibleTokens] = React.useState<VisibleToken[]>([]);
+
+  const bufferRef = React.useRef<string>('');
+  const lastBufferedLenRef = React.useRef<number>(0);
+  const nextTokenIdRef = React.useRef<number>(1);
+  const boldActiveRef = React.useRef<boolean>(false);
+  const timerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const isStreamingRef = React.useRef<boolean>(isStreaming);
+  isStreamingRef.current = isStreaming;
+
+  const onFlushCompleteRef = React.useRef(onFlushComplete);
+  onFlushCompleteRef.current = onFlushComplete;
+
+  const emitToken = React.useCallback((tokenStr: string) => {
+    let cleanToken = tokenStr;
+    let isBold = boldActiveRef.current;
+
+    if (cleanToken.includes('**')) {
+      const asterisks = (cleanToken.match(/\*\*/g) || []).length;
+      if (asterisks % 2 === 1) {
+        boldActiveRef.current = !boldActiveRef.current;
+        isBold = true;
+        cleanToken = cleanToken.replace(/\*\*/g, '');
+      } else {
+        isBold = true;
+        cleanToken = cleanToken.replace(/\*\*/g, '');
+      }
+    }
+
+    const id = nextTokenIdRef.current++;
+    setVisibleTokens((prev) => [...prev, { id, text: cleanToken, isBold }]);
+  }, []);
+
+  const consumeTick = React.useCallback(() => {
+    timerRef.current = null;
+    const buf = bufferRef.current;
+
+    if (!buf || buf.length === 0) {
+      if (!isStreamingRef.current) {
+        onFlushCompleteRef.current?.();
+      }
+      return;
+    }
+
+    const extracted = extractNextToken(buf, isStreamingRef.current);
+    if (!extracted) {
+      if (isStreamingRef.current) {
+        timerRef.current = setTimeout(consumeTick, 30);
+        return;
+      }
+      const forced = buf;
+      bufferRef.current = '';
+      emitToken(forced);
+      onFlushCompleteRef.current?.();
+      return;
+    }
+
+    const { token, rest } = extracted;
+    bufferRef.current = rest;
+    emitToken(token);
+
+    // Dynamic delay:
+    // small buffer: ~22-25ms (natural ChatGPT streaming cadence)
+    // medium buffer: ~16-18ms
+    // large buffer: ~12-14ms
+    // stream finished: ~10ms fast smooth flush
+    let delayMs = 22;
+    const remainingLen = rest.length;
+
+    if (!isStreamingRef.current) {
+      delayMs = remainingLen > 80 ? 8 : 12;
+    } else if (remainingLen > 200) {
+      delayMs = 12;
+    } else if (remainingLen > 80) {
+      delayMs = 16;
+    } else if (remainingLen > 30) {
+      delayMs = 20;
+    } else {
+      delayMs = 24;
+    }
+
+    timerRef.current = setTimeout(consumeTick, delayMs);
+  }, [emitToken]);
+
+  // Ingest incoming text into pending buffer
+  React.useEffect(() => {
+    if (!effectiveText) {
+      bufferRef.current = '';
+      lastBufferedLenRef.current = 0;
+      boldActiveRef.current = false;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      setVisibleTokens([]);
+      return;
+    }
+
+    if (effectiveText.length > lastBufferedLenRef.current) {
+      const newChunk = effectiveText.slice(lastBufferedLenRef.current);
+      bufferRef.current += newChunk;
+      lastBufferedLenRef.current = effectiveText.length;
+
+      if (!timerRef.current) {
+        timerRef.current = setTimeout(consumeTick, 0);
+      }
+    }
+  }, [effectiveText, consumeTick]);
+
+  // If streaming finished, ensure any pending buffer is drained smoothly
+  React.useEffect(() => {
+    if (!isStreaming && bufferRef.current.length > 0) {
+      if (!timerRef.current) {
+        timerRef.current = setTimeout(consumeTick, 0);
+      }
+    }
+  }, [isStreaming, consumeTick]);
+
+  React.useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+
+  return (
+    <div className="text-sm sm:text-base text-foreground leading-relaxed font-sans whitespace-pre-wrap select-text break-words">
+      {visibleTokens.map((token) => (
+        <MemoizedToken key={token.id} text={token.text} isBold={token.isBold} />
+      ))}
+    </div>
+  );
+}
 
 export function AnswerView({
   answerText,
+  streamingChunks = [],
   claims = [],
   generationStatus = 'completed',
+  isStreaming = false,
+  onStreamFlushComplete,
   projectId,
   selectedClaimId,
   onSelectClaim,
   onSelectEvidence,
-  isEvidenceLens,
+  isEvidenceLens = false,
   onToggleEvidenceLens,
   onAskAnother,
   className,
@@ -66,12 +306,6 @@ export function AnswerView({
   const [copied, setCopied] = React.useState(false);
   const [hoveredClaimId, setHoveredClaimId] = React.useState<string | null>(null);
   const [activeStatusFilter, setActiveStatusFilter] = React.useState<string | null>(null);
-
-  const handleCopy = React.useCallback(() => {
-    navigator.clipboard.writeText(answerText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [answerText]);
 
   const hasClaims = claims.length > 0;
 
@@ -106,91 +340,52 @@ export function AnswerView({
     return claims.filter((c) => c.status === activeStatusFilter);
   }, [claims, activeStatusFilter]);
 
-  const getKeywords = React.useCallback((text: string): string[] => {
-    return text
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
-  }, []);
-
-  const findMatchingClaims = React.useCallback(
-    (text: string, allClaims: Claim[]): Claim[] => {
-      const textWords = new Set(getKeywords(text));
-      const matched: Claim[] = [];
-
-      for (const c of allClaims) {
-        const cClean = c.text.toLowerCase().trim();
-        const tClean = text.toLowerCase().trim();
-        if (tClean.includes(cClean) || cClean.includes(tClean)) {
-          matched.push(c);
-          continue;
-        }
-
-        const cWords = getKeywords(c.text);
-        if (cWords.length === 0) continue;
-        const overlap = cWords.filter((w) => textWords.has(w));
-        if (
-          overlap.length >= 2 ||
-          (cWords.length === 1 && overlap.length === 1) ||
-          overlap.length / cWords.length >= 0.5
-        ) {
-          matched.push(c);
-        }
-      }
-      return matched;
-    },
-    [getKeywords]
-  );
-
-  // Parse natural answerText into paragraphs and bullet lists
+  // Deterministically map sentences to claims with 1-to-1 binding and recovery projection
   const contentBlocks = React.useMemo(() => {
-    if (!answerText) return [];
-    const rawBlocks = answerText.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
+    return mapAnswerToClaims(answerText, claims);
+  }, [answerText, claims]);
 
-    return rawBlocks.map((block) => {
-      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
-      const isBulletList = lines.length > 1 && lines.every((l) => /^[*•\-]|\d+\./.test(l));
+  // Projected truthful answer for clipboard copy
+  const projectedFullAnswer = React.useMemo(() => {
+    if (!contentBlocks.length) return answerText;
+    return contentBlocks
+      .map((block) =>
+        block.type === 'list'
+          ? block.items.map((it) => `• ${it.displayText}`).join('\n')
+          : block.items.map((it) => it.displayText).join(' ')
+      )
+      .join('\n\n');
+  }, [contentBlocks, answerText]);
 
-      if (isBulletList) {
-        return {
-          type: 'list' as const,
-          items: lines.map((line) => {
-            const cleanLine = line.replace(/^[*•\-]\s*|\d+\.\s*/, '').trim();
-            const matched = findMatchingClaims(cleanLine, claims);
-            return { text: cleanLine, matchedClaims: matched, raw: line };
-          }),
-        };
-      } else {
-        // Match sentences: text ending with . ! ? followed by space or end
-        const sentenceRegex = /[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g;
-        const rawSentences = block.match(sentenceRegex) || [block];
-        const sentences = rawSentences.map((s) => s.trim()).filter(Boolean);
+  const handleCopy = React.useCallback(() => {
+    navigator.clipboard.writeText(projectedFullAnswer);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [projectedFullAnswer]);
 
-        return {
-          type: 'paragraph' as const,
-          items: sentences.map((sent) => {
-            const matched = findMatchingClaims(sent, claims);
-            return { text: sent, matchedClaims: matched, raw: sent };
-          }),
-        };
-      }
-    });
-  }, [answerText, claims, findMatchingClaims]);
+  const renderFormattedText = (text: string) => renderFormattedMarkdown(text);
 
-  const renderFormattedText = (text: string) => {
-    const parts = text.split(/(\*\*.*?\*\*)/g);
-    return parts.map((part, idx) => {
-      if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
-        return (
-          <strong key={idx} className="font-semibold text-foreground">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-      return part;
-    });
-  };
+  // Case 0: Streaming unverified draft response (no trust markers, no badges, neutral state with smooth appear transitions)
+  if (isStreaming) {
+    return (
+      <div className={cn('space-y-2 py-1', className)}>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono select-none">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/40 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary/80" />
+          </span>
+          <span className="text-foreground/80 font-medium tracking-tight">
+            Generating grounded answer...
+          </span>
+        </div>
+        <StreamingTextRenderer
+          text={answerText}
+          isStreaming={isStreaming}
+          onFlushComplete={onStreamFlushComplete}
+        />
+      </div>
+    );
+  }
 
   // Case 1: Non-claim response (Conversational, Product Help, or Scoped Abstention)
   if (!hasClaims) {
@@ -352,24 +547,13 @@ export function AnswerView({
                     const isHovered = item.matchedClaims.some((c) => hoveredClaimId === c.claimId);
                     const primaryClaim = item.matchedClaims[0];
 
-                    const itemEvidence: EvidenceItem[] = [];
-                    const seenEv = new Set<string>();
-                    for (const c of item.matchedClaims) {
-                      for (const ev of c.evidence || []) {
-                        const id = ev.chunkId || ev.evidenceId || ev.text;
-                        if (!seenEv.has(id)) {
-                          seenEv.add(id);
-                          itemEvidence.push(ev);
-                        }
-                      }
-                    }
-
-                    const hasContradiction = item.matchedClaims.some((c) => c.status === 'flagged');
-                    const hasNeedsReview = item.matchedClaims.some((c) => c.status === 'needs_review');
-                    const hasRecovered = item.matchedClaims.some((c) => c.status === 'recovered');
+                    const hasContradiction = item.effectiveStatus === 'flagged';
+                    const hasNeedsReview = item.effectiveStatus === 'needs_review';
+                    const hasRecovered = item.effectiveStatus === 'recovered';
 
                     const matchesFilter =
                       !activeStatusFilter ||
+                      item.effectiveStatus === activeStatusFilter ||
                       item.matchedClaims.some((c) => c.status === activeStatusFilter);
 
                     return (
@@ -397,12 +581,12 @@ export function AnswerView({
                             : ''
                         )}
                       >
-                        <span>{renderFormattedText(item.text)}</span>
+                        <span>{renderFormattedText(item.displayText)}</span>
 
                         {/* Inline Citations */}
-                        {itemEvidence.map((ev, evIdx) => (
+                        {item.evidence.map((ev, evIdx) => (
                           <CitationPill
-                            key={ev.chunkId || evIdx}
+                            key={ev.chunkId || ev.evidenceId || evIdx}
                             index={getCitationNumber(ev)}
                             evidence={ev}
                             projectId={projectId}
@@ -415,9 +599,9 @@ export function AnswerView({
                         ))}
 
                         {/* Subtle Status Badges */}
-                        {isEvidenceLens && primaryClaim ? (
+                        {isEvidenceLens && item.effectiveStatus ? (
                           <span className="inline-block ml-1 align-middle select-none">
-                            <StatusBadge status={primaryClaim.status} size="sm" showIcon={true} />
+                            <StatusBadge status={item.effectiveStatus} size="sm" showIcon={true} />
                           </span>
                         ) : (
                           <>
@@ -465,24 +649,13 @@ export function AnswerView({
                   const isHovered = item.matchedClaims.some((c) => hoveredClaimId === c.claimId);
                   const primaryClaim = item.matchedClaims[0];
 
-                  const itemEvidence: EvidenceItem[] = [];
-                  const seenEv = new Set<string>();
-                  for (const c of item.matchedClaims) {
-                    for (const ev of c.evidence || []) {
-                      const id = ev.chunkId || ev.evidenceId || ev.text;
-                      if (!seenEv.has(id)) {
-                        seenEv.add(id);
-                        itemEvidence.push(ev);
-                      }
-                    }
-                  }
-
-                  const hasContradiction = item.matchedClaims.some((c) => c.status === 'flagged');
-                  const hasNeedsReview = item.matchedClaims.some((c) => c.status === 'needs_review');
-                  const hasRecovered = item.matchedClaims.some((c) => c.status === 'recovered');
+                  const hasContradiction = item.effectiveStatus === 'flagged';
+                  const hasNeedsReview = item.effectiveStatus === 'needs_review';
+                  const hasRecovered = item.effectiveStatus === 'recovered';
 
                   const matchesFilter =
                     !activeStatusFilter ||
+                    item.effectiveStatus === activeStatusFilter ||
                     item.matchedClaims.some((c) => c.status === activeStatusFilter);
 
                   return (
@@ -510,12 +683,12 @@ export function AnswerView({
                           : ''
                       )}
                     >
-                      <span>{renderFormattedText(item.text)}</span>
+                      <span>{renderFormattedText(item.displayText)}</span>
 
                       {/* Inline Citations */}
-                      {itemEvidence.map((ev, evIdx) => (
+                      {item.evidence.map((ev, evIdx) => (
                         <CitationPill
-                          key={ev.chunkId || evIdx}
+                          key={ev.chunkId || ev.evidenceId || evIdx}
                           index={getCitationNumber(ev)}
                           evidence={ev}
                           projectId={projectId}
@@ -528,9 +701,9 @@ export function AnswerView({
                       ))}
 
                       {/* Subtle Status Badges */}
-                      {isEvidenceLens && primaryClaim ? (
+                      {isEvidenceLens && item.effectiveStatus ? (
                         <span className="inline-block ml-1 align-middle select-none">
-                          <StatusBadge status={primaryClaim.status} size="sm" showIcon={true} />
+                          <StatusBadge status={item.effectiveStatus} size="sm" showIcon={true} />
                         </span>
                       ) : (
                         <>

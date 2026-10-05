@@ -150,7 +150,7 @@ export async function conversationRoutes(fastify: FastifyInstance) {
     const conversation = await conversationRepository.findConversationByIdAndUserId(conversationId, userId);
     if (!conversation || conversation.projectId !== projectId) throw new NotFoundError('Conversation not found');
 
-    const body = request.body as { content?: unknown; query?: unknown };
+    const body = request.body as { content?: unknown; query?: unknown; stream?: unknown };
     if (!body || typeof body !== 'object') {
       throw new BadRequestError('Request body must be a JSON object');
     }
@@ -161,6 +161,21 @@ export async function conversationRoutes(fastify: FastifyInstance) {
     }
     if (rawContent.length > 2000) {
       throw new BadRequestError('content must be at most 2000 characters');
+    }
+
+    if (body.stream === true || (request.query as any)?.stream === 'true') {
+      const generation = await generationOrchestrator.createGeneration({
+        projectId,
+        conversationId,
+        query: rawContent.trim(),
+        maxRecoveryAttempts: 2,
+        requestId: request.requestId,
+      });
+      return reply.status(202).send({
+        requestId: request.requestId,
+        generationId: generation.id,
+        status: generation.status,
+      });
     }
 
     const result = await generationOrchestrator.sendMessage({

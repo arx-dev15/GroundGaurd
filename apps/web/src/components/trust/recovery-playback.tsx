@@ -44,7 +44,10 @@ export function RecoveryPlayback({
 
   // Derive before and after text from real attempt records
   const originalText = activeAttempt?.originalText || claim.sourceText || claim.text;
-  const candidateText = activeAttempt?.candidateText || (isRecovered ? claim.text : null);
+  const rawCandidate = activeAttempt?.candidateText;
+  const candidateText = (rawCandidate && rawCandidate !== '[Unverified SOP]')
+    ? rawCandidate
+    : (isRecovered ? claim.text : null);
 
   const getFailureLabel = (reason?: string) => {
     switch (reason) {
@@ -153,7 +156,7 @@ export function RecoveryPlayback({
             )}
           </div>
           <p className="text-xs text-foreground font-sans font-medium leading-relaxed">
-            {candidateText || (isRecovering ? 'Generating candidate claim...' : 'No candidate approved')}
+            {candidateText || (isRecovering ? 'Generating candidate claim...' : 'No candidate revision was produced.')}
           </p>
         </div>
       </div>

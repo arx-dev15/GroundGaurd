@@ -169,6 +169,9 @@ export interface Claim {
   sourceText?: string;
   verification?: VerificationResult;
   evidence?: EvidenceItem[];
+  recovery?: {
+    attempts: Array<Partial<RecoveryAttempt>>;
+  };
 }
 
 export type ClaimItem = Claim;

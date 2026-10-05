@@ -9,7 +9,7 @@ export interface GenerationEvent {
 
 export const TERMINAL_EVENTS = new Set(['generation.completed', 'generation.failed']);
 const BUFFER_TTL_MS = 5 * 60 * 1000;
-const MAX_BUFFER_EVENTS = 100;
+const MAX_BUFFER_EVENTS = 1000;
 const REDIS_KEY_PREFIX = 'gg:events:';
 const REDIS_CANCEL_PREFIX = 'gg:cancel:';
 const REDIS_TTL_SEC = 300;
