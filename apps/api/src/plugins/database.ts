@@ -43,6 +43,19 @@ export class DatabaseManager {
       }
       return { ok: false, error: 'Query returned unexpected result' };
     } catch (err: any) {
+      if (config.env !== 'production') {
+        console.warn(`[Database] PostgreSQL not detected at ${config.databaseUrl}.`);
+        console.info('[Database] Automatically activating zero-setup in-memory database (pg-mem) for local development...');
+        try {
+          const { newDb } = require('pg-mem');
+          const db = newDb();
+          const memPool = new (db.adapters.createPg().Pool)();
+          this.setTestPool(memPool);
+          return { ok: true };
+        } catch (memErr: any) {
+          return { ok: false, error: `In-memory DB fallback failed: ${memErr.message}` };
+        }
+      }
       return { ok: false, error: err.message || 'PostgreSQL connection failed' };
     }
   }

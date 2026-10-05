@@ -7,14 +7,14 @@ interface DhadhiLogoProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg';
   showTagline?: boolean;
-  href?: string;
+  href?: string | null;
 }
 
 export function DhadhiLogo({
   className = '',
   size = 'md',
   showTagline = false,
-  href = '/',
+  href,
 }: DhadhiLogoProps) {
   const iconSize = size === 'sm' ? 24 : size === 'lg' ? 38 : 30;
   const textSize =
@@ -109,7 +109,7 @@ export function DhadhiLogo({
     </div>
   );
 
-  if (href) {
+  if (href && href.trim().length > 0) {
     return (
       <Link href={href} className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 rounded-md">
         {content}

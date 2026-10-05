@@ -55,7 +55,7 @@ export function Navbar({ onGetStarted, onSignIn }: NavbarProps) {
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* DHADHI Brand Logo */}
-        <DhadhiLogo size="md" showTagline={true} />
+        <DhadhiLogo size="md" showTagline={true} href="/" />
 
         {/* Desktop Anchor Navigation */}
         <nav className="hidden md:flex items-center gap-6" aria-label="Main Navigation">

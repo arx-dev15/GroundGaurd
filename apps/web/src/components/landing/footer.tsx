@@ -9,7 +9,7 @@ export function Footer() {
     <footer className="w-full py-12 px-6 border-t border-border/50 select-none bg-background transition-colors duration-300">
       <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
         {/* Brand */}
-        <DhadhiLogo size="sm" showTagline={true} />
+        <DhadhiLogo size="sm" showTagline={true} href="/" />
 
         {/* Real Section Anchors */}
         <nav className="flex flex-wrap items-center justify-center gap-6 text-xs text-muted-foreground" aria-label="Footer Navigation">
