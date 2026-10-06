@@ -245,8 +245,17 @@ export interface ProjectClaimItem extends Claim {
   createdAt?: string;
 }
 
+export interface PaginationInfo {
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 export interface ProjectClaimsResponse {
   claims: ProjectClaimItem[];
+  items?: ProjectClaimItem[];
+  pagination?: PaginationInfo;
 }
 
 export interface GroundedGenerationItem {

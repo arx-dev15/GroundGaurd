@@ -232,6 +232,26 @@ html.lenis body {
   animation: tokenReveal 110ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   will-change: opacity, transform;
 }
+/* EVIDEX Benchmark Slope / Transformation Animation */
+@keyframes slopeDraw {
+  0% {
+    width: 0%;
+    opacity: 0.3;
+  }
+  100% {
+    width: 100%;
+    opacity: 1;
+  }
+}
 
+.animate-slope-draw {
+  animation: slopeDraw 750ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
-
+@media (prefers-reduced-motion: reduce) {
+  .animate-slope-draw {
+    animation: none !important;
+    width: 100% !important;
+    opacity: 1 !important;
+  }
+}

@@ -636,13 +636,47 @@ export class GenerationRepository {
     return res.rows[0] || null;
   }
 
-  public async listClaimsByProjectId(projectId: string): Promise<Array<DBClaim & {
-    generationId: string;
-    conversationId: string | null;
-    conversationTitle: string | null;
-    query: string;
-  }>> {
+  public async listClaimsByProjectId(
+    projectId: string,
+    options?: { limit?: number; offset?: number; status?: string[] }
+  ): Promise<{
+    items: Array<DBClaim & {
+      generationId: string;
+      conversationId: string | null;
+      conversationTitle: string | null;
+      query: string;
+    }>;
+    total: number;
+  }> {
     const pool = dbManager.getPool();
+    const params: unknown[] = [projectId];
+    let whereClause = 'WHERE g.project_id = $1';
+
+    if (options?.status && options.status.length > 0) {
+      params.push(options.status);
+      whereClause += ` AND c.status = ANY($${params.length}::text[])`;
+    }
+
+    const countRes = await pool.query(
+      `SELECT COUNT(c.id)::int AS count
+       FROM claims c
+       JOIN generations g ON g.id = c.generation_id
+       ${whereClause};`,
+      params
+    );
+    const total = countRes.rows[0]?.count || 0;
+
+    let paginationClause = '';
+    const queryParams = [...params];
+    if (typeof options?.limit === 'number' && options.limit > 0) {
+      queryParams.push(options.limit);
+      paginationClause += ` LIMIT $${queryParams.length}`;
+      if (typeof options?.offset === 'number' && options.offset >= 0) {
+        queryParams.push(options.offset);
+        paginationClause += ` OFFSET $${queryParams.length}`;
+      }
+    }
+
     const res = await pool.query(
       `SELECT
         c.id,
@@ -665,11 +699,12 @@ export class GenerationRepository {
        FROM claims c
        JOIN generations g ON g.id = c.generation_id
        LEFT JOIN conversations cv ON cv.id = g.conversation_id
-       WHERE g.project_id = $1
-       ORDER BY c.created_at DESC;`,
-      [projectId]
+       ${whereClause}
+       ORDER BY c.created_at DESC
+       ${paginationClause};`,
+      queryParams
     );
-    return res.rows;
+    return { items: res.rows, total };
   }
 
   public async listGroundedGenerationsByProjectId(projectId: string): Promise<Array<{

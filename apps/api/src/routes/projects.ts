@@ -140,8 +140,24 @@ export async function projectRoutes(fastify: FastifyInstance) {
     if (!project) throw new NotFoundError('Project not found');
     assertProjectAuthorized(request, projectId);
 
+    const query = (request.query || {}) as {
+      limit?: string;
+      offset?: string;
+      status?: string;
+    };
+
+    const limit = query.limit !== undefined ? parseInt(query.limit, 10) : undefined;
+    const offset = query.offset !== undefined ? parseInt(query.offset, 10) : undefined;
+    const statusFilter = query.status
+      ? query.status.split(',').map((s) => s.trim()).filter(Boolean)
+      : undefined;
+
     const { generationRepository } = await import('../repositories/generation.repository');
-    const rawClaims = await generationRepository.listClaimsByProjectId(projectId);
+    const { items: rawClaims, total } = await generationRepository.listClaimsByProjectId(projectId, {
+      limit: limit !== undefined && !isNaN(limit) ? limit : undefined,
+      offset: offset !== undefined && !isNaN(offset) ? offset : undefined,
+      status: statusFilter,
+    });
 
     const enrichedClaims = await Promise.all(
       rawClaims.map(async (c) => {
@@ -192,7 +208,22 @@ export async function projectRoutes(fastify: FastifyInstance) {
       })
     );
 
-    return reply.status(200).send({ claims: enrichedClaims });
+    const responsePayload: Record<string, unknown> = {
+      claims: enrichedClaims,
+      items: enrichedClaims,
+    };
+
+    if (limit !== undefined && !isNaN(limit)) {
+      const currentOffset = offset ?? 0;
+      responsePayload.pagination = {
+        total,
+        limit,
+        offset: currentOffset,
+        hasMore: currentOffset + limit < total,
+      };
+    }
+
+    return reply.status(200).send(responsePayload);
   });
 
   // GET /v1/projects/:projectId/grounded-generations

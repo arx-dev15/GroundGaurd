@@ -180,9 +180,9 @@ export function AskInspector({
 
       <aside
         className={cn(
-          'flex flex-col overflow-hidden',
+          'flex flex-col overflow-hidden max-w-full min-w-0',
           isInline
-            ? 'w-full h-full rounded-xl border border-border/80 bg-card/50 shadow-xs'
+            ? 'w-full rounded-xl bg-card/30'
             : cn(
                 'w-full max-w-md md:max-w-none md:w-[420px] lg:w-[460px] shrink-0 border-l border-border/70 bg-card/95 backdrop-blur-sm',
                 'h-full shadow-2xl md:shadow-none z-40 md:z-30 transition-all duration-200',
@@ -192,96 +192,98 @@ export function AskInspector({
         aria-label="Claim Inspector"
         role="region"
       >
-        {/* 1. Inspector Sticky Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/20 select-none shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <ShieldCheck className="h-4 w-4 text-primary shrink-0" />
-            <div className="min-w-0">
-              <h3 className="text-xs font-semibold text-foreground truncate">
-                Claim Inspector
-              </h3>
-              <p className="text-[10px] font-mono text-muted-foreground truncate">
-                {claim.claimId}
-              </p>
+        {/* ============================================================ */}
+        {/* 1. Header Hierarchy (3 Clear Rows per Section 8)             */}
+        {/* ============================================================ */}
+        <div className="px-4 py-3 border-b border-border/50 bg-muted/15 select-none shrink-0 space-y-1.5">
+          {/* ROW 1: Title + Primary Status Badge */}
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-foreground">
+              Claim Inspector
+            </h3>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <StatusBadge status={claim.status} size="sm" />
+              {!isInline && onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors ml-1 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-label="Close inspector"
+                  title="Close inspector (Esc)"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <StatusBadge status={claim.status} size="sm" />
-            {!isInline && onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors ml-1 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                aria-label="Close inspector"
-                title="Close inspector (Esc)"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
+          {/* ROW 2: Claim ID & Question Context / Open answer */}
+          <div className="flex items-center justify-between text-xs text-muted-foreground gap-2 pt-0.5">
+            <span className="font-mono text-[11px] text-muted-foreground/80 truncate shrink-0" title={claim.claimId}>
+              {claim.claimId}
+            </span>
+            <div className="flex items-center gap-2 min-w-0 truncate text-[11px]">
+              {contextTitle && (
+                <span className="truncate">
+                  Asked in: <strong className="font-medium text-foreground">{contextTitle}</strong>
+                </span>
+              )}
+              {onOpenAnswer && (
+                <button
+                  type="button"
+                  onClick={onOpenAnswer}
+                  className="text-primary hover:underline shrink-0 font-medium"
+                >
+                  Open answer →
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Optional Question Context Bar */}
-        {contextTitle && (
-          <div className="px-4 py-1.5 bg-muted/30 border-b border-border/40 flex items-center justify-between text-[11px] text-muted-foreground shrink-0">
-            <span className="truncate pr-2">
-              Asked in: <strong className="text-foreground font-medium">{contextTitle}</strong>
-            </span>
-            {onOpenAnswer && (
-              <button
-                type="button"
-                onClick={onOpenAnswer}
-                className="text-[10px] font-mono text-primary hover:underline shrink-0"
-              >
-                Open answer →
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* 2. Tabs Navigation Bar */}
+        {/* ============================================================ */}
+        {/* 2. ROW 3: Tabs Navigation Bar                                */}
+        {/* ============================================================ */}
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
-          className="flex-1 flex flex-col min-h-0"
+          className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden w-full max-w-full"
         >
-          <div className="px-4 pt-2 border-b border-border/50 bg-muted/10 shrink-0">
-            <TabsList className="grid grid-cols-4 h-8 p-0.5 bg-muted/50 rounded-lg text-[11px]">
-              <TabsTrigger value="source" className="py-1 px-1.5 text-[11px] flex items-center gap-1">
-                <FileText className="h-3 w-3" />
-                <span>Source PDF</span>
+          <div className="px-4 pt-2.5 pb-2 border-b border-border/40 bg-muted/10 shrink-0">
+            <TabsList className="grid grid-cols-4 h-8 p-0.5 bg-muted/50 rounded-lg text-xs w-full min-w-0">
+              <TabsTrigger value="source" className="py-1 px-1 text-xs flex items-center justify-center gap-1 truncate min-w-0">
+                <FileText className="h-3 w-3 shrink-0" />
+                <span className="truncate">Source PDF</span>
               </TabsTrigger>
-              <TabsTrigger value="claim" className="py-1 px-1.5 text-[11px] flex items-center gap-1">
-                <ShieldCheck className="h-3 w-3" />
-                <span>Verification</span>
+              <TabsTrigger value="claim" className="py-1 px-1 text-xs flex items-center justify-center gap-1 truncate min-w-0">
+                <ShieldCheck className="h-3 w-3 shrink-0" />
+                <span className="truncate">Verification</span>
               </TabsTrigger>
               <TabsTrigger
                 value="recovery"
                 className={cn(
-                  'py-1 px-1.5 text-[11px] flex items-center gap-1',
+                  'py-1 px-1 text-xs flex items-center justify-center gap-1 truncate min-w-0',
                   isRecovered ? 'text-blue-500 font-medium' : isEligibleForRetry ? 'text-foreground' : 'text-muted-foreground'
                 )}
               >
-                <RotateCcw className="h-3 w-3" />
-                <span>Recovery</span>
-                {recoveryAttempts.length > 0 && (
-                  <span className="text-[9px] px-1 py-0.2 rounded-full bg-muted font-mono">{recoveryAttempts.length}</span>
-                )}
+                <RotateCcw className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  Recovery{recoveryAttempts.length > 0 ? ` ${recoveryAttempts.length}` : ''}
+                </span>
               </TabsTrigger>
-              <TabsTrigger value="advanced" className="py-1 px-1.5 text-[11px] flex items-center gap-1">
-                <Activity className="h-3 w-3" />
-                <span>Diagnostics</span>
+              <TabsTrigger value="advanced" className="py-1 px-1 text-xs flex items-center justify-center gap-1 truncate min-w-0">
+                <Activity className="h-3 w-3 shrink-0" />
+                <span className="truncate">Diagnostics</span>
               </TabsTrigger>
             </TabsList>
           </div>
 
           {/* ============================================================ */}
-          {/* Tab 1: Contextual PDF Source Viewer with Evidence Highlighting*/}
+          {/* Tab 1: Contextual PDF Source Viewer                          */}
           {/* ============================================================ */}
           <TabsContent
             value="source"
-            className="flex-1 min-h-0 overflow-hidden p-2 m-0 data-[state=active]:flex data-[state=active]:flex-col data-[state=inactive]:!hidden"
+            className="flex-1 min-h-0 overflow-hidden p-2 m-0 data-[state=active]:flex data-[state=active]:flex-col data-[state=inactive]:!hidden w-full max-w-full"
           >
             <PDFSourceViewer
               documentId={currentEvidence?.documentId}
@@ -309,7 +311,7 @@ export function AskInspector({
           {/* ============================================================ */}
           <TabsContent
             value="claim"
-            className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 m-0 scrollbar-thin data-[state=inactive]:!hidden"
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 m-0 scrollbar-thin data-[state=inactive]:!hidden w-full max-w-full min-w-0"
           >
             <SelectedClaimHero
               claim={claim}
@@ -318,7 +320,7 @@ export function AskInspector({
               projectId={projectId}
               generationId={generationId}
               generationMetadata={generationMetadata}
-              layoutMode={variant === 'drawer' ? 'stacked' : 'side-by-side'}
+              layoutMode="stacked"
               onRetry={handleRetry}
               isRetrying={retryMutation.isPending}
               onOpenAnswer={onOpenAnswer}
@@ -330,38 +332,38 @@ export function AskInspector({
           {/* ============================================================ */}
           <TabsContent
             value="recovery"
-            className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin data-[state=inactive]:!hidden"
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-4 m-0 scrollbar-thin data-[state=inactive]:!hidden w-full max-w-full min-w-0"
           >
             {/* Header with Title and Budget Indicator */}
             <div className="flex items-center justify-between border-b border-border/40 pb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
                 <RotateCcw className="h-3.5 w-3.5" />
-                <span>Recovery Provenance & Playback</span>
+                <span>Recovery Provenance</span>
               </div>
-              <span className="text-[10px] font-mono text-muted-foreground">
+              <span className="text-[11px] font-sans text-muted-foreground">
                 {recoveryAttempts.length} / 2 attempts used
               </span>
             </div>
 
             {/* 1. Original Statement & Flag Reason */}
-            <div className="space-y-2 p-3 rounded-lg border border-border/60 bg-muted/20">
-              <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                Original Claim
+            <div className="space-y-1.5 p-3 rounded-lg border border-border/50 bg-muted/20">
+              <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                Original claim
               </div>
               <p className="text-xs text-foreground font-medium leading-relaxed select-text">
                 {activeAttempt?.originalText || claim.sourceText || claim.text}
               </p>
-              <div className="pt-1 flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 font-mono">
+              <div className="pt-1 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span>Why it was flagged: {activeAttempt?.failureReason || (claim.status === 'flagged' ? 'CONTRADICTION' : 'INSUFFICIENT_EVIDENCE')}</span>
+                <span>Flag reason: {activeAttempt?.failureReason || (claim.status === 'flagged' ? 'Contradiction' : 'Insufficient evidence')}</span>
               </div>
             </div>
 
             {/* 2. Attempt Selector Pills */}
             {recoveryAttempts.length > 0 && (
               <div className="space-y-1.5">
-                <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  Attempts History
+                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                  Attempt history
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {recoveryAttempts.map((att, idx) => {
@@ -373,15 +375,15 @@ export function AskInspector({
                         type="button"
                         onClick={() => setSelectedAttemptIndex(idx)}
                         className={cn(
-                          'px-2.5 py-1 rounded-md text-xs font-mono transition-all border text-left flex items-center gap-1.5',
+                          'px-2.5 py-1 rounded-md text-xs font-sans transition-all border text-left flex items-center gap-1.5',
                           isSelected
-                            ? 'bg-primary/10 border-primary text-primary font-semibold ring-1 ring-primary/30'
+                            ? 'bg-primary/10 border-primary text-primary font-semibold ring-1 ring-primary/20'
                             : 'bg-card border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40'
                         )}
                       >
                         <span>Attempt #{att.attemptNumber}</span>
                         {isAttRecovered ? (
-                          <span className="text-emerald-500 font-bold">✓ Recovered</span>
+                          <span className="text-emerald-500 font-semibold">✓ Recovered</span>
                         ) : att.candidateText ? (
                           <span className="text-muted-foreground">Revision</span>
                         ) : (
@@ -396,10 +398,10 @@ export function AskInspector({
 
             {/* 3. SELECTED ATTEMPT DETAIL */}
             {activeAttempt ? (
-              <div className="space-y-3 p-3.5 rounded-lg border border-border/70 bg-card/50">
-                <div className="flex items-center justify-between text-[11px] font-mono border-b border-border/40 pb-2">
+              <div className="space-y-3 p-3.5 rounded-lg border border-border/60 bg-card/40">
+                <div className="flex items-center justify-between text-xs border-b border-border/40 pb-2">
                   <span className="font-semibold text-foreground">
-                    Selected Attempt: #{activeAttempt.attemptNumber}
+                    Selected attempt: #{activeAttempt.attemptNumber}
                   </span>
                   <span className="text-muted-foreground capitalize">
                     Action: {activeAttempt.action || 'abstain'}
@@ -408,11 +410,11 @@ export function AskInspector({
 
                 {/* Evidence Used */}
                 <div className="space-y-1">
-                  <div className="text-[10px] font-mono uppercase text-muted-foreground">
-                    Recovery Evidence Retrieved
+                  <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Recovery evidence
                   </div>
                   {activeAttempt.recoveryEvidence && activeAttempt.recoveryEvidence.length > 0 ? (
-                    <div className="p-2 rounded bg-muted/30 border border-border/40 text-xs italic text-foreground/90 max-h-32 overflow-y-auto leading-relaxed select-text">
+                    <div className="p-2 rounded bg-muted/30 border border-border/40 text-xs italic text-foreground/90 leading-relaxed select-text font-serif">
                       &ldquo;{activeAttempt.recoveryEvidence.map((e: any) => e.text).join(' ')}&rdquo;
                     </div>
                   ) : (
@@ -424,8 +426,8 @@ export function AskInspector({
 
                 {/* Candidate Revision */}
                 <div className="space-y-1">
-                  <div className="text-[10px] font-mono uppercase text-muted-foreground">
-                    Candidate Revision
+                  <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Candidate revision
                   </div>
                   {activeAttempt.candidateText && activeAttempt.candidateText !== '[Unverified SOP]' ? (
                     <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20 text-xs text-foreground font-medium select-text">
@@ -510,7 +512,7 @@ export function AskInspector({
           {/* ============================================================ */}
           <TabsContent
             value="advanced"
-            className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 m-0 scrollbar-thin data-[state=inactive]:!hidden"
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-4 m-0 scrollbar-thin data-[state=inactive]:!hidden w-full max-w-full min-w-0"
           >
             <div className="flex items-center justify-between border-b border-border/40 pb-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
@@ -526,8 +528,11 @@ export function AskInspector({
                 <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold">
                   M1 Neural NLI Signals
                 </span>
-                <span className="text-[10px] font-mono text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60 border border-border/40">
-                  {verification?.modelVersion || 'Unavailable'}
+                <span
+                  className="text-[10px] font-mono text-muted-foreground px-1.5 py-0.5 rounded bg-muted/60 border border-border/40 truncate max-w-[200px]"
+                  title={verification?.modelVersion || 'groundguard-deberta-v1-finetuned'}
+                >
+                  {verification?.modelVersion || 'groundguard-deberta-v1-finetuned'}
                 </span>
               </div>
 
