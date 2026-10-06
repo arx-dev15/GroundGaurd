@@ -1,0 +1,649 @@
+{
+  "metrics": {
+    "total": 32,
+    "retrieval_hit_rate": 100.0,
+    "false_premise_resistance": 100.0,
+    "true_premise_confirmation_rate": 100.0,
+    "incorrect_abstention_rate": 0.0,
+    "false_agreement_rate": 0.0,
+    "overall_accuracy": 100.0
+  },
+  "results": [
+    {
+      "id": "PROP_PEOPLE_TRUE",
+      "category": "people",
+      "premise_type": "true_premise",
+      "query": "Was Commander Keith the one who betrayed the High King at the Battle of the Red Crossing?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Was Commander Keith the one who betrayed the High King at the Battle of the Red Crossing?",
+        "Commander Keith High King Battle Red Crossing"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9999116659164429,
+      "top_evidence_snippet": "Commander Keith had betrayed the High King at the Battle of the Red Crossing two winters ago, selling the kingdom\u2019s nort"
+    },
+    {
+      "id": "PROP_PEOPLE_FALSE",
+      "category": "people",
+      "premise_type": "wrong_premise",
+      "query": "Was Rowan the one who betrayed the High King at the Battle of the Red Crossing?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Was Rowan the one who betrayed the High King at the Battle of the Red Crossing?",
+        "Rowan High King Battle Red Crossing"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9998595714569092,
+      "top_evidence_snippet": "Commander Keith had betrayed the High King at the Battle of the Red Crossing two winters ago, selling the kingdom\u2019s nort"
+    },
+    {
+      "id": "PROP_LOC_TRUE",
+      "category": "locations",
+      "premise_type": "true_premise",
+      "query": "Is the Gate of Mourning located beneath the broken watchtower at Dawn's Edge?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Is the Gate of Mourning located beneath the broken watchtower at Dawn's Edge?",
+        "Gate Mourning Dawn Edge"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9993401169776917,
+      "top_evidence_snippet": "By the serpentine banks of the river Aeloria, they discovered the great white stag, Elyon. The legendary beast possessed"
+    },
+    {
+      "id": "PROP_LOC_FALSE",
+      "category": "locations",
+      "premise_type": "wrong_premise",
+      "query": "Is the Gate of Mourning located inside the White City?",
+      "is_proposition": true,
+      "proposition_subject": "the Gate of Mourning",
+      "proposition_property": "located",
+      "search_queries": [
+        "the Gate of Mourning located ",
+        "Is the Gate of Mourning located inside the White City?"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.5555119163417817,
+      "top_evidence_snippet": "By the serpentine banks of the river Aeloria, they discovered the great white stag, Elyon. The legendary beast possessed"
+    },
+    {
+      "id": "PROP_DATE_TRUE",
+      "category": "dates",
+      "premise_type": "true_premise",
+      "query": "Did Keith's betrayal take place two winters ago?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Did Keith's betrayal take place two winters ago?",
+        "Keith"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9995039701461792,
+      "top_evidence_snippet": "Commander Keith had betrayed the High King at the Battle of the Red Crossing two winters ago, selling the kingdom\u2019s nort"
+    },
+    {
+      "id": "PROP_DATE_FALSE",
+      "category": "dates",
+      "premise_type": "wrong_premise",
+      "query": "Did Keith's betrayal take place ten summers ago?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Did Keith's betrayal take place ten summers ago?",
+        "Keith"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9972015619277954,
+      "top_evidence_snippet": "Commander Keith had betrayed the High King at the Battle of the Red Crossing two winters ago, selling the kingdom\u2019s nort"
+    },
+    {
+      "id": "PROP_NUM_TRUE_1",
+      "category": "numbers",
+      "premise_type": "true_premise",
+      "query": "Does the Model KC-450 chiller utilize a factory pre-charge of 45.0 kg of refrigerant?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does the Model KC-450 chiller utilize a factory pre-charge of 45.0 kg of refrigerant?",
+        "KC-450 pre-charge 45.0 Model 45.0 kg 450"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.7470000000000001,
+      "top_evidence_snippet": "Section 1: General Description and Specifications. The Model KC-450 is a multi-stage industrial water-cooled centrifugal"
+    },
+    {
+      "id": "PROP_NUM_FALSE_1",
+      "category": "numbers",
+      "premise_type": "wrong_premise",
+      "query": "Does the Model KC-450 chiller utilize an 80 kg factory pre-charge of refrigerant?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does the Model KC-450 chiller utilize an 80 kg factory pre-charge of refrigerant?",
+        "KC-450 pre-charge Model 80 kg 450"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.7470000000000001,
+      "top_evidence_snippet": "Section 1: General Description and Specifications. The Model KC-450 is a multi-stage industrial water-cooled centrifugal"
+    },
+    {
+      "id": "PROP_NUM_TRUE_2",
+      "category": "numbers",
+      "premise_type": "true_premise",
+      "query": "Is the compressor induction motor rated at 310 kW in the Model KC-450?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Is the compressor induction motor rated at 310 kW in the Model KC-450?",
+        "KC-450 Model 310 450"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.7200000000000001,
+      "top_evidence_snippet": "Section 1: General Description and Specifications. The Model KC-450 is a multi-stage industrial water-cooled centrifugal"
+    },
+    {
+      "id": "PROP_NUM_FALSE_2",
+      "category": "numbers",
+      "premise_type": "wrong_premise",
+      "query": "Is the compressor induction motor rated at 500 kW in the Model KC-450?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Is the compressor induction motor rated at 500 kW in the Model KC-450?",
+        "KC-450 Model 500 450"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.6925,
+      "top_evidence_snippet": "Section 1: General Description and Specifications. The Model KC-450 is a multi-stage industrial water-cooled centrifugal"
+    },
+    {
+      "id": "PROP_PROC_TRUE_1",
+      "category": "procedures",
+      "premise_type": "true_premise",
+      "query": "Must the oil sump heater remain energized for at least 8 hours before starting the compressor?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Must the oil sump heater remain energized for at least 8 hours before starting the compressor?"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9997205138206482,
+      "top_evidence_snippet": "Section 3: Start-up Sequence and Controls. Before starting the compressor, the oil sump heater must remain energized for"
+    },
+    {
+      "id": "PROP_PROC_FALSE_1",
+      "category": "procedures",
+      "premise_type": "wrong_premise",
+      "query": "Must the oil sump heater remain energized for only 15 minutes before starting the compressor?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Must the oil sump heater remain energized for only 15 minutes before starting the compressor?"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9993168115615845,
+      "top_evidence_snippet": "Section 3: Start-up Sequence and Controls. Before starting the compressor, the oil sump heater must remain energized for"
+    },
+    {
+      "id": "PROP_PROC_TRUE_2",
+      "category": "procedures",
+      "premise_type": "true_premise",
+      "query": "Does SOP-BIO-104 require a 10% sodium hypochlorite solution for biological spill disinfection?",
+      "is_proposition": true,
+      "proposition_subject": "SOP-BIO-104",
+      "proposition_property": "require",
+      "search_queries": [
+        "SOP-BIO-104 require % sodium hypochlorite solution for biological spill disinfection",
+        "Does SOP-BIO-104 require a 10% sodium hypochlorite solution for biological spill disinfection?"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": false,
+      "sufficiency_score": 0.76158607006073,
+      "top_evidence_snippet": "3. Neutralization and Decontamination Procedure. Step 2: Carefully cover the spill area with absorbent spill pads workin"
+    },
+    {
+      "id": "PROP_PROC_FALSE_2",
+      "category": "procedures",
+      "premise_type": "wrong_premise",
+      "query": "Does SOP-BIO-104 require 70% isopropyl alcohol for primary biological spill disinfection?",
+      "is_proposition": true,
+      "proposition_subject": "SOP-BIO-104",
+      "proposition_property": "require",
+      "search_queries": [
+        "SOP-BIO-104 require % isopropyl alcohol for primary biological spill disinfection",
+        "Does SOP-BIO-104 require 70% isopropyl alcohol for primary biological spill disinfection?"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": false,
+      "sufficiency_score": 0.6026277542114258,
+      "top_evidence_snippet": "1. Immediate Containment and Evacuation. This SOP specifies response protocols for liquid spills involving Biosafety Lev"
+    },
+    {
+      "id": "PROP_SPEC_TRUE_1",
+      "category": "technical_specs",
+      "premise_type": "true_premise",
+      "query": "Does Alarm Code A-12 indicate high condenser pressure exceeding 16.5 bar?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does Alarm Code A-12 indicate high condenser pressure exceeding 16.5 bar?",
+        "A-12 16.5 Alarm Code 16.5 bar"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.7470000000000001,
+      "top_evidence_snippet": "Section 4: Alarm Codes and Fault Isolation. Alarm Code A-12 indicates high condenser pressure exceeding 16.5 bar; typica"
+    },
+    {
+      "id": "PROP_SPEC_FALSE_1",
+      "category": "technical_specs",
+      "premise_type": "wrong_premise",
+      "query": "Does Alarm Code A-12 indicate low oil level below 1.0 bar?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does Alarm Code A-12 indicate low oil level below 1.0 bar?",
+        "A-12 1.0 Alarm Code 1.0 bar"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.69591,
+      "top_evidence_snippet": "Section 4: Alarm Codes and Fault Isolation. Alarm Code A-12 indicates high condenser pressure exceeding 16.5 bar; typica"
+    },
+    {
+      "id": "PROP_SPEC_TRUE_2",
+      "category": "technical_specs",
+      "premise_type": "true_premise",
+      "query": "Did inference latency for DeiT-Small drop from 48.2 ms to 14.1 ms?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Did inference latency for DeiT-Small drop from 48.2 ms to 14.1 ms?",
+        "DeiT-Small 48.2 14.1 Small 48.2 ms 14.1 ms"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.997372031211853,
+      "top_evidence_snippet": "Experimental Results and Evaluation. Benchmarks on ImageNet-1K demonstrate a 3.4x inference speedup and a 72.8% reductio"
+    },
+    {
+      "id": "PROP_SPEC_FALSE_2",
+      "category": "technical_specs",
+      "premise_type": "wrong_premise",
+      "query": "Did inference latency for DeiT-Small drop from 48.2 ms to 2.5 ms?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Did inference latency for DeiT-Small drop from 48.2 ms to 2.5 ms?",
+        "DeiT-Small 48.2 2.5 Small 48.2 ms 2.5 ms"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9942203760147095,
+      "top_evidence_snippet": "Experimental Results and Evaluation. Benchmarks on ImageNet-1K demonstrate a 3.4x inference speedup and a 72.8% reductio"
+    },
+    {
+      "id": "PROP_REL_TRUE_1",
+      "category": "relationships",
+      "premise_type": "true_premise",
+      "query": "Did Commander Keith sell the kingdom's northern redoubts to shadow warlord Morvath?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Did Commander Keith sell the kingdom's northern redoubts to shadow warlord Morvath?",
+        "Commander Keith Morvath"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9999113082885742,
+      "top_evidence_snippet": "Commander Keith had betrayed the High King at the Battle of the Red Crossing two winters ago, selling the kingdom\u2019s nort"
+    },
+    {
+      "id": "PROP_REL_FALSE_1",
+      "category": "relationships",
+      "premise_type": "wrong_premise",
+      "query": "Did Commander Keith sell the kingdom's northern redoubts to Rowan?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Did Commander Keith sell the kingdom's northern redoubts to Rowan?",
+        "Commander Keith Rowan"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9998828172683716,
+      "top_evidence_snippet": "Commander Keith had betrayed the High King at the Battle of the Red Crossing two winters ago, selling the kingdom\u2019s nort"
+    },
+    {
+      "id": "PROP_REL_TRUE_2",
+      "category": "relationships",
+      "premise_type": "true_premise",
+      "query": "Does `options.wait_for_sync` default to true to guarantee WAL write completion?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does `options.wait_for_sync` default to true to guarantee WAL write completion?",
+        "options.wait_for_sync"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9774722456932068,
+      "top_evidence_snippet": "o true to ensure WAL write completion before returning."
+    },
+    {
+      "id": "PROP_REL_FALSE_2",
+      "category": "relationships",
+      "premise_type": "wrong_premise",
+      "query": "Does `options.wait_for_sync` default to false, disabling WAL write completion by default?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does `options.wait_for_sync` default to false, disabling WAL write completion by default?",
+        "options.wait_for_sync"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.5555203093504906,
+      "top_evidence_snippet": "2. Upsert Vector API. The primary indexing method is client.upsert_vectors: pub async fn upsert_vectors(&self, collectio"
+    },
+    {
+      "id": "PROP_POL_TRUE_1",
+      "category": "policy_rules",
+      "premise_type": "true_premise",
+      "query": "Does SEC-2026-09 mandate physical hardware security keys such as FIDO2 keys for administrative access?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does SEC-2026-09 mandate physical hardware security keys such as FIDO2 keys for administrative access?",
+        "SEC-2026-09 2026"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": false,
+      "sufficiency_score": 0.903043270111084,
+      "top_evidence_snippet": "Section 4: Authentication and Access Controls. Access to production clusters, code repositories, and customer databases "
+    },
+    {
+      "id": "PROP_POL_FALSE_1",
+      "category": "policy_rules",
+      "premise_type": "wrong_premise",
+      "query": "Does SEC-2026-09 permit SMS-based OTP verification for administrative production access?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does SEC-2026-09 permit SMS-based OTP verification for administrative production access?",
+        "SEC-2026-09 SMS-based 2026"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": false,
+      "sufficiency_score": 0.952392578125,
+      "top_evidence_snippet": "Section 4: Authentication and Access Controls. Access to production clusters, code repositories, and customer databases "
+    },
+    {
+      "id": "PROP_POL_TRUE_2",
+      "category": "policy_rules",
+      "premise_type": "true_premise",
+      "query": "Must lost or stolen corporate devices be reported to SOC within 2 hours of discovery?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Must lost or stolen corporate devices be reported to SOC within 2 hours of discovery?"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.999930739402771,
+      "top_evidence_snippet": "Section 3: Device Security and Incident Reporting. Laptops must never be checked into airline cargo holds or left visibl"
+    },
+    {
+      "id": "PROP_POL_FALSE_2",
+      "category": "policy_rules",
+      "premise_type": "wrong_premise",
+      "query": "Can lost corporate devices be reported to SOC up to 48 hours after discovery?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Can lost corporate devices be reported to SOC up to 48 hours after discovery?"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9990087747573853,
+      "top_evidence_snippet": "Section 3: Device Security and Incident Reporting. Laptops must never be checked into airline cargo holds or left visibl"
+    },
+    {
+      "id": "PROP_POL_TRUE_3",
+      "category": "policy_rules",
+      "premise_type": "true_premise",
+      "query": "Do eligible full-time employees receive a $500 USD workstation setup stipend upon onboarding?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Do eligible full-time employees receive a $500 USD workstation setup stipend upon onboarding?",
+        "full-time 500"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9999234676361084,
+      "top_evidence_snippet": "Section 2: Core Working Hours and Stipends. Remote personnel must remain reachable and actively logged into corporate co"
+    },
+    {
+      "id": "PROP_POL_FALSE_3",
+      "category": "policy_rules",
+      "premise_type": "wrong_premise",
+      "query": "Do eligible full-time employees receive a $2,500 USD workstation setup stipend upon onboarding?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Do eligible full-time employees receive a $2,500 USD workstation setup stipend upon onboarding?",
+        "full-time 500"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9998476505279541,
+      "top_evidence_snippet": "Section 2: Core Working Hours and Stipends. Remote personnel must remain reachable and actively logged into corporate co"
+    },
+    {
+      "id": "PROP_PEOPLE_TRUE_2",
+      "category": "people",
+      "premise_type": "true_premise",
+      "query": "Did Lyra accompany Rowan into the Whispering Woods?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Did Lyra accompany Rowan into the Whispering Woods?",
+        "Lyra Rowan Whispering Woods"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9992948770523071,
+      "top_evidence_snippet": "Chapter 4: The Whispering Woods. Rowan stood at the edge of the ancient Whispering Woods as the sun dipped behind the ja"
+    },
+    {
+      "id": "PROP_PEOPLE_FALSE_2",
+      "category": "people",
+      "premise_type": "wrong_premise",
+      "query": "Did Keith accompany Rowan into the Whispering Woods?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Did Keith accompany Rowan into the Whispering Woods?",
+        "Keith Rowan Whispering Woods"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9958834052085876,
+      "top_evidence_snippet": "Commander Keith had betrayed the High King at the Battle of the Red Crossing two winters ago, selling the kingdom\u2019s nort"
+    },
+    {
+      "id": "PROP_NUM_TRUE_3",
+      "category": "numbers",
+      "premise_type": "true_premise",
+      "query": "Does the evaporator heat exchanger employ 144 enhanced titanium tubes?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does the evaporator heat exchanger employ 144 enhanced titanium tubes?",
+        "144"
+      ],
+      "retrieval_hit": true,
+      "verdict": "SUPPORTED",
+      "expected_verdict": "SUPPORTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9995519518852234,
+      "top_evidence_snippet": "Section 1: General Description and Specifications. The Model KC-450 is a multi-stage industrial water-cooled centrifugal"
+    },
+    {
+      "id": "PROP_NUM_FALSE_3",
+      "category": "numbers",
+      "premise_type": "wrong_premise",
+      "query": "Does the evaporator heat exchanger employ 500 enhanced copper tubes?",
+      "is_proposition": false,
+      "proposition_subject": null,
+      "proposition_property": null,
+      "search_queries": [
+        "Does the evaporator heat exchanger employ 500 enhanced copper tubes?",
+        "500"
+      ],
+      "retrieval_hit": true,
+      "verdict": "CONTRADICTED",
+      "expected_verdict": "CONTRADICTED",
+      "is_correct": true,
+      "sufficiency": true,
+      "sufficiency_score": 0.9829075932502747,
+      "top_evidence_snippet": "Section 1: General Description and Specifications. The Model KC-450 is a multi-stage industrial water-cooled centrifugal"
+    }
+  ]
+}

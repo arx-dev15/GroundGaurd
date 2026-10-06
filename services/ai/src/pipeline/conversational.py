@@ -235,17 +235,25 @@ async def generate_abstention_response(
     insufficiency_reason: Optional[str] = None,
     project_name: Optional[str] = None,
     doc_titles: Optional[List[str]] = None,
+    target_doc: Optional[str] = None,
     llm_runtime: Optional[RealLLMRuntime] = None,
 ) -> str:
     """
     Generates a natural, project-grounded abstention statement.
     Does NOT use world knowledge or answer off-topic queries.
+    Avoids cross-document contamination (Section 22 & 23).
     Falls back safely if LLM fails.
     """
     if not llm_runtime or not llm_runtime.is_configured():
         return FALLBACK_ABSTENTION
 
-    docs_info = f"Documents available in project: {', '.join(doc_titles[:5])}" if doc_titles else "No specific document topics."
+    # Cross-document contamination prevention (Section 22 & 23):
+    # Only mention a document if user explicitly targeted or resolved to it.
+    # Never dump unrelated project document filenames into the abstention prompt.
+    if target_doc:
+        docs_info = f"Document referenced: {target_doc}"
+    else:
+        docs_info = "Scope: Current project documentation."
     proj_info = f"Project: {project_name}" if project_name else ""
 
     user_prompt = (
@@ -254,7 +262,7 @@ async def generate_abstention_response(
         f"User question: \"{query.strip()}\"\n"
         f"Evidence retrieval status: Insufficient evidence ({insufficiency_reason or 'no relevant chunks found'}).\n\n"
         f"Provide a natural 1-2 sentence abstention explaining that the project documents don't have sufficient evidence for this. "
-        f"Do not answer from general knowledge and do not mention unrelated domains:"
+        f"Do not answer from general knowledge, do not list unrelated document names, and do not mention unrelated domains:"
     )
 
     try:

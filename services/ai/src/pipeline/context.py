@@ -85,8 +85,10 @@ class ContextBuilder:
             # 2. Sanitize against prompt injection
             clean_chunk_text = sanitize_evidence_text(getattr(item, "text", ""))
 
-            # 3. Format evidence block with explicit provenance
+            # 3. Format evidence block with explicit provenance (human-readable source name preferred)
             doc_id = getattr(item, "document_id", None) or getattr(item, "documentId", None) or "unknown_doc"
+            item_meta = getattr(item, "metadata", {}) or {}
+            display_name = item_meta.get("filename") or item_meta.get("title") or doc_id
             page_no = getattr(item, "page_number", None) or getattr(item, "pageNumber", None)
             page_info = f"Page {page_no}" if page_no else "Page N/A"
             section = getattr(item, "section", None)
@@ -96,7 +98,7 @@ class ContextBuilder:
             heading_info = f" | Heading: {heading}" if heading else ""
             tags_info = f" | Identifiers: {', '.join(identifiers)}" if identifiers else ""
 
-            header = f"[Evidence Block {len(included) + 1}] (Document: {doc_id} | {page_info}{section_info}{heading_info}{tags_info})"
+            header = f"[Evidence Block {len(included) + 1}] (Source: {display_name} | {page_info}{section_info}{heading_info}{tags_info})"
             block = f"{header}\n{clean_chunk_text}\n"
 
             # 4. Budget enforcement

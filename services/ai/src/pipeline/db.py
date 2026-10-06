@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import List, Set, Dict, Any
+from typing import List, Set, Dict, Any, Tuple
 
 logger = logging.getLogger("m2-db")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/groundguard")
@@ -31,18 +31,13 @@ def get_connection():
             return None
 
 
-def validate_ready_documents(project_id: str, document_ids: List[str]) -> Set[str]:
+def get_ready_documents_meta(project_id: str, document_ids: List[str]) -> Tuple[Set[str], Dict[str, str]]:
     """
-    Validates candidate documentIds against PostgreSQL canonical lifecycle truth.
-    Returns only documentIds that are currently in status = 'ready' for the authorized project.
-
-    INVARIANTS:
-    - Fails closed: If PostgreSQL is unreachable, raises RuntimeError.
-    - Never allows unverified documents to pass through unless ALLOW_OFFLINE_DB=true (unit test mode).
-    - Scope isolation: Only returns documents matching both id = ANY(...) AND project_id = project_id.
+    Validates candidate documentIds against PostgreSQL canonical lifecycle truth and returns filenames.
+    Returns: (ready_document_ids, {doc_id: filename})
     """
     if not document_ids:
-        return set()
+        return set(), {}
 
     raw_opt = os.getenv("ALLOW_OFFLINE_DB")
     allow_offline = (raw_opt.lower() == "true") if raw_opt is not None else _ALLOW_OFFLINE_DB
@@ -54,37 +49,42 @@ def validate_ready_documents(project_id: str, document_ids: List[str]) -> Set[st
     conn = get_connection()
     if conn is None:
         if allow_offline and env != "production":
-            logger.warning(
-                "PostgreSQL unreachable with ALLOW_OFFLINE_DB=true. "
-                "Allowing candidate documents for offline unit testing only."
-            )
-            return set(document_ids)
+            return set(document_ids), {did: did for did in document_ids}
         raise RuntimeError(
-            f"FATAL: Canonical PostgreSQL lifecycle verification failed: database unavailable at {DATABASE_URL}. "
-            f"Failing closed to prevent unauthorized or unready document retrieval."
+            f"FATAL: Canonical PostgreSQL lifecycle verification failed: database unavailable at {DATABASE_URL}."
         )
 
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, status FROM documents
+                SELECT id, status, filename FROM documents
                 WHERE id = ANY(%s) AND project_id = %s;
                 """,
                 (document_ids, project_id)
             )
             rows = cur.fetchall()
             if not rows and allow_offline and env != "production":
-                # Unit testing with synthetic documents not present in PostgreSQL
-                return set(document_ids)
-            return {r[0] for r in rows if r[1] == 'ready'}
+                return set(document_ids), {did: did for did in document_ids}
+            ready_set = {str(r[0]) for r in rows if r[1] == 'ready'}
+            filenames = {str(r[0]): str(r[2]) for r in rows if r[1] == 'ready' and r[2]}
+            return ready_set, filenames
     except Exception as e:
         logger.error(f"Error validating ready documents in PostgreSQL: {e}")
         if allow_offline and env != "production":
-            return set(document_ids)
+            return set(document_ids), {did: did for did in document_ids}
         raise RuntimeError(f"FATAL: PostgreSQL lifecycle validation failed: {e}") from e
     finally:
         conn.close()
+
+
+def validate_ready_documents(project_id: str, document_ids: List[str]) -> Set[str]:
+    """
+    Validates candidate documentIds against PostgreSQL canonical lifecycle truth.
+    Returns only documentIds that are currently in status = 'ready' for the authorized project.
+    """
+    ready_set, _ = get_ready_documents_meta(project_id, document_ids)
+    return ready_set
 
 
 def get_project_knowledge_summary(project_id: str) -> Dict[str, Any]:

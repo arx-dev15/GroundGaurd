@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import logging
 from pathlib import Path
@@ -179,17 +180,31 @@ class TantivyStore:
 
         idx = self._get_index(project_id)
         searcher = idx.searcher()
-        clean_query = query.replace('"', '\\"').strip()
-        scoped_query_str = f'project_id:"{project_id}" AND ({clean_query})'
+
+        # Sanitize query for Tantivy syntax safety while preserving all terms, identifiers, and tokens
+        sanitized_query = re.sub(r'[`~"^\[\]{}():\\/+|!*?]', ' ', query)
+        sanitized_query = re.sub(r'\s+', ' ', sanitized_query).strip()
+        if not sanitized_query:
+            return []
+
+        scoped_query_str = f'project_id:"{project_id}" AND ({sanitized_query})'
 
         try:
             parsed_query = idx.parse_query(scoped_query_str, ["text", "identifiers"])
             search_res = searcher.search(parsed_query, top_k)
         except Exception as e:
-            raise RuntimeError(
-                f"Tantivy query parse/search failed for project_id={project_id}: {e}. "
-                f"Query: {scoped_query_str!r}"
-            ) from e
+            logger.warning(f"Tantivy query parse failed ({e}), attempting alphanumeric fallback...")
+            safe_fallback = re.sub(r'[^a-zA-Z0-9_\s-]', ' ', query).strip()
+            if safe_fallback:
+                fallback_str = f'project_id:"{project_id}" AND ({safe_fallback})'
+                try:
+                    parsed_query = idx.parse_query(fallback_str, ["text", "identifiers"])
+                    search_res = searcher.search(parsed_query, top_k)
+                except Exception as fe:
+                    logger.warning(f"Tantivy fallback query failed for project_id={project_id}: {fe}")
+                    return []
+            else:
+                return []
 
         results = []
         for score, doc_address in search_res.hits:

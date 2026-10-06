@@ -29,9 +29,9 @@ HELP_PATTERNS = [
     re.compile(r'^(?:how\s+to\s+use|features|instructions|usage)[\s!.,?]*$', re.IGNORECASE),
 ]
 
-# 3. Off-Topic / Unsupported Query Patterns (Sports, Celebrities, Politics, General Trivia)
+# 3. Off-Topic / Unsupported Query Patterns (World Trivia / Sports Matches / Celebrity Trivia)
 OFF_TOPIC_PATTERNS = [
-    re.compile(r'\b(?:football|cricket|sports|match|virat|kohli|messi|ronaldo|president\s+of\s+france|prime\s+minister\s+of|weather\s+in|recipe|movie|actor|actress|celebrity)\b', re.IGNORECASE),
+    re.compile(r'\b(?:football\s+match|cricket\s+match|virat\s+kohli|messi|ronaldo|president\s+of\s+france|prime\s+minister\s+of)\b', re.IGNORECASE),
 ]
 
 def normalize_intent_query(query: str) -> str:

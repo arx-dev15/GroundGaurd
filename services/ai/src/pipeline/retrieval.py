@@ -11,7 +11,7 @@ from src.pipeline.embedder import generate_embeddings
 from src.pipeline.qdrant_store import qdrant_store
 from src.pipeline.tantivy_store import tantivy_store
 from src.pipeline.graph_store import graph_store
-from src.pipeline.db import validate_ready_documents
+from src.pipeline.db import validate_ready_documents, get_ready_documents_meta
 from src.pipeline.router import route_query, RouteDecision
 from src.pipeline.reranker import rerank
 
@@ -209,7 +209,10 @@ STOPWORDS = {
     "the", "a", "an", "and", "or", "but", "if", "then", "else", "for", "with",
     "about", "against", "between", "into", "through", "during", "before", "after",
     "above", "below", "to", "from", "up", "down", "in", "out", "on", "off",
-    "tell", "me", "give", "show", "explain", "detail", "details", "difference"
+    "tell", "me", "give", "show", "explain", "detail", "details", "difference",
+    "please", "kindly", "exactly", "find", "information", "according", "document",
+    "file", "paper", "manual", "section", "mention", "state", "say", "said", "also",
+    "like", "know", "wondering"
 }
 
 # Centrally defined weights and thresholds for Evidence Coverage Scoring
@@ -707,6 +710,11 @@ def compute_evidence_coverage(
                 if any(stem in tok or tok.startswith(stem_short) or stem_short in tok for tok in candidate_tokens if len(tok) >= 4):
                     matched_count += 1
         s_content = matched_count / len(content_words)
+        # Short evidence robustness (Section 20):
+        # If the top candidate is concise (<= 250 characters) and has core content match,
+        # do not penalize s_content merely due to conversational query verbosity.
+        if top_cands and len(top_cands[0].text) <= 250 and matched_count >= 1:
+            s_content = max(s_content, min(1.0, matched_count / max(1, min(len(content_words), 3))))
     else:
         s_content = 1.0
 
@@ -1099,12 +1107,20 @@ def evaluate_sufficiency(
                 top_candidate = candidates[0]
                 top_score = top_candidate.rerankScore if top_candidate.rerankScore is not None else top_score
 
-    # 4. Score threshold check
-    if top_score < threshold:
+    # 4. Multi-Signal Score Threshold Aggregation (Sections 18-20)
+    # Generic resolution for cross-encoder length dilution and short decisive passages.
+    # Preserves calibrated SUFFICIENCY_THRESHOLD (0.35) without global lowering.
+    coverage_score = scope_res.signals.evidenceCoverageScore if (scope_res and scope_res.signals) else 0.0
+    if scope_res and scope_res.decision == ScopeDecision.IN_SCOPE and coverage_score >= 0.60:
+        aggregated_score = max(top_score, 0.45 * top_score + 0.55 * coverage_score)
+    else:
+        aggregated_score = top_score
+
+    if aggregated_score < threshold:
         return EvidenceSufficiency(
             sufficient=False,
-            reason=f"Top evidence score ({top_score:.4f}) below sufficiency threshold ({threshold:.4f})",
-            score=top_score,
+            reason=f"Top evidence score ({aggregated_score:.4f}) below sufficiency threshold ({threshold:.4f})",
+            score=aggregated_score,
             scope=scope_dec_str,
             signals=EvidenceSufficiencySignals(
                 resultCount=len(candidates),
@@ -1126,7 +1142,7 @@ def evaluate_sufficiency(
     return EvidenceSufficiency(
         sufficient=True,
         reason="Evidence sufficient for generation",
-        score=top_score,
+        score=aggregated_score,
         scope=scope_dec_str,
         signals=EvidenceSufficiencySignals(
             resultCount=len(candidates),
@@ -1150,7 +1166,10 @@ def retrieve_evidence(
     project_id: str,
     query: str,
     top_k: int = FINAL_TOP_K,
-    request_id: Optional[str] = None
+    request_id: Optional[str] = None,
+    search_queries: Optional[List[str]] = None,
+    lexical_anchors: Optional[List[str]] = None,
+    question_slot: Optional[str] = None,
 ) -> RetrieveResponse:
     """
     Canonical M2 Retrieval Pipeline:
@@ -1168,7 +1187,11 @@ def retrieve_evidence(
     bounded_top_k = min(max(1, top_k), RERANK_CANDIDATE_K)
 
     # 1. Deterministic Query Routing
-    route = route_query(query)
+    # Use original query (search_queries[1]) for identifier extraction to prevent
+    # speculative LLM rewrite expansions from poisoning required identifier checks
+    routing_q = (search_queries[1] if (search_queries and len(search_queries) > 1 and search_queries[1]) else query)
+    route = route_query(routing_q)
+    route.rawQuery = routing_q
     selected_sources = []
     if route.dense:
         selected_sources.append("qdrant_dense")
@@ -1185,12 +1208,30 @@ def retrieve_evidence(
     # 2a. Qdrant Dense Retrieval
     if route.dense:
         try:
-            query_vector = generate_embeddings([query])[0] if query else []
-            raw_dense_hits = qdrant_store.search_dense(
-                project_id=project_id,
-                query_vector=query_vector,
-                top_k=DENSE_CANDIDATE_K
-            )
+            dense_queries = [query]
+            if search_queries:
+                for sq in search_queries[:2]:
+                    if sq and sq.strip() and sq.strip() not in dense_queries:
+                        dense_queries.append(sq.strip())
+
+            query_vectors = generate_embeddings(dense_queries) if dense_queries else []
+            seen_dense_chunks = set()
+            for q_vec in query_vectors:
+                hits = qdrant_store.search_dense(
+                    project_id=project_id,
+                    query_vector=q_vec,
+                    top_k=DENSE_CANDIDATE_K
+                )
+                for h in hits:
+                    cid = h.get("chunkId")
+                    if cid and cid not in seen_dense_chunks:
+                        seen_dense_chunks.add(cid)
+                        raw_dense_hits.append(h)
+                    elif cid:
+                        for existing in raw_dense_hits:
+                            if existing.get("chunkId") == cid and float(h.get("score", 0)) > float(existing.get("score", 0)):
+                                existing["score"] = h.get("score")
+                                break
         except Exception as e:
             logger.error(f"Dense retrieval failed on Qdrant: {e}")
             raise RuntimeError(f"Qdrant retrieval infrastructure failure: {e}") from e
@@ -1205,6 +1246,20 @@ def retrieve_evidence(
                 query=clean_lexical_query or query,
                 top_k=LEXICAL_CANDIDATE_K
             )
+            # Corroborate with high-information lexical anchors (Section 5)
+            if lexical_anchors:
+                anchor_str = " ".join(lexical_anchors).strip()
+                if anchor_str and anchor_str.lower() != clean_lexical_query.lower():
+                    anchor_hits = tantivy_store.search_project(
+                        project_id=project_id,
+                        query=anchor_str,
+                        top_k=LEXICAL_CANDIDATE_K
+                    )
+                    existing_cids = {h.get("chunkId") for h in raw_lexical_hits if h.get("chunkId")}
+                    for ah in anchor_hits:
+                        if ah.get("chunkId") not in existing_cids:
+                            existing_cids.add(ah.get("chunkId"))
+                            raw_lexical_hits.append(ah)
         except Exception as e:
             logger.error(f"Lexical retrieval failed on Tantivy: {e}")
             raise RuntimeError(f"Tantivy retrieval infrastructure failure: {e}") from e
@@ -1341,8 +1396,9 @@ def retrieve_evidence(
     # cannot consume fusion or reranking pool slots or displace valid READY candidates.
     candidate_doc_ids = list(set(c.documentId for c in all_normalized if c.documentId))
     ready_doc_ids: Set[str] = set()
+    doc_filenames: Dict[str, str] = {}
     try:
-        ready_doc_ids = validate_ready_documents(project_id, candidate_doc_ids)
+        ready_doc_ids, doc_filenames = get_ready_documents_meta(project_id, candidate_doc_ids)
     except Exception as e:
         logger.error(f"PostgreSQL lifecycle validation failed for project_id={project_id}: {e}")
         raise RuntimeError(f"PostgreSQL canonical validation failure: {e}") from e
@@ -1362,6 +1418,10 @@ def retrieve_evidence(
                 f"not in READY state in project {project_id}"
             )
             continue
+        if c.documentId in doc_filenames:
+            if not c.metadata:
+                c.metadata = {}
+            c.metadata["filename"] = doc_filenames[c.documentId]
         valid_candidates.append(c)
 
     # 5. Reciprocal Rank Fusion (RRF) on Valid READY Candidates
@@ -1426,6 +1486,33 @@ def retrieve_evidence(
             raise RuntimeError(f"FlashRank reranking infrastructure failure: {e}") from e
     else:
         reranked_pool = rrf_pool
+
+    # Section 7 & 8: Generic Question Slot Alignment Boost
+    # Direct answering evidence should outrank merely tangentially related evidence.
+    if question_slot and question_slot != "general":
+        for cand in reranked_pool:
+            boost = 0.0
+            cand_lower = cand.text.lower()
+            if question_slot == "location":
+                if re.search(r'\b(?:\d+[\s\w]+(?:street|st|road|rd|avenue|ave|lane|ln|court|ct|way|boulevard|blvd|suite|room|floor|place|park|square)|located\s+at|residing\s+at|lives\s+at|address\s*[:\-])\b', cand_lower):
+                    boost = 0.08
+            elif question_slot == "numeric":
+                if re.search(r'\b\d+(?:\.\d+)?\s*(?:bar|kg|kpa|mpa|v|volts?|hz|mhz|ghz|m3/h|°c|c|f|sec|ms|s|gb|mb|kb|ports?)\b', cand_lower):
+                    boost = 0.06
+            elif question_slot == "temporal":
+                if re.search(r'\b(?:18|19|20)\d{2}\b', cand_lower) or re.search(r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b', cand_lower):
+                    boost = 0.06
+            elif question_slot == "causal":
+                if re.search(r'\b(?:because|due\s+to|causes?|caused\s+by|root\s+cause|as\s+a\s+result|trigger(?:ed)?)\b', cand_lower):
+                    boost = 0.05
+            elif question_slot == "procedural":
+                if re.search(r'\b(?:step\s+\d+|1\.|2\.|first|then|afterwards|subsequently|procedure)\b', cand_lower):
+                    boost = 0.05
+            if boost > 0.0:
+                cand.rerankScore = min(1.0, (cand.rerankScore or 0.0) + boost)
+
+        # Re-sort descending by rerankScore after slot alignment boost
+        reranked_pool.sort(key=lambda c: c.rerankScore or 0.0, reverse=True)
 
     # 8. Deterministic Evidence Sufficiency Gate
     sufficiency = evaluate_sufficiency(reranked_pool, route, query=query)

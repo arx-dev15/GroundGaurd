@@ -628,6 +628,9 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                         project_id=payload.projectId,
                         query=sq,
                         top_k=top_k,
+                        search_queries=plan.search_queries,
+                        lexical_anchors=plan.lexical_anchors,
+                        question_slot=plan.question_slot,
                         request_id=req_id
                     )
                     all_results.append(sq_res.results)
@@ -668,7 +671,10 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 project_id=payload.projectId,
                 query=focused_q,
                 top_k=top_k,
-                request_id=req_id
+                request_id=req_id,
+                search_queries=plan.search_queries,
+                lexical_anchors=plan.lexical_anchors,
+                question_slot=plan.question_slot,
             )
 
         # Strategy D: Section Neighborhood Expansion (if section requested and heading matched)
@@ -807,7 +813,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             query=payload.query,
             insufficiency_reason=reason,
             project_name=project_name,
-            doc_titles=doc_titles,
+            target_doc=plan.resolved_document_name,
             llm_runtime=llm_runtime,
         )
         return GenerateResult(
@@ -838,6 +844,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         conversation_context=payload.conversationContext,
         standalone_query=plan.standalone_query,
         operation=plan.operation,
+        is_proposition=plan.is_proposition,
     )
 
     # Step 4: Real LLM Inference
@@ -1103,7 +1110,10 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                 project_id=payload.projectId,
                 query=focused_q,
                 top_k=top_k,
-                request_id=req_id
+                request_id=req_id,
+                search_queries=plan.search_queries,
+                lexical_anchors=plan.lexical_anchors,
+                question_slot=plan.question_slot,
             )
         except Exception as ret_err:
             logger.error("[/generate/stream retrieval error] %s", ret_err)
@@ -1148,7 +1158,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                 query=payload.query,
                 insufficiency_reason=reason,
                 project_name=project_name,
-                doc_titles=doc_titles,
+                target_doc=plan.resolved_document_name,
                 llm_runtime=llm_runtime,
             )
             yield _format_sse("answer.started", {"generationId": gen_id})
@@ -1185,6 +1195,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             conversation_context=payload.conversationContext,
             standalone_query=plan.standalone_query,
             operation=plan.operation,
+            is_proposition=plan.is_proposition,
         )
 
         # Real LLM Streaming
