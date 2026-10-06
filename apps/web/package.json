@@ -8,7 +8,7 @@
     "start": "next start -p 3000",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "ts-node --project tsconfig.test.json src/test/sentence-claim-mapper.test.ts && ts-node --project tsconfig.test.json src/test/streaming_accumulator.test.ts && ts-node --project tsconfig.test.json src/test/reliability-workspace.test.ts"
+    "test": "ts-node --project tsconfig.test.json src/test/sentence-claim-mapper.test.ts && ts-node --project tsconfig.test.json src/test/streaming_accumulator.test.ts && ts-node --project tsconfig.test.json src/test/reliability-workspace.test.ts && ts-node --project tsconfig.test.json src/test/overview-helpers.test.ts"
   },
   "dependencies": {
     "@groundguard/types": "file:../../packages/types",

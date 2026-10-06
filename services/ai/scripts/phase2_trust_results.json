@@ -1,0 +1,1053 @@
+{
+  "overall_semantic_accuracy": 92.0,
+  "overall_strict_accuracy": 87.0,
+  "category_metrics": {
+    "true_premise": {
+      "total": 20,
+      "semantic_pass": 19,
+      "strict_pass": 18
+    },
+    "false_premise": {
+      "total": 25,
+      "semantic_pass": 23,
+      "strict_pass": 20
+    },
+    "partial_premise": {
+      "total": 20,
+      "semantic_pass": 19,
+      "strict_pass": 18
+    },
+    "compound": {
+      "total": 15,
+      "semantic_pass": 13,
+      "strict_pass": 13
+    },
+    "conflict": {
+      "total": 9,
+      "semantic_pass": 8,
+      "strict_pass": 8
+    },
+    "version_disambiguation": {
+      "total": 1,
+      "semantic_pass": 1,
+      "strict_pass": 1
+    },
+    "insufficient": {
+      "total": 6,
+      "semantic_pass": 5,
+      "strict_pass": 5
+    },
+    "negation": {
+      "total": 4,
+      "semantic_pass": 4,
+      "strict_pass": 4
+    }
+  },
+  "latencies": {
+    "p50": 17271.992699999828,
+    "p95": 31998.40369999947,
+    "mean": 18503.314904999872
+  },
+  "cases": [
+    {
+      "id": "TP_01",
+      "type": "true_premise",
+      "query": "The Model KC-450 chiller utilizes R-134a refrigerant, correct?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 11227.246799999193,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation for the Model KC-450 chiller confirms that it utilizes eco-blend R-134a refrigerant, with"
+    },
+    {
+      "id": "TP_02",
+      "type": "true_premise",
+      "query": "Does the compressor drive induction motor have a rating of 310 kW?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 11868.674999999712,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation for the KC-450 chiller confirms that the primary compressor drive unit is a 480V 3-phase "
+    },
+    {
+      "id": "TP_03",
+      "type": "true_premise",
+      "query": "Did Commander Keith betray the High King at the Battle of the Red Crossing?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 26927.264999998442,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation states that Commander Keith betrayed the High King at the Battle of the Red Crossing two "
+    },
+    {
+      "id": "TP_04",
+      "type": "true_premise",
+      "query": "Did Rowan possess the Sunfire Blade passed down through the Alden dynasty?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 26074.826799998846,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. According to *Eldoria_Whispering_Woods.pdf*, Rowan possessed the Sunfire Blade, which is described as an heirloom p"
+    },
+    {
+      "id": "TP_05",
+      "type": "true_premise",
+      "query": "Does Q-EdgeAttention achieve a 72.8% reduction in peak SRAM consumption?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 28844.57950000069,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation states that Q-EdgeAttention achieves a 72.8% reduction in peak SRAM consumption compared "
+    },
+    {
+      "id": "TP_06",
+      "type": "true_premise",
+      "query": "Is Q-EdgeAttention designed for ARM Cortex-M55 cores with Ethos-U55 microNPUs?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15090.315000001283,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation states that Q-EdgeAttention is an asymmetric non-uniform INT4 quantization framework desi"
+    },
+    {
+      "id": "TP_07",
+      "type": "true_premise",
+      "query": "Does the corporate security policy mandate FIDO2 hardware security keys for production access?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 17290.94140000052,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. According to the corporate security policy (SEC_2026_09_Remote_Security.pdf), access to production clusters, code r"
+    },
+    {
+      "id": "TP_08",
+      "type": "true_premise",
+      "query": "Are eligible corporate employees provided a $500 home workstation setup stipend?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 33333.45370000097,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. According to the *SEC_2026_09_Remote_Security.pdf* policy, eligible full-time employees receive a one-time non-taxa"
+    },
+    {
+      "id": "TP_09",
+      "type": "true_premise",
+      "query": "Does the telemetry ingress edge terminate mutual TLS via Envoy proxy?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 23342.26419999868,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation states that the telemetry ingestion edge utilizes an Envoy proxy ingress mesh configured "
+    },
+    {
+      "id": "TP_10",
+      "type": "true_premise",
+      "query": "Does the stream processing tier use Apache Flink clusters on Kubernetes?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 16960.932300000422,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The Telemetry Architecture v2.3 documentation states that stream processing is orchestrated by Apache Flink cluster"
+    },
+    {
+      "id": "TP_11",
+      "type": "true_premise",
+      "query": "Does SOP-BIO-104 require freshly prepared 10% sodium hypochlorite for spill decontamination?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 26448.98540000031,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation in SOP-BIO-104 specifies that for spill decontamination, you must saturate the absorbent "
+    },
+    {
+      "id": "TP_12",
+      "type": "true_premise",
+      "query": "Does SOP-BIO-104 require a mandatory 30-minute waiting period before cleanroom re-entry?",
+      "semantic_pass": true,
+      "strict_pass": false,
+      "latency_ms": 15402.253899999778,
+      "notes": "affirm=True, req=False",
+      "answer_preview": "Yes. The project documentation for SOP-BIO-104 confirms that a mandatory 30-minute waiting period is required before re-"
+    },
+    {
+      "id": "TP_13",
+      "type": "true_premise",
+      "query": "Is the Nautilus-4 AUV certified for continuous operation at depths up to 6,000 meters?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 28753.963000001022,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation (SRS_AUV_88_Subsea.pdf) specifies in REQ-ENV-01 that the AUV pressure hull and all extern"
+    },
+    {
+      "id": "TP_14",
+      "type": "true_premise",
+      "query": "Does the Nautilus-4 AUV utilize four magnetically coupled brushless DC thrusters?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 28713.63829999973,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation for the AUV (SRS_AUV_88_Subsea.pdf) specifies that propulsion is delivered by four magnet"
+    },
+    {
+      "id": "TP_15",
+      "type": "true_premise",
+      "query": "Is the Chandrasekhar mass limit precisely 1.44 solar masses?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 23033.300599998256,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. According to the provided documentation, the Chandrasekhar limit is precisely 1.44 solar masses."
+    },
+    {
+      "id": "TP_16",
+      "type": "true_premise",
+      "query": "Do Type Ia supernovae result from thermonuclear runaway of a carbon-oxygen white dwarf?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 25769.938100000218,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation states that Type Ia supernovae result from the thermonuclear runaway of a carbon-oxygen w"
+    },
+    {
+      "id": "TP_17",
+      "type": "true_premise",
+      "query": "Did the payment gateway outage result in 502 Bad Gateway errors for API transaction requests?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15477.764900000693,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. According to the incident report (INC_88219_Payment_PostMortem.pdf), the Global Payment Processing Gateway experien"
+    },
+    {
+      "id": "TP_18",
+      "type": "true_premise",
+      "query": "Was the root cause an expired internal mTLS client certificate on HashiCorp Vault agent cluster?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 16702.706000000035,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation confirms that the root cause of the incident was the expiration of the internal mTLS clie"
+    },
+    {
+      "id": "TP_19",
+      "type": "true_premise",
+      "query": "Does `options.wait_for_sync` default to true in the VectorDB Rust client SDK?",
+      "semantic_pass": false,
+      "strict_pass": false,
+      "latency_ms": 15774.63649999845,
+      "notes": "affirm=False, req=False",
+      "answer_preview": "Which document are you referring to? (Available: KC450_Chiller_Manual.pdf, Eldoria_Whispering_Woods.pdf, Quantized_Edge_"
+    },
+    {
+      "id": "TP_20",
+      "type": "true_premise",
+      "query": "Does Alvinella abyssi inhabit the mineral chimney walls of Spire Alpha with densities over 850 per square meter?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 19632.47450000017,
+      "notes": "affirm=True, req=True",
+      "answer_preview": "Yes. The project documentation states that the biological community surrounding Spire Alpha is dominated by dense coloni"
+    },
+    {
+      "id": "FP_01",
+      "type": "false_premise",
+      "query": "The Model KC-450 chiller uses R-410A refrigerant, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 16600.95199999887,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that the Model KC-450 chiller utilizes R-134a refrigerant, not R-410A. The unit com"
+    },
+    {
+      "id": "FP_02",
+      "type": "false_premise",
+      "query": "The KC-450 compressor motor is rated at 500 kW, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 14355.692999999519,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that the primary compressor drive unit for the KC-450 is a 480V 3-phase semi-hermet"
+    },
+    {
+      "id": "FP_03",
+      "type": "false_premise",
+      "query": "Did Commander Keith sell the kingdom's northern redoubts to Rowan?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 7069.048600000315,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that Commander Keith sold the kingdom\u2019s northern redoubts to the shadow warlord Mor"
+    },
+    {
+      "id": "FP_04",
+      "type": "false_premise",
+      "query": "Did Commander Keith's betrayal happen ten summers ago?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 25005.16509999943,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that Commander Keith betrayed the High King at the Battle of the Red Crossing two w"
+    },
+    {
+      "id": "FP_05",
+      "type": "false_premise",
+      "query": "Does Q-EdgeAttention achieve only a 20% reduction in peak SRAM consumption?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 6261.785799997597,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that Q-EdgeAttention achieves a 72.8% reduction in peak SRAM consumption compared t"
+    },
+    {
+      "id": "FP_06",
+      "type": "false_premise",
+      "query": "Is Q-EdgeAttention designed for deployment on high-end Nvidia H100 GPUs?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 22953.34659999935,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that Q-EdgeAttention is designed specifically for embedded ARM Cortex-M55 cores wit"
+    },
+    {
+      "id": "FP_07",
+      "type": "false_premise",
+      "query": "Does the corporate security policy allow SMS-based two-factor authentication for production systems?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 11191.889900001115,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The corporate security policy (SEC_2026_09_Remote_Security.pdf) strictly prohibits the use of SMS-based OTP for admi"
+    },
+    {
+      "id": "FP_08",
+      "type": "false_premise",
+      "query": "Is the home workstation setup allowance $5,000 under SEC-2026-09?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 30348.484400001325,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that the one-time non-taxable home workstation setup stipend is $500 USD, not $5,00"
+    },
+    {
+      "id": "FP_09",
+      "type": "false_premise",
+      "query": "Does the telemetry architecture route stream processing into Apache Storm?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 29299.429800001235,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that stream processing is orchestrated by Apache Flink clusters, not Apache Storm. "
+    },
+    {
+      "id": "FP_10",
+      "type": "false_premise",
+      "query": "Are telemetry events published to RabbitMQ queues with 12 partitions?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 9516.079799999716,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that telemetry events are published to an Apache Kafka cluster, not RabbitMQ. The K"
+    },
+    {
+      "id": "FP_11",
+      "type": "false_premise",
+      "query": "Is 70% isopropyl alcohol specified for neutralizing BSL-2 spills in SOP-BIO-104?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 21832.753099999536,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation in SOP_BIO_104_Cleanroom_Spill.pdf does not specify the use of 70% isopropyl alcohol for n"
+    },
+    {
+      "id": "FP_12",
+      "type": "false_premise",
+      "query": "Does SOP-BIO-104 permit cleanroom re-entry after just 5 minutes?",
+      "semantic_pass": true,
+      "strict_pass": false,
+      "latency_ms": 9634.187999999995,
+      "notes": "reject=True, req=False",
+      "answer_preview": "No. The project documentation states that SOP-BIO-104 requires a mandatory 30-minute wait before re-entering the cleanro"
+    },
+    {
+      "id": "FP_13",
+      "type": "false_premise",
+      "query": "Is the Nautilus-4 AUV maximum operational depth 2,000 meters?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 17360.45809999996,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that the AUV pressure hull and all external penetrators are certified for continuou"
+    },
+    {
+      "id": "FP_14",
+      "type": "false_premise",
+      "query": "Does the Nautilus-4 AUV use lead-acid batteries with 12 continuous operating hours?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 17201.813000003312,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that the Nautilus-4 AUV is powered by a 35 kWh lithium-iron-phosphate (LiFePO4) pre"
+    },
+    {
+      "id": "FP_15",
+      "type": "false_premise",
+      "query": "Is the Chandrasekhar limit established at 3.0 solar masses?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 9436.734999999317,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that the Chandrasekhar limit is 1.44 solar masses."
+    },
+    {
+      "id": "FP_16",
+      "type": "false_premise",
+      "query": "Do massive stars with M > 8 solar masses terminate fusion at helium burning?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 9147.613000001002,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that massive stars with M > 8 solar masses do not terminate fusion at helium burnin"
+    },
+    {
+      "id": "FP_17",
+      "type": "false_premise",
+      "query": "Was the payment gateway outage caused by a power supply failure in the primary datacenter?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15994.058099997346,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that the payment gateway outage was caused by the expiration of the internal mTLS c"
+    },
+    {
+      "id": "FP_18",
+      "type": "false_premise",
+      "query": "Did the payment gateway outage last for 4 hours before mitigation?",
+      "semantic_pass": false,
+      "strict_pass": false,
+      "latency_ms": 2814.4538999986253,
+      "notes": "reject=False, req=False",
+      "answer_preview": "Which document are you referring to? (Available: KC450_Chiller_Manual.pdf, Eldoria_Whispering_Woods.pdf, Quantized_Edge_"
+    },
+    {
+      "id": "FP_19",
+      "type": "false_premise",
+      "query": "Does the VectorDB Rust client SDK retry ConnectionFailed errors up to 10 times?",
+      "semantic_pass": false,
+      "strict_pass": false,
+      "latency_ms": 4269.1240000021935,
+      "notes": "reject=False, req=False",
+      "answer_preview": "Which document are you referring to? (Available: KC450_Chiller_Manual.pdf, Eldoria_Whispering_Woods.pdf, Quantized_Edge_"
+    },
+    {
+      "id": "FP_20",
+      "type": "false_premise",
+      "query": "Was Spire Alpha discovered in the Atlantic Ocean at a depth of 1,200 meters?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 25703.614900001412,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that Spire Alpha was discovered on the southern Mariana Ridge at a depth of 4,120 m"
+    },
+    {
+      "id": "FP_21",
+      "type": "false_premise",
+      "query": "Is compressor lubrication oil replacement scheduled every 500 hours?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 14180.960700003197,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that scheduled compressor lubrication oil replacement for the KC450 chiller is mand"
+    },
+    {
+      "id": "FP_22",
+      "type": "false_premise",
+      "query": "Must lost corporate laptops be reported to the SOC within 48 hours?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 11619.281999999657,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that if a corporate device is lost, stolen, or compromised, the employee must repor"
+    },
+    {
+      "id": "FP_23",
+      "type": "false_premise",
+      "query": "Must biohazard waste bags be autoclaved at 200\u00b0C for 10 minutes?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 27076.471799999126,
+      "notes": "reject=True, req=True",
+      "answer_preview": "No. The project documentation states that biohazard waste bags must be autoclaved at 121\u00b0C for 60 minutes prior to final"
+    },
+    {
+      "id": "FP_24",
+      "type": "false_premise",
+      "query": "Does the AUV abort active survey when battery state of charge drops below 50%?",
+      "semantic_pass": true,
+      "strict_pass": false,
+      "latency_ms": 21331.06439999756,
+      "notes": "reject=True, req=False",
+      "answer_preview": "No. The project documentation states that the AUV 88 Subsea automatically aborts active survey tasks when the battery st"
+    },
+    {
+      "id": "FP_25",
+      "type": "false_premise",
+      "query": "Does client initialization endpoint connect over unencrypted port 80?",
+      "semantic_pass": true,
+      "strict_pass": false,
+      "latency_ms": 11548.28070000076,
+      "notes": "reject=True, req=False",
+      "answer_preview": "The provided project documentation does not contain information regarding the client initialization endpoint for the Tel"
+    },
+    {
+      "id": "PP_01",
+      "type": "partial_premise",
+      "query": "The KC-450 chiller uses R-134a refrigerant and a 500 kW motor, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 12596.450600001845,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation states that the KC-450 chiller utilizes R-134a refrigerant, but it is equipped with a 310 "
+    },
+    {
+      "id": "PP_02",
+      "type": "partial_premise",
+      "query": "Commander Keith betrayed the High King at the Battle of the Red Crossing and did so ten summers ago, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 12488.25990000114,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation states that Commander Keith betrayed the High King at the Battle of the Red Crossing two w"
+    },
+    {
+      "id": "PP_03",
+      "type": "partial_premise",
+      "query": "Q-EdgeAttention targets ARM Cortex-M55 cores and reduces peak SRAM by 20%, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15992.718299999979,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation confirms that Q-EdgeAttention is designed for ARM Cortex-M55 cores, but it states that the"
+    },
+    {
+      "id": "PP_04",
+      "type": "partial_premise",
+      "query": "Corporate policy SEC-2026-09 mandates FIDO2 hardware keys and provides a $5,000 home desk stipend, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 14987.141300000076,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. While corporate policy SEC-2026-09 does mandate the use of FIDO2-compliant physical hardware security keys for acces"
+    },
+    {
+      "id": "PP_05",
+      "type": "partial_premise",
+      "query": "Telemetry events are published to Kafka and stream processed by Apache Storm, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15500.828499996715,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation states that telemetry events are published to an Apache Kafka cluster, but stream processi"
+    },
+    {
+      "id": "PP_06",
+      "type": "partial_premise",
+      "query": "SOP-BIO-104 specifies 10% sodium hypochlorite disinfectant and allows re-entry after 5 minutes, right?",
+      "semantic_pass": true,
+      "strict_pass": false,
+      "latency_ms": 17271.992699999828,
+      "notes": "partial=True, req=False",
+      "answer_preview": "No. While SOP-BIO-104 does specify the use of 10% sodium hypochlorite as a disinfectant, the re-entry requirements are d"
+    },
+    {
+      "id": "PP_07",
+      "type": "partial_premise",
+      "query": "The Nautilus-4 AUV has a 6,000 meter depth rating and is powered by lead-acid batteries, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 36455.77580000099,
+      "notes": "partial=True, req=True",
+      "answer_preview": "Yes, the Nautilus-4 AUV has a 6,000 meter depth rating. However, it is not powered by lead-acid batteries; the project d"
+    },
+    {
+      "id": "PP_08",
+      "type": "partial_premise",
+      "query": "The Chandrasekhar limit is 1.44 solar masses and applies to neutron stars, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 24530.32429999803,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation states that the Chandrasekhar limit is 1.44 solar masses, but it applies to white dwarfs, "
+    },
+    {
+      "id": "PP_09",
+      "type": "partial_premise",
+      "query": "The payment gateway outage lasted 21 minutes and was caused by a DDoS attack, right?",
+      "semantic_pass": false,
+      "strict_pass": false,
+      "latency_ms": 2778.1992000018363,
+      "notes": "partial=False, req=False",
+      "answer_preview": "Which document are you referring to? (Available: KC450_Chiller_Manual.pdf, Eldoria_Whispering_Woods.pdf, Quantized_Edge_"
+    },
+    {
+      "id": "PP_10",
+      "type": "partial_premise",
+      "query": "Spire Alpha is located at 4,120 meters depth and was discovered in the Atlantic Ocean, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 23558.544099996652,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation confirms that Spire Alpha is located at a depth of 4,120 meters, but it was discovered on "
+    },
+    {
+      "id": "PP_11",
+      "type": "partial_premise",
+      "query": "The KC-450 does not use R-410A, but its oil pressure alarm trips below 5.0 bar, correct?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 31998.40369999947,
+      "notes": "partial=True, req=True",
+      "answer_preview": "Yes, the KC-450 does not use R-410A; the project documentation states that it utilizes R-134a refrigerant.\n\nRegarding th"
+    },
+    {
+      "id": "PP_12",
+      "type": "partial_premise",
+      "query": "Employees must report lost devices within 2 hours, and SMS verification is allowed for admin access, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 18522.35490000021,
+      "notes": "partial=True, req=True",
+      "answer_preview": "Regarding your questions about the *SEC_2026_09_Remote_Security* document:\n\n*   **Lost Device Reporting:** Yes, the docu"
+    },
+    {
+      "id": "PP_13",
+      "type": "partial_premise",
+      "query": "Envoy proxy terminates mTLS at the edge, and failover RTO is 60 minutes, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15109.300100000837,
+      "notes": "partial=True, req=True",
+      "answer_preview": "Yes, the Envoy proxy terminates mTLS at the edge. \n\nNo, the failover RTO is not 60 minutes. The project documentation st"
+    },
+    {
+      "id": "PP_14",
+      "type": "partial_premise",
+      "query": "Is Level C PPE required for cleanroom re-entry, and is disinfectant contact dwell time only 2 minutes?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 11633.600899996964,
+      "notes": "partial=True, req=True",
+      "answer_preview": "Yes, Level C biohazard PPE is required for cleanroom re-entry according to SOP_BIO_104_Cleanroom_Spill.\n\nNo, the disinfe"
+    },
+    {
+      "id": "PP_15",
+      "type": "partial_premise",
+      "query": "Does the AUV feature a 300 kHz Doppler Velocity Log, but release a 100 kg drop-weight on emergency abort?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 21001.421600001777,
+      "notes": "partial=True, req=True",
+      "answer_preview": "Yes, the AUV features a 300 kHz Doppler Velocity Log (DVL) as part of its navigation system, as specified in REQ-NAV-01."
+    },
+    {
+      "id": "PP_16",
+      "type": "partial_premise",
+      "query": "Silicon burning produces an iron-peak core, but iron fusion generates strong outward thermal pressure, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 17224.715799999103,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation states that because iron has the highest nuclear binding energy per nucleon, further fusio"
+    },
+    {
+      "id": "PP_17",
+      "type": "partial_premise",
+      "query": "PAGER-CRIT-99 triggered due to a 5xx error spike, and the incident lasted 6 hours, correct?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 18963.93050000188,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation states that the PAGER-CRIT-99 alert triggered at 08:14 UTC due to an HTTP 5xx error spike,"
+    },
+    {
+      "id": "PP_18",
+      "type": "partial_premise",
+      "query": "The VectorDB client connects to port 6334 and allows up to 10 retry attempts on connection failure, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 18552.3718000004,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation confirms that the VectorDB client connects to port 6334, but it does not support the claim"
+    },
+    {
+      "id": "PP_19",
+      "type": "partial_premise",
+      "query": "Rowan wielded the broken hilt of the Sunfire Blade, which was passed down through twenty generations, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 25065.893200000573,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation states that the Sunfire Blade is an heirloom passed down through six generations of the Al"
+    },
+    {
+      "id": "PP_20",
+      "type": "partial_premise",
+      "query": "Spire Alpha hydrothermal fluid registered a temperature of 362.4\u00b0C and a neutral pH of 7.0, right?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 22333.999999998923,
+      "notes": "partial=True, req=True",
+      "answer_preview": "No. The project documentation states that the hydrothermal fluid from Spire Alpha registered a temperature of 362.4\u00b0C, b"
+    },
+    {
+      "id": "CQ_01",
+      "type": "compound",
+      "query": "What refrigerant does the KC-450 use, what is its motor rating, and in what city is the KryoCorp factory located?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 26250.206299999263,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "The KC-450 chiller uses R-134a refrigerant and is equipped with a 310 kW motor. The provided project documentation does "
+    },
+    {
+      "id": "CQ_02",
+      "type": "compound",
+      "query": "Who betrayed the High King, for how many chests of silver, and what was Keith's date of birth?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 16478.029000001698,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "Commander Keith betrayed the High King for seventy chests of blackened silver. The provided project documentation does n"
+    },
+    {
+      "id": "CQ_03",
+      "type": "compound",
+      "query": "What microcontroller does Q-EdgeAttention target, what peak SRAM reduction does it achieve, and what is its retail price?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 18571.64450000346,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "Q-EdgeAttention targets embedded ARM Cortex-M55 cores with Ethos-U55 microNPUs. It achieves a 72.8% reduction in peak SR"
+    },
+    {
+      "id": "CQ_04",
+      "type": "compound",
+      "query": "What key type is required for production, what is the remote desk stipend, and what is the CEO's personal mobile phone number?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 17437.970899998618,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "To address your questions based on the provided documentation:\n\n*   **Required Key Type:** Access to production clusters"
+    },
+    {
+      "id": "CQ_05",
+      "type": "compound",
+      "query": "What message broker ingests telemetry, what stream processor is used, and what is the annual budget of the engineering team?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 11890.46789999702,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "The project uses an Apache Kafka cluster as the message broker for ingesting telemetry, and Apache Flink is used as the "
+    },
+    {
+      "id": "CQ_06",
+      "type": "compound",
+      "query": "What disinfectant is used in SOP-BIO-104, how long is the waiting time before re-entry, and what retail store supplies the disinfectant?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 13279.902300000685,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "According to SOP-BIO-104, the decontamination procedure uses a 10% sodium hypochlorite (household bleach) solution. The "
+    },
+    {
+      "id": "CQ_07",
+      "type": "compound",
+      "query": "What is the maximum depth rating of Nautilus-4, how many thrusters does it use, and what paint color is used on the exterior?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 22533.144799999718,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "The project documentation for the AUV (referenced as AUV-88) provides the following information:\n\n*   **Maximum Depth Ra"
+    },
+    {
+      "id": "CQ_08",
+      "type": "compound",
+      "query": "What is the Chandrasekhar limit value, what core element is left after silicon burning, and what brand of telescope was used in 1930?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15657.245399997919,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "The Chandrasekhar limit is 1.44 solar masses. Following silicon burning, the core is composed of iron-peak elements, pre"
+    },
+    {
+      "id": "CQ_09",
+      "type": "compound",
+      "query": "What was the root cause of the payment incident, how long did it last, and what are the home addresses of all affected merchants?",
+      "semantic_pass": false,
+      "strict_pass": false,
+      "latency_ms": 6077.1451000000525,
+      "notes": "answered=True, sup=False, unsup=False",
+      "answer_preview": "Which document are you referring to? (Available: KC450_Chiller_Manual.pdf, Eldoria_Whispering_Woods.pdf, Quantized_Edge_"
+    },
+    {
+      "id": "CQ_10",
+      "type": "compound",
+      "query": "At what depth is Spire Alpha located, what is the hydrothermal fluid temperature, and what was the sea surface temperature at noon?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15361.533899998904,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "Spire Alpha is located at a depth of 4,120 meters, and the hydrothermal fluid venting from it has an in-situ temperature"
+    },
+    {
+      "id": "CQ_11",
+      "type": "compound",
+      "query": "What alarm code trips on high condenser pressure, what threshold trips it, and what technician is assigned to fix it?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15606.503700000758,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "Alarm Code A-12 trips when the condenser pressure exceeds 16.5 bar. The provided project documentation does not specify "
+    },
+    {
+      "id": "CQ_12",
+      "type": "compound",
+      "query": "What hours are core collaboration hours, to what email address must lost laptops be reported, and what is the building gate code?",
+      "semantic_pass": false,
+      "strict_pass": false,
+      "latency_ms": 4218.372100000124,
+      "notes": "answered=True, sup=False, unsup=False",
+      "answer_preview": "Which document are you referring to? (Available: KC450_Chiller_Manual.pdf, Eldoria_Whispering_Woods.pdf, Quantized_Edge_"
+    },
+    {
+      "id": "CQ_13",
+      "type": "compound",
+      "query": "What datastore handles operational telemetry, what datastore handles historical analytics, and who approved the purchase of ClickHouse?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15681.536499996582,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "The project documentation specifies the following regarding data storage:\n\n*   **Operational Telemetry:** Handled by Tim"
+    },
+    {
+      "id": "CQ_14",
+      "type": "compound",
+      "query": "What is the battery module capacity, what continuous endurance hours does it deliver, and what is the captain's license number?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 27710.232400000677,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "For the AUV 88 Subsea, the specifications are as follows:\n\n*   **Battery Module Capacity:** 35 kWh (lithium-iron-phospha"
+    },
+    {
+      "id": "CQ_15",
+      "type": "compound",
+      "query": "What is the connection timeout duration, what is max_connections, and how many stars does the GitHub repository have?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 28858.804399998917,
+      "notes": "answered=True, sup=True, unsup=True",
+      "answer_preview": "Regarding the configuration for the `vectordb_rs` crate:\n\n*   **Connection timeout:** The duration is set to 5000 millis"
+    },
+    {
+      "id": "CF_01",
+      "type": "conflict",
+      "query": "What voltage does Model PT-301 require?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 11344.245899999805,
+      "notes": "conflict_word=True, tokens=True",
+      "answer_preview": "The project sources conflict on the voltage requirement for Model PT-301. *Sensor_Spec_B.pdf* states that the transmitte"
+    },
+    {
+      "id": "CF_02",
+      "type": "conflict",
+      "query": "Is emergency shutoff valve V-204 located upstream or downstream of pump P-101A?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 15789.443600002414,
+      "notes": "conflict_word=True, tokens=True",
+      "answer_preview": "The project documentation contains conflicting information regarding the location of emergency shutoff valve V-204 relat"
+    },
+    {
+      "id": "CF_03",
+      "type": "conflict",
+      "query": "What is the normal operating state of breaker BRK-400?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 33221.00750000027,
+      "notes": "conflict_word=True, tokens=True",
+      "answer_preview": "The project sources conflict on the normal operating state of breaker BRK-400. *Breaker_SOP_A.pdf* states that BRK-400 i"
+    },
+    {
+      "id": "CF_04",
+      "type": "conflict",
+      "query": "Does the chemical purge cycle require manual operator isolation?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 37334.51239999704,
+      "notes": "conflict_word=True, tokens=True",
+      "answer_preview": "The project sources conflict regarding the chemical purge cycle. *Purge_Guide_A.pdf* states that the cycle requires manu"
+    },
+    {
+      "id": "CF_05",
+      "type": "conflict",
+      "query": "Are maintenance personnel required to wear face shields inside the chamber?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 12486.222100000305,
+      "notes": "conflict_word=True, tokens=True",
+      "answer_preview": "The project sources conflict on this requirement. *Safety_Standard_A.pdf* states that maintenance personnel must wear fu"
+    },
+    {
+      "id": "CF_06",
+      "type": "conflict",
+      "query": "What is the maximum allowable casing temperature for Compressor C-10?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 9690.395200002968,
+      "notes": "conflict_word=True, tokens=True",
+      "answer_preview": "The project sources conflict on the maximum allowable casing temperature for Compressor C-10. *Compressor_Limits_B.pdf* "
+    },
+    {
+      "id": "CF_07",
+      "type": "conflict",
+      "query": "What is the nominal cooling water flow rate through Exchanger E-102?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 21094.423300000926,
+      "notes": "conflict_word=True, tokens=True",
+      "answer_preview": "The project sources conflict on the nominal cooling water flow rate for Exchanger E-102. *Exchanger_Specs_A.pdf* states "
+    },
+    {
+      "id": "CF_08",
+      "type": "conflict",
+      "query": "Is safety relay K-12 energized or de-energized during standby mode?",
+      "semantic_pass": false,
+      "strict_pass": false,
+      "latency_ms": 5177.854399997159,
+      "notes": "conflict_word=False, tokens=False",
+      "answer_preview": "Which document are you referring to? (Available: Sensor_Spec_A.pdf, Sensor_Spec_B.pdf, Valve_Layout_A.pdf, Valve_Layout_"
+    },
+    {
+      "id": "CF_09",
+      "type": "conflict",
+      "query": "Is hourly manual log entry required by the control operator?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 17429.06000000221,
+      "notes": "conflict_word=True, tokens=True",
+      "answer_preview": "The project sources conflict on this requirement. *Control_Room_SOP_A.pdf* states that hourly manual log entry by the co"
+    },
+    {
+      "id": "CF_10",
+      "type": "version_disambiguation",
+      "query": "What port does Revision B of Device D-9 use for control network communication?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 13261.768799999118,
+      "notes": "tokens=True",
+      "answer_preview": "Yes. According to the documentation for Revision B of Device D-9 (Source: Device_D9_RevB.pdf), the device uses port 8443"
+    },
+    {
+      "id": "IE_01",
+      "type": "insufficient",
+      "query": "What is the capital city of France?",
+      "semantic_pass": false,
+      "strict_pass": false,
+      "latency_ms": 10693.39680000121,
+      "notes": "abstained=False",
+      "answer_preview": "Hello! How can I help you with this project today?"
+    },
+    {
+      "id": "IE_02",
+      "type": "insufficient",
+      "query": "How many moons orbit the planet Saturn?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 27913.91179999846,
+      "notes": "abstained=False",
+      "answer_preview": "The provided project documentation does not contain information regarding the number of moons orbiting Saturn."
+    },
+    {
+      "id": "IE_03",
+      "type": "insufficient",
+      "query": "What was the gross revenue of KryoCorp Technologies in fiscal year 2023?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 11260.590000001685,
+      "notes": "abstained=False",
+      "answer_preview": "The provided project documentation does not contain information regarding the gross revenue of KryoCorp Technologies for"
+    },
+    {
+      "id": "IE_04",
+      "type": "insufficient",
+      "query": "What is the warranty coverage duration for the Nautilus-4 AUV?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 19988.072599997395,
+      "notes": "abstained=False",
+      "answer_preview": "The provided project documentation does not specify the warranty coverage duration for the Nautilus-4 AUV."
+    },
+    {
+      "id": "IE_05",
+      "type": "insufficient",
+      "query": "Who was the previous Chief Information Security Officer before the current corporate policy was published?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 28419.29800000071,
+      "notes": "abstained=False",
+      "answer_preview": "The provided project documentation does not contain information regarding the identity of the Chief Information Security"
+    },
+    {
+      "id": "IE_06",
+      "type": "insufficient",
+      "query": "What brand of coffee did the on-call incident engineers consume during the triage bridge?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 21761.376599999494,
+      "notes": "abstained=False",
+      "answer_preview": "The provided project documentation does not contain information regarding the brand of coffee consumed by the on-call in"
+    },
+    {
+      "id": "NEG_01",
+      "type": "negation",
+      "query": "Does the corporate security policy not permit SMS authentication for production systems?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 26340.49309999682,
+      "notes": "req=True",
+      "answer_preview": "Yes. According to the corporate security policy (SEC_2026_09_Remote_Security.pdf), SMS-based OTP and voice-call verifica"
+    },
+    {
+      "id": "NEG_02",
+      "type": "negation",
+      "query": "Is it false that the Model KC-450 chiller uses R-134a refrigerant?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 18481.20410000047,
+      "notes": "req=True",
+      "answer_preview": "No. The project documentation states that the Model KC-450 chiller utilizes R-134a refrigerant."
+    },
+    {
+      "id": "NEG_03",
+      "type": "negation",
+      "query": "Was the incident outage not caused by physical hardware failure?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 29924.60090000168,
+      "notes": "req=True",
+      "answer_preview": "Yes. The project documentation states that the incident was caused by an expired internal mTLS client certificate (cert-"
+    },
+    {
+      "id": "NEG_04",
+      "type": "negation",
+      "query": "Does SOP-BIO-104 not allow personnel to enter the cleanroom before 30 minutes have elapsed?",
+      "semantic_pass": true,
+      "strict_pass": true,
+      "latency_ms": 28117.740399997274,
+      "notes": "req=True",
+      "answer_preview": "Yes. SOP-BIO-104 requires personnel to wait a mandatory 30 minutes before re-entering the cleanroom following a spill to"
+    }
+  ]
+}

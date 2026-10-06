@@ -86,6 +86,22 @@ export default function ReliabilityPage() {
   // Filter mode: 'attention' (needs_review + flagged) | 'recovered' | 'verified' | 'all'
   const [filterMode, setFilterMode] = React.useState<'attention' | 'recovered' | 'verified' | 'all'>('attention');
 
+  // Synchronize URL status query parameter to filter mode safely on mount
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('status');
+    if (status === 'verified') {
+      setFilterMode('verified');
+    } else if (status === 'recovered') {
+      setFilterMode('recovered');
+    } else if (status === 'flagged' || status === 'attention' || status === 'review' || status === 'needs_review') {
+      setFilterMode('attention');
+    } else if (status === 'all') {
+      setFilterMode('all');
+    }
+  }, []);
+
   // Currently selected claim for Inspector
   const [selectedClaimItem, setSelectedClaimItem] = React.useState<ProjectClaimItem | null>(null);
 

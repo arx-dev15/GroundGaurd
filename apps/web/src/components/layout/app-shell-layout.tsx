@@ -110,7 +110,7 @@ export function AppShellLayout({
           {isAskPage ? (
             <div className="w-full h-full flex-1 flex flex-col">{children}</div>
           ) : (
-            <div ref={contentRef} className="mx-auto max-w-6xl w-full animate-in fade-in duration-200">
+            <div ref={contentRef} className="mx-auto max-w-[1440px] w-full animate-in fade-in duration-200">
               {children}
             </div>
           )}

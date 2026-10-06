@@ -27,21 +27,22 @@
           },
           "search_queries": [
             "What type of refrigerant and pre-charge mass does the Model KC-450 chiller utilize?",
-            "pre-charge KC-450 Model 450"
+            "pre-charge KC-450 KC Model 450"
           ],
           "question_slot": "numeric",
           "lexical_anchors": [
             "pre-charge",
             "KC-450",
+            "KC",
             "Model",
             "450"
           ],
           "chunk_ids": [
-            "chk_4a8561402587",
-            "chk_8e8dcef22883",
-            "chk_f47a24fc00c5",
-            "chk_d6696833f466",
-            "chk_9c191d72bd83"
+            "chk_c0302f368ae3",
+            "chk_2b88b09b15cf",
+            "chk_138b16c687af",
+            "chk_a3b9747da091",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -60,11 +61,11 @@
           "question_slot": "numeric",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_ce5b213db3c1",
-            "chk_603cd8a94115",
-            "chk_bc20a884a80e",
-            "chk_fdab6bd37a7c"
+            "chk_f9fb8bdde025",
+            "chk_6d0c372799d2",
+            "chk_e2732efca546",
+            "chk_d0cac5364a4e",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -79,17 +80,18 @@
           },
           "search_queries": [
             "KC-450 refrigerant charge?",
-            "KC-450 450"
+            "KC-450 KC 450"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "KC-450",
+            "KC",
             "450"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_f47a24fc00c5",
-            "chk_bc20a884a80e"
+            "chk_2b88b09b15cf",
+            "chk_f9fb8bdde025",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -104,20 +106,21 @@
           },
           "search_queries": [
             "Could you please identify the specific cooling chemical refrigerant blend and factory pre-charge amount specified for the KC-450 chiller?",
-            "pre-charge KC-450 450"
+            "pre-charge KC-450 KC 450"
           ],
           "question_slot": "numeric",
           "lexical_anchors": [
             "pre-charge",
             "KC-450",
+            "KC",
             "450"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_ce5b213db3c1",
-            "chk_8c9bf1e5e784",
-            "chk_92cdc52d9b3f",
-            "chk_bc20a884a80e"
+            "chk_f9fb8bdde025",
+            "chk_6d0c372799d2",
+            "chk_176a16cddb28",
+            "chk_3c92f1b10f71",
+            "chk_e180496b66d4"
           ]
         },
         {
@@ -132,19 +135,20 @@
           },
           "search_queries": [
             "Which refrigerant is utilized by the KC-450 and what charge weight is required?",
-            "KC-450 450"
+            "KC-450 KC 450"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "KC-450",
+            "KC",
             "450"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_f47a24fc00c5",
-            "chk_bc20a884a80e",
-            "chk_4aa2d5ae43f5",
-            "chk_7dc915f36fb9"
+            "chk_2b88b09b15cf",
+            "chk_8b23ffa83e6d",
+            "chk_f9fb8bdde025",
+            "chk_468190f19b88",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -159,19 +163,20 @@
           },
           "search_queries": [
             "What cooling fluid and factory coolant quantity is filled in the KC-450 chiller?",
-            "KC-450 450"
+            "KC-450 KC 450"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "KC-450",
+            "KC",
             "450"
           ],
           "chunk_ids": [
-            "chk_4a8561402587",
-            "chk_8e8dcef22883",
-            "chk_ce5b213db3c1",
-            "chk_92cdc52d9b3f",
-            "chk_c572195cc330"
+            "chk_6d0c372799d2",
+            "chk_138b16c687af",
+            "chk_c1367c237c30",
+            "chk_176a16cddb28",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -186,19 +191,20 @@
           },
           "search_queries": [
             "Wat refridgerant and precharge mass does KC-450 use?",
-            "KC-450 450"
+            "KC-450 KC 450"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "KC-450",
+            "KC",
             "450"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_e7ad95232799",
-            "chk_4c3328ddf348",
-            "chk_7b3ee3a39cfb",
-            "chk_8158d8c0677f"
+            "chk_9bed6a8147c6",
+            "chk_db1315b96902",
+            "chk_1a10760c1dea",
+            "chk_0f88e7dd1f35",
+            "chk_3c92f1b10f71"
           ]
         }
       ]
@@ -224,20 +230,21 @@
           },
           "search_queries": [
             "What is the voltage and power rating of the primary compressor motor in the Model KC-450?",
-            "KC-450 Model 450"
+            "KC-450 KC Model 450"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "KC-450",
+            "KC",
             "Model",
             "450"
           ],
           "chunk_ids": [
-            "chk_4a8561402587",
-            "chk_8e8dcef22883",
-            "chk_8c9bf1e5e784",
-            "chk_9166a4abf30c",
-            "chk_c572195cc330"
+            "chk_138b16c687af",
+            "chk_c1367c237c30",
+            "chk_98f4b9825069",
+            "chk_3c92f1b10f71",
+            "chk_e180496b66d4"
           ]
         },
         {
@@ -260,11 +267,11 @@
             "450"
           ],
           "chunk_ids": [
-            "chk_4a8561402587",
-            "chk_8e8dcef22883",
-            "chk_ce5b213db3c1",
-            "chk_92cdc52d9b3f",
-            "chk_4af312666ee7"
+            "chk_ff0ed7abba1c",
+            "chk_6d0c372799d2",
+            "chk_138b16c687af",
+            "chk_176a16cddb28",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -279,19 +286,20 @@
           },
           "search_queries": [
             "KC-450 motor voltage and kW?",
-            "KC-450 450"
+            "KC-450 KC 450"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "KC-450",
+            "KC",
             "450"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_faaf8fa16771",
-            "chk_4c3328ddf348",
-            "chk_9166a4abf30c",
-            "chk_bdf6cca9dc78"
+            "chk_5c1a5a598c6f",
+            "chk_db1315b96902",
+            "chk_35fec686be42",
+            "chk_98f4b9825069",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -301,7 +309,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.4358766747763753,
+            "score": 0.4340054718902707,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -310,11 +318,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_ce5b213db3c1",
-            "chk_063f6917a055",
-            "chk_bc20a884a80e",
-            "chk_c9f66d912926"
+            "chk_a8be196d4703",
+            "chk_f9fb8bdde025",
+            "chk_6d0c372799d2",
+            "chk_8680f908c7d1",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -329,19 +337,20 @@
           },
           "search_queries": [
             "What voltage and power rating is required by the KC-450 compressor induction motor?",
-            "KC-450 450"
+            "KC-450 KC 450"
           ],
           "question_slot": "numeric",
           "lexical_anchors": [
             "KC-450",
+            "KC",
             "450"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_ce5b213db3c1",
-            "chk_8c9bf1e5e784",
-            "chk_92cdc52d9b3f",
-            "chk_9166a4abf30c"
+            "chk_6d0c372799d2",
+            "chk_176a16cddb28",
+            "chk_98f4b9825069",
+            "chk_3c92f1b10f71",
+            "chk_e180496b66d4"
           ]
         },
         {
@@ -351,7 +360,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.40276152629233897,
+            "score": 0.4028230326978117,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -360,11 +369,11 @@
           "question_slot": "numeric",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_4a8561402587",
-            "chk_8e8dcef22883",
-            "chk_f47a24fc00c5",
-            "chk_c572195cc330",
-            "chk_be86171f8917"
+            "chk_a2eeefbafe12",
+            "chk_2b88b09b15cf",
+            "chk_138b16c687af",
+            "chk_c1367c237c30",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -379,19 +388,20 @@
           },
           "search_queries": [
             "What voltige and kw rating is the KC-450 drive moter?",
-            "KC-450 450"
+            "KC-450 KC 450"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "KC-450",
+            "KC",
             "450"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_8c9bf1e5e784",
-            "chk_9166a4abf30c",
-            "chk_4aa2d5ae43f5",
-            "chk_c572195cc330"
+            "chk_8b23ffa83e6d",
+            "chk_c1367c237c30",
+            "chk_98f4b9825069",
+            "chk_3c92f1b10f71",
+            "chk_e180496b66d4"
           ]
         }
       ]
@@ -412,7 +422,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9987602233886719,
+            "score": 0.9980123043060303,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -425,11 +435,11 @@
             "Whispering Woods"
           ],
           "chunk_ids": [
-            "chk_4a8561402587",
-            "chk_4946f4d9ad09",
-            "chk_6ecffbb0c196",
-            "chk_9a09388c7045",
-            "chk_4aa2d5ae43f5"
+            "chk_b00aff6699f3",
+            "chk_b57cb2f25657",
+            "chk_b2e53dbe1be8",
+            "chk_8b23ffa83e6d",
+            "chk_138b16c687af"
           ]
         },
         {
@@ -439,7 +449,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9945407509803772,
+            "score": 0.9912874102592468,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -448,11 +458,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_4946f4d9ad09",
-            "chk_6ecffbb0c196",
-            "chk_9a09388c7045",
-            "chk_fdab6bd37a7c",
-            "chk_4aa2d5ae43f5"
+            "chk_b00aff6699f3",
+            "chk_b57cb2f25657",
+            "chk_b2e53dbe1be8",
+            "chk_8b23ffa83e6d",
+            "chk_d0cac5364a4e"
           ]
         },
         {
@@ -462,7 +472,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9973204731941223,
+            "score": 0.9957334399223328,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -474,11 +484,11 @@
             "Aeloria"
           ],
           "chunk_ids": [
-            "chk_4946f4d9ad09",
-            "chk_d6696833f466",
-            "chk_9a09388c7045",
-            "chk_fdab6bd37a7c",
-            "chk_8158d8c0677f"
+            "chk_b57cb2f25657",
+            "chk_b2e53dbe1be8",
+            "chk_c0302f368ae3",
+            "chk_1a10760c1dea",
+            "chk_d0cac5364a4e"
           ]
         },
         {
@@ -488,7 +498,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.999433696269989,
+            "score": 0.9990259408950806,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -497,11 +507,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_4946f4d9ad09",
-            "chk_6ecffbb0c196",
-            "chk_d6696833f466",
-            "chk_9a09388c7045",
-            "chk_4aa2d5ae43f5"
+            "chk_b00aff6699f3",
+            "chk_b57cb2f25657",
+            "chk_b2e53dbe1be8",
+            "chk_c0302f368ae3",
+            "chk_8b23ffa83e6d"
           ]
         },
         {
@@ -511,7 +521,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9994439482688904,
+            "score": 0.9988545179367065,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -520,11 +530,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_4946f4d9ad09",
-            "chk_d6696833f466",
-            "chk_9a09388c7045",
-            "chk_4aa2d5ae43f5",
-            "chk_8158d8c0677f"
+            "chk_b57cb2f25657",
+            "chk_b2e53dbe1be8",
+            "chk_c0302f368ae3",
+            "chk_8b23ffa83e6d",
+            "chk_1a10760c1dea"
           ]
         },
         {
@@ -534,7 +544,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9917211532592773,
+            "score": 0.9889156818389893,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -546,11 +556,11 @@
             "Aeloria"
           ],
           "chunk_ids": [
-            "chk_4946f4d9ad09",
-            "chk_6ecffbb0c196",
-            "chk_9a09388c7045",
-            "chk_4aa2d5ae43f5",
-            "chk_8158d8c0677f"
+            "chk_b00aff6699f3",
+            "chk_b57cb2f25657",
+            "chk_b2e53dbe1be8",
+            "chk_8b23ffa83e6d",
+            "chk_1a10760c1dea"
           ]
         },
         {
@@ -560,7 +570,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.42715605273842816,
+            "score": 0.42433971986174585,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -572,11 +582,11 @@
             "Eldoria"
           ],
           "chunk_ids": [
-            "chk_4946f4d9ad09",
-            "chk_d6696833f466",
-            "chk_9a09388c7045",
-            "chk_4aa2d5ae43f5",
-            "chk_8158d8c0677f"
+            "chk_b00aff6699f3",
+            "chk_b57cb2f25657",
+            "chk_b2e53dbe1be8",
+            "chk_8b23ffa83e6d",
+            "chk_d0cac5364a4e"
           ]
         }
       ]
@@ -597,7 +607,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9361543655395508,
+            "score": 0.8899995684623718,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -606,11 +616,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_053784402c07",
-            "chk_bdf6cca9dc78",
-            "chk_4af312666ee7",
-            "chk_a6582732750d",
-            "chk_be86171f8917"
+            "chk_a2eeefbafe12",
+            "chk_5c1a5a598c6f",
+            "chk_ae18e6be879f",
+            "chk_ff0ed7abba1c",
+            "chk_ad17a904beae"
           ]
         },
         {
@@ -620,21 +630,21 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.5016056546755135,
+            "score": 0.5275795849561692,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
-            "the edge transformer paper use / property",
+            "what bit precision does the edge transformer paper use ",
             "what bit precision does the edge transformer paper use for quantization?"
           ],
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_bdf6cca9dc78",
-            "chk_be86171f8917",
-            "chk_a6582732750d",
-            "chk_7dc915f36fb9",
-            "chk_adf0dafc4c03"
+            "chk_a2eeefbafe12",
+            "chk_5c1a5a598c6f",
+            "chk_ff0ed7abba1c",
+            "chk_468190f19b88",
+            "chk_142cd50b7957"
           ]
         },
         {
@@ -644,7 +654,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9723386764526367,
+            "score": 0.9522059559822083,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -653,11 +663,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_053784402c07",
-            "chk_bdf6cca9dc78",
-            "chk_4af312666ee7",
-            "chk_be86171f8917",
-            "chk_7dc915f36fb9"
+            "chk_a2eeefbafe12",
+            "chk_5c1a5a598c6f",
+            "chk_ae18e6be879f",
+            "chk_ff0ed7abba1c",
+            "chk_468190f19b88"
           ]
         },
         {
@@ -667,7 +677,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.61266770195961,
+            "score": 0.5995997516512871,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -680,11 +690,11 @@
             "low-latency"
           ],
           "chunk_ids": [
-            "chk_053784402c07",
-            "chk_d6696833f466",
-            "chk_4af312666ee7",
-            "chk_be86171f8917",
-            "chk_7dc915f36fb9"
+            "chk_a2eeefbafe12",
+            "chk_ae18e6be879f",
+            "chk_c0302f368ae3",
+            "chk_ff0ed7abba1c",
+            "chk_468190f19b88"
           ]
         },
         {
@@ -694,7 +704,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.994772732257843,
+            "score": 0.9923259019851685,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -706,11 +716,11 @@
             "non-uniform"
           ],
           "chunk_ids": [
-            "chk_053784402c07",
-            "chk_8e8dcef22883",
-            "chk_4af312666ee7",
-            "chk_a6582732750d",
-            "chk_be86171f8917"
+            "chk_a2eeefbafe12",
+            "chk_ae18e6be879f",
+            "chk_ff0ed7abba1c",
+            "chk_ad17a904beae",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -720,7 +730,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.44930150669533764,
+            "score": 0.4492812495213002,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -729,11 +739,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_053784402c07",
-            "chk_8c9bf1e5e784",
-            "chk_bdf6cca9dc78",
-            "chk_4af312666ee7",
-            "chk_be86171f8917"
+            "chk_a2eeefbafe12",
+            "chk_5c1a5a598c6f",
+            "chk_ae18e6be879f",
+            "chk_ff0ed7abba1c",
+            "chk_e180496b66d4"
           ]
         },
         {
@@ -743,7 +753,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.584481628537178,
+            "score": 0.5290087985992431,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -752,11 +762,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_bdf6cca9dc78",
-            "chk_4af312666ee7",
-            "chk_be86171f8917",
-            "chk_7dc915f36fb9"
+            "chk_a2eeefbafe12",
+            "chk_5c1a5a598c6f",
+            "chk_ff0ed7abba1c",
+            "chk_468190f19b88",
+            "chk_3c92f1b10f71"
           ]
         }
       ]
@@ -777,24 +787,25 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": false,
-            "score": 0.48411092162132263,
+            "score": 0.4028863310813904,
             "reason": "Target identifier(s) ['SEC-2026'] not supported by retrieved evidence"
           },
           "search_queries": [
             "What authentication device is mandatory for administrative production access under SEC-2026-09?",
-            "SEC-2026-09 2026"
+            "SEC-2026-09 SEC 2026"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "SEC-2026-09",
+            "SEC",
             "2026"
           ],
           "chunk_ids": [
-            "chk_faaf8fa16771",
-            "chk_4c3328ddf348",
-            "chk_603cd8a94115",
-            "chk_9166a4abf30c",
-            "chk_c9f66d912926"
+            "chk_db1315b96902",
+            "chk_e2732efca546",
+            "chk_35fec686be42",
+            "chk_98f4b9825069",
+            "chk_8680f908c7d1"
           ]
         },
         {
@@ -804,7 +815,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.49530550900264647,
+            "score": 0.49537097507156436,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -813,11 +824,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_faaf8fa16771",
-            "chk_7b3ee3a39cfb",
-            "chk_be86171f8917",
-            "chk_d098f96fb8c2",
-            "chk_7dc915f36fb9"
+            "chk_a2eeefbafe12",
+            "chk_242ad6052a08",
+            "chk_c1f2fd54aef5",
+            "chk_9bed6a8147c6",
+            "chk_35fec686be42"
           ]
         },
         {
@@ -827,16 +838,19 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.3795141595523019,
+            "score": 0.3795193911482711,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
-            "Production admin required MFA token?"
+            "Production admin required MFA token?",
+            "MFA"
           ],
           "question_slot": "general",
-          "lexical_anchors": [],
+          "lexical_anchors": [
+            "MFA"
+          ],
           "chunk_ids": [
-            "chk_faaf8fa16771"
+            "chk_35fec686be42"
           ]
         },
         {
@@ -846,24 +860,25 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": false,
-            "score": 0.07392923533916473,
+            "score": 0.06427580118179321,
             "reason": "Target identifier(s) ['SEC-2026'] not supported by retrieved evidence"
           },
           "search_queries": [
             "Can you specify the mandatory physical authentication token mechanism required by policy SEC-2026-09 when engineers access administrative production systems?",
-            "SEC-2026-09 2026"
+            "SEC-2026-09 SEC 2026"
           ],
           "question_slot": "temporal",
           "lexical_anchors": [
             "SEC-2026-09",
+            "SEC",
             "2026"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_faaf8fa16771",
-            "chk_4c3328ddf348",
-            "chk_97039639cb41",
-            "chk_c9f66d912926"
+            "chk_db1315b96902",
+            "chk_2ea6db083fb1",
+            "chk_35fec686be42",
+            "chk_8680f908c7d1",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -873,7 +888,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.7357192653417588,
+            "score": 0.6735068890452385,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -882,11 +897,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_faaf8fa16771",
-            "chk_4c3328ddf348",
-            "chk_9166a4abf30c",
-            "chk_be86171f8917"
+            "chk_a2eeefbafe12",
+            "chk_db1315b96902",
+            "chk_35fec686be42",
+            "chk_98f4b9825069",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -896,7 +911,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.834353586230278,
+            "score": 0.8197323016262055,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -905,11 +920,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_faaf8fa16771",
-            "chk_d2ba859ce5e4",
-            "chk_72beea416e88",
-            "chk_9166a4abf30c",
-            "chk_bc20a884a80e"
+            "chk_f9fb8bdde025",
+            "chk_43e0dc2d3c08",
+            "chk_35fec686be42",
+            "chk_98f4b9825069",
+            "chk_b95f9d3ac01b"
           ]
         },
         {
@@ -919,20 +934,23 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.4407108247315046,
+            "score": 0.44063777524046605,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
-            "What hardwre MFA key is requierd for admin production access?"
+            "What hardwre MFA key is requierd for admin production access?",
+            "MFA"
           ],
           "question_slot": "general",
-          "lexical_anchors": [],
+          "lexical_anchors": [
+            "MFA"
+          ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_faaf8fa16771",
-            "chk_f3df17e1a125",
-            "chk_be86171f8917",
-            "chk_7dc915f36fb9"
+            "chk_a2eeefbafe12",
+            "chk_c1f2fd54aef5",
+            "chk_9bed6a8147c6",
+            "chk_35fec686be42",
+            "chk_3c92f1b10f71"
           ]
         }
       ]
@@ -953,7 +971,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9788474440574646,
+            "score": 0.9608018398284912,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -965,11 +983,11 @@
             "high-volume"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_4c3328ddf348",
-            "chk_bdf6cca9dc78",
-            "chk_d098f96fb8c2",
-            "chk_7dc915f36fb9"
+            "chk_5c1a5a598c6f",
+            "chk_242ad6052a08",
+            "chk_db1315b96902",
+            "chk_468190f19b88",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -979,7 +997,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.8465621471405029,
+            "score": 0.7903733962774278,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -988,11 +1006,11 @@
           "question_slot": "location",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_e7db8e7904cf",
-            "chk_bdf6cca9dc78",
-            "chk_7dc915f36fb9",
-            "chk_d098f96fb8c2",
-            "chk_be86171f8917"
+            "chk_5c1a5a598c6f",
+            "chk_a2eeefbafe12",
+            "chk_242ad6052a08",
+            "chk_468190f19b88",
+            "chk_2712e7761e82"
           ]
         },
         {
@@ -1002,7 +1020,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.7107665893435479,
+            "score": 0.6817234021425248,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1011,9 +1029,9 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_d098f96fb8c2",
-            "chk_bdf6cca9dc78",
-            "chk_7dc915f36fb9"
+            "chk_5c1a5a598c6f",
+            "chk_468190f19b88",
+            "chk_242ad6052a08"
           ]
         },
         {
@@ -1023,7 +1041,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.45716341563582424,
+            "score": 0.4441293583911658,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1035,11 +1053,11 @@
             "high-throughput"
           ],
           "chunk_ids": [
-            "chk_7b3ee3a39cfb",
-            "chk_bdf6cca9dc78",
-            "chk_fdab6bd37a7c",
-            "chk_d098f96fb8c2",
-            "chk_7dc915f36fb9"
+            "chk_5c1a5a598c6f",
+            "chk_242ad6052a08",
+            "chk_9bed6a8147c6",
+            "chk_468190f19b88",
+            "chk_d0cac5364a4e"
           ]
         },
         {
@@ -1049,7 +1067,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.44728602755058094,
+            "score": 0.4473807388916612,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1061,11 +1079,11 @@
             "high-volume"
           ],
           "chunk_ids": [
-            "chk_7cbf0d0bb4e1",
-            "chk_7b3ee3a39cfb",
-            "chk_bdf6cca9dc78",
-            "chk_d098f96fb8c2",
-            "chk_7dc915f36fb9"
+            "chk_5c1a5a598c6f",
+            "chk_242ad6052a08",
+            "chk_9bed6a8147c6",
+            "chk_468190f19b88",
+            "chk_0b2527b9ca5c"
           ]
         },
         {
@@ -1075,7 +1093,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.4277443939911575,
+            "score": 0.4256938776791469,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1084,11 +1102,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_7cbf0d0bb4e1",
-            "chk_7b3ee3a39cfb",
-            "chk_bdf6cca9dc78",
-            "chk_d098f96fb8c2",
-            "chk_7dc915f36fb9"
+            "chk_5c1a5a598c6f",
+            "chk_242ad6052a08",
+            "chk_9bed6a8147c6",
+            "chk_468190f19b88",
+            "chk_0b2527b9ca5c"
           ]
         },
         {
@@ -1098,7 +1116,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.46402325685456397,
+            "score": 0.46424943192949525,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1110,9 +1128,9 @@
             "high-volum"
           ],
           "chunk_ids": [
-            "chk_d098f96fb8c2",
-            "chk_bdf6cca9dc78",
-            "chk_7dc915f36fb9"
+            "chk_5c1a5a598c6f",
+            "chk_468190f19b88",
+            "chk_242ad6052a08"
           ]
         }
       ]
@@ -1133,24 +1151,26 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": false,
-            "score": 0.9854410290718079,
+            "score": 0.9837596416473389,
             "reason": "Target identifier(s) ['BIO-104'] not supported by retrieved evidence"
           },
           "search_queries": [
             "What chemical disinfectant solution is mandated for cleanroom biological spill cleanup in SOP-BIO-104?",
-            "SOP-BIO-104 104"
+            "SOP-BIO-104 SOP BIO 104"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "SOP-BIO-104",
+            "SOP",
+            "BIO",
             "104"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_603cd8a94115",
-            "chk_4af312666ee7",
-            "chk_0faab7a0de07",
-            "chk_4aa2d5ae43f5"
+            "chk_8d4c89b65b15",
+            "chk_ff0ed7abba1c",
+            "chk_8b23ffa83e6d",
+            "chk_e2732efca546",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -1160,7 +1180,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.8735207319259644,
+            "score": 0.863977313041687,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1173,11 +1193,11 @@
             "104"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_603cd8a94115",
-            "chk_d2ba859ce5e4",
-            "chk_0faab7a0de07",
-            "chk_fdca805116cf"
+            "chk_8d4c89b65b15",
+            "chk_e2732efca546",
+            "chk_c561335548ad",
+            "chk_b95f9d3ac01b",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -1187,21 +1207,23 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": false,
-            "score": 0.8620551824569702,
+            "score": 0.8053551316261292,
             "reason": "Target identifier(s) ['BIO-104'] not supported by retrieved evidence"
           },
           "search_queries": [
             "SOP-BIO-104 spill disinfectant?",
-            "SOP-BIO-104 104"
+            "SOP-BIO-104 SOP BIO 104"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "SOP-BIO-104",
+            "SOP",
+            "BIO",
             "104"
           ],
           "chunk_ids": [
-            "chk_603cd8a94115",
-            "chk_0faab7a0de07"
+            "chk_8d4c89b65b15",
+            "chk_e2732efca546"
           ]
         },
         {
@@ -1216,19 +1238,21 @@
           },
           "search_queries": [
             "According to the cleanroom safety procedure SOP-BIO-104, what specific chemical disinfecting agent must personnel apply to decontamination spills?",
-            "SOP-BIO-104 104"
+            "SOP-BIO-104 SOP BIO 104"
           ],
           "question_slot": "procedural",
           "lexical_anchors": [
             "SOP-BIO-104",
+            "SOP",
+            "BIO",
             "104"
           ],
           "chunk_ids": [
-            "chk_8c9bf1e5e784",
-            "chk_603cd8a94115",
-            "chk_bc20a884a80e",
-            "chk_0faab7a0de07",
-            "chk_fdca805116cf"
+            "chk_8d4c89b65b15",
+            "chk_f9fb8bdde025",
+            "chk_e2732efca546",
+            "chk_c561335548ad",
+            "chk_e180496b66d4"
           ]
         },
         {
@@ -1238,7 +1262,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9934543371200562,
+            "score": 0.989581823348999,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1247,11 +1271,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_053784402c07",
-            "chk_603cd8a94115",
-            "chk_d2ba859ce5e4",
-            "chk_0faab7a0de07",
-            "chk_fdca805116cf"
+            "chk_8d4c89b65b15",
+            "chk_ae18e6be879f",
+            "chk_e2732efca546",
+            "chk_c561335548ad",
+            "chk_b95f9d3ac01b"
           ]
         },
         {
@@ -1261,7 +1285,7 @@
           "direct_evidence_hit": false,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9971869587898254,
+            "score": 0.9954988360404968,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1270,11 +1294,11 @@
           "question_slot": "general",
           "lexical_anchors": [],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_603cd8a94115",
-            "chk_d2ba859ce5e4",
-            "chk_97039639cb41",
-            "chk_fdca805116cf"
+            "chk_e2732efca546",
+            "chk_c561335548ad",
+            "chk_2ea6db083fb1",
+            "chk_b95f9d3ac01b",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -1284,24 +1308,26 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": false,
-            "score": 0.1581072062253952,
+            "score": 0.17939278483390808,
             "reason": "Target identifier(s) ['BIO-104'] not supported by retrieved evidence"
           },
           "search_queries": [
             "What disinfactant is used for biohazard spill cleenup in SOP-BIO-104?",
-            "SOP-BIO-104 104"
+            "SOP-BIO-104 SOP BIO 104"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "SOP-BIO-104",
+            "SOP",
+            "BIO",
             "104"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_603cd8a94115",
-            "chk_d2ba859ce5e4",
-            "chk_0faab7a0de07",
-            "chk_fdca805116cf"
+            "chk_8d4c89b65b15",
+            "chk_e2732efca546",
+            "chk_c561335548ad",
+            "chk_b95f9d3ac01b",
+            "chk_3c92f1b10f71"
           ]
         }
       ]
@@ -1322,24 +1348,25 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.49418363636970525,
+            "score": 0.47959702266991144,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
             "What is the default value of `options.wait_for_sync` in the VectorDB Rust SDK and how does it affect durability?",
-            "options.wait_for_sync Rust"
+            "options.wait_for_sync SDK Rust"
           ],
           "question_slot": "general",
           "lexical_anchors": [
             "options.wait_for_sync",
+            "SDK",
             "Rust"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_e7db8e7904cf",
-            "chk_7cbf0d0bb4e1",
-            "chk_7b3ee3a39cfb",
-            "chk_fdab6bd37a7c"
+            "chk_9bed6a8147c6",
+            "chk_2712e7761e82",
+            "chk_d0cac5364a4e",
+            "chk_0b2527b9ca5c",
+            "chk_3c92f1b10f71"
           ]
         },
         {
@@ -1349,7 +1376,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.5533492912352086,
+            "score": 0.5358549819141627,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1362,11 +1389,11 @@
             "vectordb_rs"
           ],
           "chunk_ids": [
-            "chk_8e8dcef22883",
-            "chk_faaf8fa16771",
-            "chk_7b3ee3a39cfb",
-            "chk_bdf6cca9dc78",
-            "chk_fdab6bd37a7c"
+            "chk_5c1a5a598c6f",
+            "chk_9bed6a8147c6",
+            "chk_1a10760c1dea",
+            "chk_35fec686be42",
+            "chk_d0cac5364a4e"
           ]
         },
         {
@@ -1376,23 +1403,24 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9098876118659973,
+            "score": 0.8794645410776138,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
             "VectorDB wait_for_sync default and WAL durability?",
-            "wait_for_sync"
+            "wait_for_sync WAL"
           ],
           "question_slot": "general",
           "lexical_anchors": [
-            "wait_for_sync"
+            "wait_for_sync",
+            "WAL"
           ],
           "chunk_ids": [
-            "chk_593e78112da3",
-            "chk_faaf8fa16771",
-            "chk_7b3ee3a39cfb",
-            "chk_bdf6cca9dc78",
-            "chk_fdab6bd37a7c"
+            "chk_5c1a5a598c6f",
+            "chk_4d34d0f7dc44",
+            "chk_9bed6a8147c6",
+            "chk_35fec686be42",
+            "chk_d0cac5364a4e"
           ]
         },
         {
@@ -1402,7 +1430,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.6607022365283967,
+            "score": 0.656103535528183,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1415,11 +1443,11 @@
             "write-ahead-log"
           ],
           "chunk_ids": [
-            "chk_b1c757fc56f1",
-            "chk_f3df17e1a125",
-            "chk_7b3ee3a39cfb",
-            "chk_fdab6bd37a7c",
-            "chk_7dc915f36fb9"
+            "chk_c1f2fd54aef5",
+            "chk_9bed6a8147c6",
+            "chk_468190f19b88",
+            "chk_acb9f950a175",
+            "chk_d0cac5364a4e"
           ]
         },
         {
@@ -1429,7 +1457,7 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.3993965676473454,
+            "score": 0.3993672763532959,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
@@ -1441,11 +1469,11 @@
             "options.wait_for_sync"
           ],
           "chunk_ids": [
-            "chk_593e78112da3",
-            "chk_7cbf0d0bb4e1",
-            "chk_fdab6bd37a7c",
-            "chk_be86171f8917",
-            "chk_7dc915f36fb9"
+            "chk_a2eeefbafe12",
+            "chk_4d34d0f7dc44",
+            "chk_468190f19b88",
+            "chk_d0cac5364a4e",
+            "chk_0b2527b9ca5c"
           ]
         },
         {
@@ -1455,24 +1483,25 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.3853417805211246,
+            "score": 0.38368643678739667,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
             "What is the out-of-the-box setting for `wait_for_sync` in vector insertion and does it block for WAL commit?",
-            "out-of-the-box wait_for_sync"
+            "wait_for_sync out-of-the-box WAL"
           ],
           "question_slot": "general",
           "lexical_anchors": [
+            "wait_for_sync",
             "out-of-the-box",
-            "wait_for_sync"
+            "WAL"
           ],
           "chunk_ids": [
-            "chk_593e78112da3",
-            "chk_4af312666ee7",
-            "chk_fdab6bd37a7c",
-            "chk_c572195cc330",
-            "chk_7dc915f36fb9"
+            "chk_4d34d0f7dc44",
+            "chk_ff0ed7abba1c",
+            "chk_468190f19b88",
+            "chk_c1367c237c30",
+            "chk_d0cac5364a4e"
           ]
         },
         {
@@ -1482,23 +1511,24 @@
           "direct_evidence_hit": true,
           "sufficiency": {
             "sufficient": true,
-            "score": 0.9116597771644592,
+            "score": 0.8734297752380371,
             "reason": "Evidence sufficient for generation"
           },
           "search_queries": [
             "What does options.wait_for_sync defalt to in VectorDB and how does it relte to WAL?",
-            "options.wait_for_sync"
+            "options.wait_for_sync WAL"
           ],
           "question_slot": "general",
           "lexical_anchors": [
-            "options.wait_for_sync"
+            "options.wait_for_sync",
+            "WAL"
           ],
           "chunk_ids": [
-            "chk_593e78112da3",
-            "chk_d6696833f466",
-            "chk_7b3ee3a39cfb",
-            "chk_bdf6cca9dc78",
-            "chk_fdab6bd37a7c"
+            "chk_5c1a5a598c6f",
+            "chk_4d34d0f7dc44",
+            "chk_c0302f368ae3",
+            "chk_9bed6a8147c6",
+            "chk_d0cac5364a4e"
           ]
         }
       ]

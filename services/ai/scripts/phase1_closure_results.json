@@ -1,0 +1,156 @@
+{
+  "paraphrase_results": {
+    "retrieval_hit_rate": 99.0,
+    "direct_answer_rate": 99.0,
+    "consistency_rate": 95.0,
+    "total_queries": 100,
+    "stable_groups": 19,
+    "latencies": {
+      "p50": 107.21063613891602,
+      "p95": 225.45552253723145,
+      "mean": 320.7280731201172
+    },
+    "group_summaries": [
+      {
+        "group_id": "GRP_01_CHILLER_REFRIGERANT",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_02_CHILLER_MOTOR",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_03_CHILLER_OIL_PRESS",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_04_CHILLER_ALARM_A12",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_05_ELDORIA_WHITE_STAG",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_06_ELDORIA_KEITH_BETRAYAL",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_07_EDGE_PROCESSOR",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_08_EDGE_SRAM_REDUCTION",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_09_SECURITY_MFA",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_10_SECURITY_STIPEND",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_11_TELEMETRY_KAFKA",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_12_TELEMETRY_CLICKHOUSE",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_13_BIOHAZARD_DISINFECTANT",
+        "hits": 4,
+        "total": 5,
+        "is_stable": false
+      },
+      {
+        "group_id": "GRP_14_BIOHAZARD_AUTOCLAVE",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_15_AUV_DEPTH",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_16_AUV_ENDURANCE",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_17_CHANDRASEKHAR_LIMIT",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_18_INCIDENT_ROOT_CAUSE",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_19_VECTORDB_SYNC",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      },
+      {
+        "group_id": "GRP_20_VENT_ECOLOGY_WORM",
+        "hits": 5,
+        "total": 5,
+        "is_stable": true
+      }
+    ]
+  },
+  "dense_ablation": {
+    "original_only": "10/10",
+    "rewrite_only": "10/10",
+    "combined": "10/10"
+  },
+  "slot_ablation": {
+    "slot_bonus_off_hits": "5/6",
+    "slot_bonus_on_hits": "5/6",
+    "counterexample_safety": "PASS"
+  },
+  "anchor_and_sanitization": {
+    "anchor_extraction": "PASS",
+    "anchor_false_positives": "0 (Controlled)",
+    "tantivy_crashes": 0
+  },
+  "multidoc": {
+    "unrelated_source_dominance": "PASS",
+    "same_entity_resolution": "PASS",
+    "cross_project_leakage": 0
+  }
+}
