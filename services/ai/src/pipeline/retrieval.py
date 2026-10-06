@@ -1111,7 +1111,7 @@ def evaluate_sufficiency(
     # Generic resolution for cross-encoder length dilution and short decisive passages.
     # Preserves calibrated SUFFICIENCY_THRESHOLD (0.35) without global lowering.
     coverage_score = scope_res.signals.evidenceCoverageScore if (scope_res and scope_res.signals) else 0.0
-    if scope_res and scope_res.decision == ScopeDecision.IN_SCOPE and coverage_score >= 0.60:
+    if scope_res and scope_res.decision == ScopeDecision.IN_SCOPE and coverage_score >= 0.60 and top_score >= 0.25:
         aggregated_score = max(top_score, 0.45 * top_score + 0.55 * coverage_score)
     else:
         aggregated_score = top_score

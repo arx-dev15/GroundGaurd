@@ -292,6 +292,7 @@ _STOPWORDS_SET = {
     "the", "a", "an", "and", "or", "but", "if", "then", "else", "for", "with",
     "about", "against", "between", "into", "through", "during", "before", "after",
     "above", "below", "to", "from", "up", "down", "in", "out", "on", "off",
+    "it", "at", "by", "of", "no", "so", "my", "he", "we", "us", "as", "am",
     "tell", "me", "give", "show", "explain", "detail", "details", "difference",
     "please", "kindly", "exactly", "find", "information", "according", "document",
     "file", "paper", "manual", "section", "mention", "state", "say"
@@ -300,8 +301,9 @@ _STOPWORDS_SET = {
 def extract_lexical_anchors(query: str) -> List[str]:
     """
     Extracts high-information lexical anchors generically without fixture dictionaries:
-    - Quoted terms
+    - Quoted terms and backticked code tokens
     - Technical tags, codes, and hyphenated identifiers (e.g. P-101A, KC-450, AES-256)
+    - Technical acronyms and alphanumeric codes (e.g. INT4, FP16, FIDO2, ZTNA, SRAM)
     - Capitalized entity phrases (e.g. proper nouns, names)
     - Numbers with technical units or significant numbers/dates (e.g. 45.0 kg, 16.5 bar, 1881, 221B, 8443)
     """
@@ -309,8 +311,8 @@ def extract_lexical_anchors(query: str) -> List[str]:
         return []
     anchors: List[str] = []
 
-    # 1. Quoted terms
-    for m in re.finditer(r'["\']([^"\']{2,50})["\']', query):
+    # 1. Quoted terms and backticked code tokens
+    for m in re.finditer(r'[`"\']([^`"\']{2,50})[`"\']', query):
         q_term = m.group(1).strip()
         if q_term and q_term.lower() not in _STOPWORDS_SET:
             anchors.append(q_term)
@@ -320,6 +322,12 @@ def extract_lexical_anchors(query: str) -> List[str]:
         tag = m.group(0).strip()
         if tag.lower() not in _STOPWORDS_SET:
             anchors.append(tag)
+
+    # 2b. Technical acronyms and alphanumeric codes (e.g. INT4, FP16, FIDO2, ZTNA, SRAM)
+    for m in re.finditer(r'\b[A-Z]{2,}\d*\b|\b[A-Z]+\d+\b', query):
+        acro = m.group(0).strip()
+        if acro.lower() not in _STOPWORDS_SET and len(acro) >= 2:
+            anchors.append(acro)
 
     # 3. Capitalized multi-word or single-word entities (skip initial sentence word)
     tokens = query.split()

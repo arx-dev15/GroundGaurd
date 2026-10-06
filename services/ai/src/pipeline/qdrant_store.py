@@ -13,12 +13,22 @@ from qdrant_client.http.models import (
     PayloadSchemaType,
 )
 
+from pathlib import Path
 from src.pipeline.embedder import EMBEDDING_DIM
 
 logger = logging.getLogger("m2-qdrant-store")
 
+def _resolve_canonical_path(path_str: str) -> str:
+    cleaned = (path_str or "uploads/indexes/qdrant_embedded").strip()
+    if cleaned.lower() == ":memory:":
+        return ":memory:"
+    if os.path.isabs(cleaned):
+        return cleaned
+    repo_root = Path(__file__).resolve().parents[4]
+    return str((repo_root / cleaned).resolve())
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333").strip()
-QDRANT_PATH = os.getenv("QDRANT_PATH", "").strip()
+QDRANT_PATH = _resolve_canonical_path(os.getenv("QDRANT_PATH", "uploads/indexes/qdrant_embedded"))
 COLLECTION_NAME = "groundguard_chunks"
 VECTOR_DIM = EMBEDDING_DIM
 
@@ -35,7 +45,7 @@ class QdrantStore:
 
     def __init__(self, url: str = QDRANT_URL, path: str = QDRANT_PATH):
         self.url = (url or "").strip()
-        self.path = (path or "").strip()
+        self.path = _resolve_canonical_path(path) if (path and path != ":memory:") else (path or "").strip()
         self._env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
         self.client = self._init_client()
         self._ensure_collection()
@@ -64,12 +74,8 @@ class QdrantStore:
                         "Service failing closed: production requires a healthy external Qdrant cluster."
                     ) from e
 
-                path_to_try = self.path or "uploads/indexes/qdrant_embedded"
+                path_to_try = self.path or _resolve_canonical_path("uploads/indexes/qdrant_embedded")
                 if path_to_try:
-                    if not os.path.isabs(path_to_try):
-                        from pathlib import Path
-                        repo_root = Path(__file__).resolve().parent.parent.parent.parent
-                        path_to_try = str((repo_root / path_to_try).resolve())
                     logger.warning(
                         f"Could not connect to Qdrant server at {self.url} ({e}). "
                         f"Falling back to embedded disk Qdrant at {path_to_try} (development mode only)."

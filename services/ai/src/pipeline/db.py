@@ -51,7 +51,8 @@ def get_ready_documents_meta(project_id: str, document_ids: List[str]) -> Tuple[
         if allow_offline and env != "production":
             return set(document_ids), {did: did for did in document_ids}
         raise RuntimeError(
-            f"FATAL: Canonical PostgreSQL lifecycle verification failed: database unavailable at {DATABASE_URL}."
+            f"FATAL: Canonical PostgreSQL lifecycle verification failed: database unavailable at {DATABASE_URL}. "
+            "Failing closed to prevent unauthorized or unready document retrieval."
         )
 
     try:

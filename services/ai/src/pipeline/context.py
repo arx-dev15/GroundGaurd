@@ -98,7 +98,7 @@ class ContextBuilder:
             heading_info = f" | Heading: {heading}" if heading else ""
             tags_info = f" | Identifiers: {', '.join(identifiers)}" if identifiers else ""
 
-            header = f"[Evidence Block {len(included) + 1}] (Source: {display_name} | {page_info}{section_info}{heading_info}{tags_info})"
+            header = f"[Evidence Block {len(included) + 1}] (Document: {display_name} | {page_info}{section_info}{heading_info}{tags_info})"
             block = f"{header}\n{clean_chunk_text}\n"
 
             # 4. Budget enforcement

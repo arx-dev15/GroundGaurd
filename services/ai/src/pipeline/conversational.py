@@ -52,7 +52,7 @@ FALLBACK_PRODUCT_HELP = (
     "sources say, and trace factual claims back to their evidence. If something "
     "isn't well supported, EvideX AI can flag it for review."
 )
-FALLBACK_ABSTENTION = "I couldn't find enough evidence in this project's sources to answer that confidently."
+FALLBACK_ABSTENTION = "The available project evidence doesn't specify this information."
 FALLBACK_CLARIFICATION = "Could you clarify which systems or documents you would like to compare?"
 
 
@@ -227,7 +227,10 @@ CRITICAL RULES:
 3. NO UNRELATED DOMAIN LEAKAGE: Do NOT mention, infer, or assume any project domain or industry (such as 'industrial engineering') unless explicitly stated in the provided project context or document titles. Simply indicate that the requested information is not available in this project's documentation.
 4. Be conversational and natural: do not repeat the exact same robotic phrase every time.
 5. If available document topics/titles are provided and relevant, you may briefly mention what kinds of topics are covered.
-6. Keep your response concise: 1-2 sentences maximum. Clear, professional, and helpful.
+6. Keep your response concise: 1 concise sentence maximum explaining what is missing (e.g. 'The available project evidence doesn't specify the deployment region.').
+7. STRICTLY ZERO ENUMERATION OF UNRELATED DOCUMENTS: Never list or enumerate unrelated document names or files in the abstention statement.
+8. NO CONVERSATIONAL FILLER: Never output filler like 'Please let me know if you need anything else' or 'I hope this helps'.
+9. NO RAW INTERNAL IDS: Never include raw identifiers like doc_... or chunk_....
 """
 
 async def generate_abstention_response(

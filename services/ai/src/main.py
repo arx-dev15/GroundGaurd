@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from src.pipeline.parser import parse_pdf
 from src.pipeline.chunker import chunk_pages
 from src.pipeline.embedder import generate_embeddings
-from src.pipeline.db import validate_ready_documents, get_project_knowledge_summary
+from src.pipeline.db import validate_ready_documents, get_project_knowledge_summary, get_ready_documents_meta
 from src.pipeline.intent_classifier import (
     classify_intent,
     generate_conversational_response,
@@ -140,6 +140,136 @@ class RecoverResponse(BaseModel):
     recoveryEvidence: List[EvidenceItem] = []
     modelVersion: str
     reason: Optional[str] = None
+
+def classify_premise_outcome(answer: str, is_proposition: bool, is_abstained: bool) -> str:
+    """
+    Classifies proposition evaluation outcome against project evidence:
+    SUPPORTED | CONTRADICTED | PARTIALLY_SUPPORTED | INSUFFICIENT | NOT_APPLICABLE
+    """
+    if not is_proposition:
+        return "NOT_APPLICABLE"
+    if is_abstained:
+        return "INSUFFICIENT"
+    ans_lower = answer.lower().strip()
+    
+    # Check for mixed / partial support
+    has_confirm = bool(re.search(r'\b(?:yes\b|confirms?\b|supports?\b)', ans_lower))
+    has_correct = bool(re.search(r'\b(?:no\b|not [a-zA-Z0-9_\-]+|instead of|rather than|but specifies that|but states that)\b', ans_lower))
+    
+    if (has_confirm and has_correct) or "partially" in ans_lower or ("confirms that" in ans_lower and "specifies that" in ans_lower):
+        return "PARTIALLY_SUPPORTED"
+    if ans_lower.startswith("no") or ("the project documentation states that" in ans_lower and ("not " in ans_lower or "instead" in ans_lower)):
+        return "CONTRADICTED"
+    if ans_lower.startswith("yes") or "confirms that" in ans_lower or "the project documentation states that" in ans_lower:
+        return "SUPPORTED"
+    if "does not specify" in ans_lower or "not mentioned" in ans_lower or "insufficient" in ans_lower:
+        return "INSUFFICIENT"
+    return "SUPPORTED" if has_confirm else ("CONTRADICTED" if has_correct else "SUPPORTED")
+
+def sanitize_user_facing_answer(
+    raw_answer: str,
+    evidence: Optional[List[EvidenceItem]] = None
+) -> str:
+    """
+    Cleans user-facing answer text:
+    1. Removes raw internal identifiers (doc_..., chunk_..., UUIDs) and replaces with clean human document names.
+    2. Strips metadata dumps (Document Name:, Document ID:, Chunk ID:, etc.).
+    3. Removes conversational boilerplate and repetitive preambles ('Based on the project documentation...').
+    4. Deduplicates consecutive citation tags.
+    """
+    if not raw_answer or not raw_answer.strip():
+        return ""
+
+    text = raw_answer.strip()
+
+    # Build lookup map from evidence for known document IDs to human names
+    doc_id_to_name: Dict[str, str] = {}
+    if evidence:
+        for item in evidence:
+            doc_id = getattr(item, "documentId", None) or getattr(item, "document_id", None)
+            meta = getattr(item, "metadata", {}) or {}
+            fname = meta.get("filename") or meta.get("title") or getattr(item, "document_name", None)
+            if doc_id:
+                if fname:
+                    doc_id_to_name[doc_id] = fname
+                elif doc_id.startswith("doc_"):
+                    clean_s = doc_id[4:].replace("_", " ").strip()
+                    if not re.fullmatch(r"[0-9a-fA-F-]+", clean_s):
+                        doc_id_to_name[doc_id] = clean_s.title() + ".pdf"
+
+    # Replace known doc_ids in text with human names
+    for did, hname in doc_id_to_name.items():
+        if did in text:
+            text = text.replace(did, hname)
+
+    # General pattern for any remaining doc_ slugs, e.g. [doc_auv_spec, p. 4] -> [AUV Spec, p. 4]
+    def _clean_doc_match(m):
+        raw_slug = m.group(1)
+        if re.fullmatch(r"[0-9a-fA-F-]+", raw_slug):
+            return "Project Document"
+        clean = raw_slug.replace("_", " ").strip().title()
+        return f"{clean}.pdf" if not clean.lower().endswith((".pdf", ".txt", ".md")) else clean
+
+    text = re.sub(r'\bdoc_([a-zA-Z0-9_\-]+)\b', _clean_doc_match, text)
+
+    # Remove chunk_ identifiers
+    text = re.sub(r'\bchunk_[a-zA-Z0-9_\-]+\b', '', text)
+
+    # Remove metadata dump lines (e.g. Document ID: ..., Chunk ID: ...)
+    lines = text.split("\n")
+    cleaned_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r'^(?:Document\s*ID|Chunk\s*ID|Supporting\s*Excerpt|Internal\s*ID)\s*:\s*', stripped, re.IGNORECASE):
+            continue
+        cleaned_lines.append(line)
+    text = "\n".join(cleaned_lines)
+
+    # Strip robotic boilerplate prefixes at start of answer
+    text = re.sub(
+        r'^(?:Based on the (?:provided |retrieved )?project documentation,\s*(?:the answer (?:to your question )?is that\s*)?|According to the (?:provided |retrieved )?project documentation,\s*)',
+        '',
+        text,
+        flags=re.IGNORECASE
+    )
+    if text and text[0].islower():
+        text = text[0].upper() + text[1:]
+
+    # Strip trailing conversational filler
+    text = re.sub(
+        r'\s*(?:Please let me know if you (?:have any other questions|need anything else|would like to explore).*|I hope this (?:helps|information is helpful)\.?)$',
+        '',
+        text,
+        flags=re.IGNORECASE
+    ).strip()
+
+    # Deduplicate consecutive identical citations: [Doc.pdf, p. 4] [Doc.pdf, p. 4]
+    text = re.sub(r'(\[[^\]]+\])(?:\s*\1)+', r'\1', text)
+
+    return text
+
+def filter_relevant_evidence(
+    included_items: List[EvidenceItem],
+    claims: List[ClaimItem],
+    is_abstention: bool = False
+) -> List[EvidenceItem]:
+    """Filters evidence items to only those that materially support the answer."""
+    if is_abstention:
+        return []
+    if not claims:
+        return included_items
+    
+    referenced_cids = set()
+    for c in claims:
+        for ev in getattr(c, "evidence", []):
+            cid = getattr(ev, "chunkId", None) or getattr(ev, "chunk_id", None)
+            if cid:
+                referenced_cids.add(cid)
+    
+    if referenced_cids:
+        filtered = [item for item in included_items if item.chunkId in referenced_cids]
+        return filtered if filtered else included_items
+    return included_items
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -355,6 +485,40 @@ async def sanity_search(projectId: str, query: str, topK: int = 5):
         "graphRelations": relations_res
     }
 
+def _is_genuine_naked_referent(q_str: str, ctx: Optional[List[Dict[str, Any]]]) -> bool:
+    """
+    Clarification Decision Rule:
+    Clarification happens ONLY when ambiguity materially prevents safe retrieval or disambiguation.
+    An upfront naked referent query is one that specifically refers to an unspecified document/file/pronoun
+    without substantive searchable entities/anchors or prior conversation context.
+    """
+    clean = (q_str or "").strip().lower()
+    if not clean:
+        return True
+    if ctx and len(ctx) > 0:
+        return False
+    # Substantive anchors: hyphenated codes, model tags, units, numbers, acronyms
+    if bool(re.search(r'\b[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+\b|\b(?!(?:PDF|DOC|URL)\b)[A-Z]{2,}\d*\b|\b\d+(?:\.\d+)?\s*(?:kg|bar|kpa|mpa|v|volts?|hz|mhz|ghz|m3/h|°c|c|f|sec|ms|s|gb|mb|kb|ports?|kw|hours?|mins?|minutes?)\b', q_str)):
+        return False
+    # Meaningful domain words
+    domain_words = [w for w in re.findall(r'[a-zA-Z]{4,}', clean) if w not in {
+        "what", "which", "where", "when", "that", "this", "these", "those", "does", "have", "with", "from",
+        "document", "documents", "file", "files", "pdf", "pdfs", "notes", "manual", "guide", "paper",
+        "contain", "contents", "explain", "state", "mean", "refer", "mention", "about", "there", "uploaded"
+    }]
+    if len(domain_words) >= 2:
+        return False
+    doc_referent_patterns = [
+        r'\b(?:this|the|that)?\s*(?:uploaded\s+)?(?:document|pdf|file|notes|doc|guide|manual|paper|specification|spec)\b',
+        r'\b(?:its|the)\s+contents\b',
+        r'\bwhat(?:\'?s|\s+is)\s+in\s+it\b',
+        r'\bwhat\s+does\s+(?:(?:this|the|that|the\s+uploaded)\s+)?(?:document|file|pdf|doc|it)?\s*(?:contain|say|explain)\b',
+        r'\bsummarize\s+(?:it|this|the\s+document|the\s+file|this\s+file|this\s+document)\b',
+        r'\bwhat\s+(?:port|voltage|status|color)\s+does\s+it\s+(?:use|have)\b',
+    ]
+    return any(re.search(p, clean) for p in doc_referent_patterns)
+
+
 @app.post("/generate", response_model=GenerateResult)
 async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Header(None)):
     """
@@ -450,29 +614,34 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         plan.task, plan.retrieval_mode, len(plan.search_queries), plan.standalone_query[:80]
     )
 
-    # If planner signals clarification needed, return naturally phrased clarification
+    # If planner signaled clarification, only short-circuit if query is an upfront naked referent
     if plan.needs_clarification:
-        logger.info("[/generate responseMode] clarification")
-        clarification_msg = await generate_clarification_llm(
-            user_query=payload.query,
-            structured_clarification=plan.clarification_question,
-            llm_runtime=llm_runtime,
-        )
-        return GenerateResult(
-            requestId=req_id,
-            generationId=gen_id,
-            status="completed",
-            answer=clarification_msg,
-            evidence=[],
-            sufficiency=None,
-            modelVersion="groundguard-clarification",
-            metadata={"intent": "clarification", "abstention": False, "task": plan.task},
-            claims=[]
-        )
+        if _is_genuine_naked_referent(payload.query, payload.conversationContext):
+            logger.info("[/generate responseMode] clarification (genuine naked referent)")
+            clarification_msg = await generate_clarification_llm(
+                user_query=payload.query,
+                structured_clarification=plan.clarification_question,
+                llm_runtime=llm_runtime,
+            )
+            return GenerateResult(
+                requestId=req_id,
+                generationId=gen_id,
+                status="completed",
+                answer=clarification_msg,
+                evidence=[],
+                sufficiency=None,
+                modelVersion="groundguard-clarification",
+                metadata={"intent": "clarification", "abstention": False, "task": plan.task},
+                claims=[]
+            )
+        else:
+            # Query has substantive search anchors: defer to project evidence retrieval
+            logger.info("[/generate clarification bypassed] Query has substantive search entities; proceeding to project retrieval")
+            plan.needs_clarification = False
 
-    # For social/product_help tasks from planner (for less-obvious phrasings the
-    # deterministic classifier missed, but planner recognized):
-    if plan.task == "social":
+    # For social/product_help tasks: verify query is actually a social greeting/farewell
+    from src.pipeline.query_understanding import _is_social
+    if plan.task == "social" and _is_social(payload.query):
         logger.info("[/generate responseMode] conversational_llm")
         reply = await generate_social_response(
             user_message=payload.query,
@@ -666,7 +835,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
 
         # Strategy C: Focused / Section Retrieval
         if retrieval_res is None:
-            focused_q = (plan.search_queries[0] if plan.search_queries else None) or plan.target or plan.standalone_query or payload.query
+            focused_q = plan.standalone_query or payload.query or (plan.search_queries[0] if plan.search_queries else "")
             retrieval_res = retrieve_evidence(
                 project_id=payload.projectId,
                 query=focused_q,
@@ -760,9 +929,15 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         )
 
     # Step 2: Deterministic Evidence Sufficiency Gate (threshold=0.35 unchanged)
+    is_conflict = bool(
+        retrieval_res.sufficiency
+        and retrieval_res.sufficiency.signals
+        and retrieval_res.sufficiency.signals.conflictingEvidence
+        and retrieval_res.results
+    )
     first_pass_sufficient = bool(
         retrieval_res.sufficiency
-        and retrieval_res.sufficiency.sufficient
+        and (retrieval_res.sufficiency.sufficient or is_conflict)
         and retrieval_res.results
     )
     fallback_used = False
@@ -789,18 +964,25 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                     top_k=top_k,
                     request_id=req_id
                 )
+                fb_is_conflict = bool(
+                    fallback_res.sufficiency
+                    and fallback_res.sufficiency.signals
+                    and fallback_res.sufficiency.signals.conflictingEvidence
+                    and fallback_res.results
+                )
                 if (
                     fallback_res.sufficiency
-                    and fallback_res.sufficiency.sufficient
+                    and (fallback_res.sufficiency.sufficient or fb_is_conflict)
                     and fallback_res.results
                 ):
                     retrieval_res = fallback_res
                     fallback_used = True
+                    is_conflict = fb_is_conflict
                     logger.info("[/generate fallback] Fallback succeeded")
             except Exception as fb_err:
                 logger.warning("[/generate fallback error] %s", fb_err)
 
-    if not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results:
+    if not is_conflict and (not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results):
         reason = retrieval_res.sufficiency.reason if retrieval_res.sufficiency else "No evidence retrieved"
         logger.info(
             "[/generate abstained] project_id=%s req_id=%s reason='%s'",
@@ -821,7 +1003,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             generationId=gen_id,
             status="completed",
             answer=unsupported_msg,
-            evidence=retrieval_res.results,
+            evidence=[],
             sufficiency=retrieval_res.sufficiency,
             modelVersion="groundguard-abstention-gate",
             metadata={
@@ -831,13 +1013,34 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "intent": "grounded_query_insufficient",
                 "task": plan.task,
                 "fallbackUsed": fallback_used,
+                "conflict": False,
+                "premiseClassification": classify_premise_outcome(unsupported_msg, plan.is_proposition, True),
             },
             claims=[]
         )
 
     # Step 3: Context Building & Prompt Construction
+    # Enrich evidence items with canonical document filenames if missing
+    try:
+        doc_ids = [item.documentId for item in retrieval_res.results if item.documentId]
+        if doc_ids:
+            _, doc_fnames = get_ready_documents_meta(payload.projectId, doc_ids)
+            for item in retrieval_res.results:
+                if item.documentId and item.documentId in doc_fnames:
+                    if not item.metadata:
+                        item.metadata = {}
+                    if not item.metadata.get("filename"):
+                        item.metadata["filename"] = doc_fnames[item.documentId]
+    except Exception:
+        pass
+
     # Preserve BOTH: original instruction (payload.query) and resolved retrieval subject (plan.standalone_query)
     context_text, included_items, omitted_items = context_builder.build_context(retrieval_res.results)
+    conflict_summary = (
+        retrieval_res.sufficiency.signals.conflictSummary
+        if (is_conflict and retrieval_res.sufficiency and retrieval_res.sufficiency.signals)
+        else None
+    )
     user_prompt = build_grounded_user_prompt(
         query=payload.query,
         evidence_context=context_text,
@@ -845,6 +1048,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         standalone_query=plan.standalone_query,
         operation=plan.operation,
         is_proposition=plan.is_proposition,
+        conflict_summary=conflict_summary,
     )
 
     # Step 4: Real LLM Inference
@@ -875,16 +1079,24 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "error": str(claim_err)
             }
 
+        premise_classification = classify_premise_outcome(llm_res.answer, plan.is_proposition, False)
+        cleaned_answer = sanitize_user_facing_answer(llm_res.answer, included_items)
+        supporting_evidence = filter_relevant_evidence(included_items, claims, is_abstention=False)
+
         return GenerateResult(
             requestId=req_id,
             generationId=gen_id,
             status="completed",
-            answer=llm_res.answer,
-            evidence=included_items,
+            answer=cleaned_answer,
+            evidence=supporting_evidence,
             sufficiency=retrieval_res.sufficiency,
             modelVersion=llm_res.modelVersion,
             metadata={
                 "abstention": False,
+                "conflict": is_conflict,
+                "conflictType": (retrieval_res.sufficiency.signals.conflictType if (retrieval_res.sufficiency and retrieval_res.sufficiency.signals) else None) if is_conflict else None,
+                "conflictSummary": conflict_summary,
+                "premiseClassification": premise_classification,
                 "evidenceCount": len(included_items),
                 "omittedCount": len(omitted_items),
                 "llmLatencyMs": llm_res.latencyMs,
@@ -1031,31 +1243,35 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             plan = _make_fallback_plan(payload.query)
 
         if plan.needs_clarification:
-            clarification_msg = await generate_clarification_llm(
-                user_query=payload.query,
-                structured_clarification=plan.clarification_question,
-                llm_runtime=llm_runtime,
-            )
-            yield _format_sse("answer.started", {"generationId": gen_id})
-            yield _format_sse("answer.delta", {"generationId": gen_id, "delta": clarification_msg, "sequence": seq})
-            seq += 1
-            yield _format_sse("answer.completed", {"generationId": gen_id, "answer": clarification_msg})
-            yield _format_sse("claims.completed", {"generationId": gen_id, "claims": []})
-            final_res = GenerateResult(
-                requestId=req_id,
-                generationId=gen_id,
-                status="completed",
-                answer=clarification_msg,
-                evidence=[],
-                sufficiency=None,
-                modelVersion="groundguard-clarification",
-                metadata={"intent": "clarification", "abstention": False, "task": plan.task},
-                claims=[]
-            )
-            yield _format_sse("generation.completed", final_res.model_dump())
-            return
+            if _is_genuine_naked_referent(payload.query, payload.conversationContext):
+                clarification_msg = await generate_clarification_llm(
+                    user_query=payload.query,
+                    structured_clarification=plan.clarification_question,
+                    llm_runtime=llm_runtime,
+                )
+                yield _format_sse("answer.started", {"generationId": gen_id})
+                yield _format_sse("answer.delta", {"generationId": gen_id, "delta": clarification_msg, "sequence": seq})
+                seq += 1
+                yield _format_sse("answer.completed", {"generationId": gen_id, "answer": clarification_msg})
+                yield _format_sse("claims.completed", {"generationId": gen_id, "claims": []})
+                final_res = GenerateResult(
+                    requestId=req_id,
+                    generationId=gen_id,
+                    status="completed",
+                    answer=clarification_msg,
+                    evidence=[],
+                    sufficiency=None,
+                    modelVersion="groundguard-clarification",
+                    metadata={"intent": "clarification", "abstention": False, "task": plan.task},
+                    claims=[]
+                )
+                yield _format_sse("generation.completed", final_res.model_dump())
+                return
+            else:
+                plan.needs_clarification = False
 
-        if plan.task == "social":
+        from src.pipeline.query_understanding import _is_social
+        if plan.task == "social" and _is_social(payload.query):
             reply = await generate_social_response(
                 user_message=payload.query,
                 sub_intent="greeting",
@@ -1104,8 +1320,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
         retrieval_res = None
 
         try:
-            # Focused or broad retrieval
-            focused_q = (plan.search_queries[0] if plan.search_queries else None) or plan.target or plan.standalone_query or payload.query
+            focused_q = plan.standalone_query or payload.query or (plan.search_queries[0] if plan.search_queries else "")
             retrieval_res = retrieve_evidence(
                 project_id=payload.projectId,
                 query=focused_q,
@@ -1123,9 +1338,15 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
         yield _format_sse("retrieval.completed", {"generationId": gen_id, "evidenceCount": len(retrieval_res.results)})
 
         # Sufficiency check
+        is_conflict = bool(
+            retrieval_res.sufficiency
+            and retrieval_res.sufficiency.signals
+            and retrieval_res.sufficiency.signals.conflictingEvidence
+            and retrieval_res.results
+        )
         first_pass_sufficient = bool(
             retrieval_res.sufficiency
-            and retrieval_res.sufficiency.sufficient
+            and (retrieval_res.sufficiency.sufficient or is_conflict)
             and retrieval_res.results
         )
         fallback_used = False
@@ -1144,13 +1365,24 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                         top_k=top_k,
                         request_id=req_id
                     )
-                    if fallback_res.sufficiency and fallback_res.sufficiency.sufficient and fallback_res.results:
+                    fb_is_conflict = bool(
+                        fallback_res.sufficiency
+                        and fallback_res.sufficiency.signals
+                        and fallback_res.sufficiency.signals.conflictingEvidence
+                        and fallback_res.results
+                    )
+                    if (
+                        fallback_res.sufficiency
+                        and (fallback_res.sufficiency.sufficient or fb_is_conflict)
+                        and fallback_res.results
+                    ):
                         retrieval_res = fallback_res
                         fallback_used = True
+                        is_conflict = fb_is_conflict
                 except Exception:
                     pass
 
-        if not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results:
+        if not is_conflict and (not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results):
             reason = retrieval_res.sufficiency.reason if retrieval_res.sufficiency else "No evidence retrieved"
             doc_summary = get_project_knowledge_summary(payload.projectId)
             doc_titles = doc_summary.get("filenames", []) if isinstance(doc_summary, dict) else []
@@ -1171,7 +1403,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                 generationId=gen_id,
                 status="completed",
                 answer=unsupported_msg,
-                evidence=retrieval_res.results,
+                evidence=[],
                 sufficiency=retrieval_res.sufficiency,
                 modelVersion="groundguard-abstention-gate",
                 metadata={
@@ -1181,6 +1413,8 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                     "intent": "grounded_query_insufficient",
                     "task": plan.task,
                     "fallbackUsed": fallback_used,
+                    "conflict": False,
+                    "premiseClassification": classify_premise_outcome(unsupported_msg, plan.is_proposition, True),
                 },
                 claims=[]
             )
@@ -1188,7 +1422,26 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             return
 
         # Context & prompt
+        # Enrich evidence items with canonical document filenames if missing
+        try:
+            doc_ids = [item.documentId for item in retrieval_res.results if item.documentId]
+            if doc_ids:
+                _, doc_fnames = get_ready_documents_meta(payload.projectId, doc_ids)
+                for item in retrieval_res.results:
+                    if item.documentId and item.documentId in doc_fnames:
+                        if not item.metadata:
+                            item.metadata = {}
+                        if not item.metadata.get("filename"):
+                            item.metadata["filename"] = doc_fnames[item.documentId]
+        except Exception:
+            pass
+
         context_text, included_items, omitted_items = context_builder.build_context(retrieval_res.results)
+        conflict_summary = (
+            retrieval_res.sufficiency.signals.conflictSummary
+            if (is_conflict and retrieval_res.sufficiency and retrieval_res.sufficiency.signals)
+            else None
+        )
         user_prompt = build_grounded_user_prompt(
             query=payload.query,
             evidence_context=context_text,
@@ -1196,6 +1449,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             standalone_query=plan.standalone_query,
             operation=plan.operation,
             is_proposition=plan.is_proposition,
+            conflict_summary=conflict_summary,
         )
 
         # Real LLM Streaming
@@ -1234,16 +1488,24 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
 
         yield _format_sse("claims.completed", {"generationId": gen_id, "claims": [c.model_dump() for c in claims]})
 
+        premise_classification = classify_premise_outcome(full_answer, plan.is_proposition, False)
+        cleaned_answer = sanitize_user_facing_answer(full_answer, included_items)
+        supporting_evidence = filter_relevant_evidence(included_items, claims, is_abstention=False)
+
         final_res = GenerateResult(
             requestId=req_id,
             generationId=gen_id,
             status="completed",
-            answer=full_answer,
-            evidence=included_items,
+            answer=cleaned_answer,
+            evidence=supporting_evidence,
             sufficiency=retrieval_res.sufficiency,
             modelVersion=llm_runtime.get_model_version(),
             metadata={
                 "abstention": False,
+                "conflict": is_conflict,
+                "conflictType": (retrieval_res.sufficiency.signals.conflictType if (retrieval_res.sufficiency and retrieval_res.sufficiency.signals) else None) if is_conflict else None,
+                "conflictSummary": conflict_summary,
+                "premiseClassification": premise_classification,
                 "evidenceCount": len(included_items),
                 "omittedCount": len(omitted_items),
                 "llmLatencyMs": llm_latency_ms,
