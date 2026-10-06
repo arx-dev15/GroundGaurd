@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ts-node src/server.ts",
     "build": "tsc",
+    "test": "ts-node src/test/streaming_events.test.ts && ts-node src/test/document_invariant.test.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {

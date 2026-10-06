@@ -45,3 +45,5 @@ storage/
 *.exe
 *.zip
 .qdrant-initialized
+apps/*/package-lock.json
+packages/*/package-lock.json

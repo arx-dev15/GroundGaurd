@@ -7,7 +7,7 @@ on:
 
 jobs:
   node-builds:
-    name: Node Packages Build & Web Typecheck
+    name: Node Packages Build & Web Verification
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -20,7 +20,7 @@ jobs:
           cache: 'npm'
 
       - name: Install root and workspace dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build contracts package
         run: npm --prefix packages/contracts run build
@@ -31,8 +31,17 @@ jobs:
       - name: Build API application
         run: npm --prefix apps/api run build
 
+      - name: Run API unit & invariant tests
+        run: npm --prefix apps/api run test
+
       - name: Typecheck Web application
         run: npm --prefix apps/web run typecheck
+
+      - name: Run Web unit & streaming tests
+        run: npm --prefix apps/web run test
+
+      - name: Build Web application
+        run: npm --prefix apps/web run build
 
   python-tests:
     name: Python AI & ML Unit & Mandate Tests
@@ -63,6 +72,10 @@ jobs:
         working-directory: services/ai
         run: python -m pytest test_config_consistency.py -v
 
+      - name: Run AI Streaming Generation Tests
+        working-directory: services/ai
+        run: python -m pytest test_streaming_generation.py -v
+
       - name: Install ML dependencies
         working-directory: services/ml
         run: |
@@ -73,7 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download v1.0.0-ml-weights --pattern 'model.safetensors' --dir models/groundguard-deberta-v1/ --clobber
+          gh release download v1.0.0-ml-weights --repo ${{ github.repository }} --pattern 'model.safetensors' --dir models/groundguard-deberta-v1/ --clobber
 
       - name: Validate Model Checkpoint
         working-directory: services/ml
