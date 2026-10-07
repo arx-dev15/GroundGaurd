@@ -105,12 +105,30 @@ export function CommandPalette() {
             <span>Go to Settings</span>
             <CommandShortcut>G S</CommandShortcut>
           </CommandItem>
+
+          <CommandItem
+            onSelect={() =>
+              handleSelect(() => router.push('/docs'))
+            }
+          >
+            <FolderGit2 className="mr-2 h-4 w-4 text-muted-foreground" />
+            <span>Open Documentation</span>
+            <CommandShortcut>G D</CommandShortcut>
+          </CommandItem>
         </CommandGroup>
 
         <CommandSeparator />
 
         {/* Project Switching Group */}
         <CommandGroup heading="Switch Project">
+          <CommandItem
+            onSelect={() => handleSelect(() => router.push('/projects'))}
+          >
+            <FolderKanban className="mr-2 h-4 w-4 text-primary" />
+            <span className="font-medium">All Workspaces Home</span>
+            <CommandShortcut>G W</CommandShortcut>
+          </CommandItem>
+
           {projects.map((p) => (
             <CommandItem
               key={p.id}
@@ -130,7 +148,16 @@ export function CommandPalette() {
         <CommandSeparator />
 
         {/* Workspace Actions Group */}
-        <CommandGroup heading="Workspace & Layout">
+        <CommandGroup heading="Actions & Appearance">
+          <CommandItem
+            onSelect={() =>
+              handleSelect(() => router.push(`/projects/${currentProjectId}/knowledge?upload=1`))
+            }
+          >
+            <FolderGit2 className="mr-2 h-4 w-4 text-muted-foreground" />
+            <span>Ingest Source Document</span>
+          </CommandItem>
+
           <CommandItem onSelect={() => handleSelect(toggleSidebar)}>
             <PanelLeft className="mr-2 h-4 w-4 text-muted-foreground" />
             <span>Toggle Sidebar</span>
@@ -143,17 +170,14 @@ export function CommandPalette() {
             <CommandShortcut>⌘I</CommandShortcut>
           </CommandItem>
 
-          <CommandItem
-            onSelect={() =>
-              handleSelect(() => setTheme(theme === 'dark' ? 'light' : 'dark'))
-            }
-          >
-            {theme === 'dark' ? (
-              <Sun className="mr-2 h-4 w-4 text-muted-foreground" />
-            ) : (
-              <Moon className="mr-2 h-4 w-4 text-muted-foreground" />
-            )}
-            <span>Toggle Theme</span>
+          <CommandItem onSelect={() => handleSelect(() => setTheme('light'))}>
+            <Sun className="mr-2 h-4 w-4 text-muted-foreground" />
+            <span>Set Light Theme</span>
+          </CommandItem>
+
+          <CommandItem onSelect={() => handleSelect(() => setTheme('dark'))}>
+            <Moon className="mr-2 h-4 w-4 text-muted-foreground" />
+            <span>Set Dark Theme</span>
           </CommandItem>
         </CommandGroup>
       </CommandList>

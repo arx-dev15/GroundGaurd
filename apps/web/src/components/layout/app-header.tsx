@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useShell } from '@/components/layout/shell-context';
+import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { cn } from '@/lib/utils';
 
 export interface AppHeaderProps {
@@ -102,6 +103,9 @@ export function AppHeader({ actions, className }: AppHeaderProps) {
         </button>
 
         {actions && <div className="flex items-center gap-1.5">{actions}</div>}
+
+        {/* Global Appearance Control */}
+        <ThemeToggle />
 
         {/* Inspector Control Button */}
         <TooltipProvider delayDuration={200}>

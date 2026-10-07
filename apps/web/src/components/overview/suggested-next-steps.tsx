@@ -40,7 +40,7 @@ export function SuggestedNextSteps({ steps }: SuggestedNextStepsProps) {
         {steps.map((step) => (
           <div
             key={step.id}
-            onClick={() => router.push(step.href)}
+            onClick={() => step.href && router.push(step.href)}
             className="group relative flex flex-col justify-between p-4 rounded-xl border border-border/70 bg-card/40 hover:bg-card/70 hover:border-primary/30 transition-all cursor-pointer backdrop-blur-xs shadow-xs"
           >
             <div className="space-y-2">

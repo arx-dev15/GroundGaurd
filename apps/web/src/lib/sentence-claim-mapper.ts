@@ -124,6 +124,43 @@ function projectRecovery(cleanText: string, matchedClaims: Claim[]): { displayTe
   return { displayText: cleanText, isProjectedRecovery: false };
 }
 
+export function splitParagraphIntoSentences(text: string): string[] {
+  if (!text || !text.trim()) return [];
+
+  const trimmed = text.trim();
+  const DOT_SENTINEL = '___DOT_SENTINEL___';
+
+  // 1. Protect bracketed citation contents e.g. [DHT11 Notes for the Students.pdf, p. 1, p. 2]
+  let masked = trimmed.replace(/\[([^\]]+)\]/g, (_m, inside) => {
+    return '[' + inside.replaceAll('.', DOT_SENTINEL) + ']';
+  });
+
+  // 2. Protect filenames and alphanumeric extensions/identifiers e.g. file.pdf, Next.js, API.610
+  masked = masked.replace(/([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)/g, `$1${DOT_SENTINEL}$2`);
+
+  // 3. Protect numbers with decimals e.g. 5.0, 3.14
+  masked = masked.replace(/(\d+)\.(\d+)/g, `$1${DOT_SENTINEL}$2`);
+
+  // 4. Protect common abbreviations: e.g., i.e., p., pp., vs., etc.
+  masked = masked.replace(/\b(e\.g|i\.e|p|pp|fig|vs|dr|mr|mrs|ms|prof|inc|ltd|approx|dept|no|vol|sec)\./gi, `$1${DOT_SENTINEL}`);
+
+  // 5. Split on true sentence boundaries: terminators [.!?] optionally followed by quote/bracket,
+  // then whitespace followed by a capital letter or start of next sentence (never split before citations)
+  const parts = masked.split(/(?<=[.!?][)"'\]]?)\s+(?=[A-Z0-9"'(])/);
+
+  const sentences = parts
+    .map((p) => p.replaceAll(DOT_SENTINEL, '.').trim())
+    .filter(Boolean);
+
+  // Safety invariant: If split somehow dropped substantive prose (>20% loss), fallback to [trimmed]
+  const totalLength = sentences.reduce((acc, s) => acc + s.length, 0);
+  if (sentences.length === 0 || (trimmed.length > 40 && totalLength < trimmed.length * 0.8)) {
+    return [trimmed];
+  }
+
+  return sentences;
+}
+
 export function mapAnswerToClaims(answerText: string, claims: Claim[] = []): MappedContentBlock[] {
   if (!answerText) return [];
 
@@ -162,14 +199,7 @@ export function mapAnswerToClaims(answerText: string, claims: Claim[] = []): Map
       });
       blockStructures.push({ type: 'list', items });
     } else {
-      // Protect decimals/technical numbers (e.g. 802.11ax, 3.14, v1.2) from splitting
-      const placeholder = '___DECIMAL_DOT___';
-      const protectedBlock = block.replace(/(\d+)\.(\d+)/g, `$1${placeholder}$2`);
-      const sentenceRegex = /[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g;
-      const rawSentences = protectedBlock.match(sentenceRegex) || [protectedBlock];
-      const sentences = rawSentences
-        .map((s) => s.replaceAll(placeholder, '.').trim())
-        .filter(Boolean);
+      const sentences = splitParagraphIntoSentences(block);
       blockStructures.push({ type: 'paragraph', items: sentences });
 
       sentences.forEach((sent, iIdx) => {

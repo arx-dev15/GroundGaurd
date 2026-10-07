@@ -69,7 +69,7 @@ export function EvidexRecommends({ steps }: EvidexRecommendsProps) {
           return (
             <div
               key={step.id}
-              onClick={() => router.push(step.href)}
+              onClick={() => step.href && router.push(step.href)}
               className="group py-4 px-3 -mx-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-card/50 transition-all duration-150 cursor-pointer"
             >
               <div className="flex items-start gap-4 min-w-0">

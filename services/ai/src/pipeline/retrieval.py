@@ -85,6 +85,38 @@ class ConflictType(str, Enum):
     SEMANTIC_CONTRADICTION = "SEMANTIC_CONTRADICTION"
 
 
+class EvidenceDisposition(str, Enum):
+    """
+    Unified Evidence Disposition Model (Section 1, 2):
+    SUPPORTED: Fully established by grounded evidence.
+    PARTIAL / PARTIALLY_SUPPORTED: Answer supported portion and qualify missing facet.
+    CONTRADICTED: User premise is disproven by grounded evidence.
+    CONFLICT: Conflicting positions exist across project evidence.
+    INSUFFICIENT / UNSUPPORTED: Document evidence is insufficient to ground an answer.
+    """
+    SUPPORTED = "SUPPORTED"
+    PARTIAL = "PARTIAL"
+    PARTIALLY_SUPPORTED = "PARTIALLY_SUPPORTED"
+    CONTRADICTED = "CONTRADICTED"
+    CONFLICT = "CONFLICT"
+    INSUFFICIENT = "INSUFFICIENT"
+    UNSUPPORTED = "UNSUPPORTED"
+
+
+class FailureStage(str, Enum):
+    """
+    Deterministic failure-stage diagnostic categories (Section 23, 24).
+    Enables forensic traceability without ad-hoc print statements.
+    """
+    NONE = "none"
+    RETRIEVAL_ZERO_CANDIDATES = "retrieval_zero_candidates"
+    SCOPE_GATE_REJECTION = "scope_gate_rejection"
+    CONFLICT_GATE_REJECTION = "conflict_gate_rejection"
+    RERANKER_REJECTION = "reranker_rejection"
+    SUFFICIENCY_GATE_REJECTION = "sufficiency_gate_rejection"
+    GENERATION_ABSTENTION = "generation_abstention"
+
+
 class ScopeGateSignals(BaseModel):
     candidateCount: int
     entityMatch: bool
@@ -121,6 +153,9 @@ class EvidenceSufficiencySignals(BaseModel):
     evidenceConflictCheck: Optional[Dict[str, Any]] = None
     evidenceCoverageScore: Optional[float] = None
     topicSimilarityScore: Optional[float] = None
+    disposition: Optional[str] = EvidenceDisposition.SUPPORTED.value
+    failureStage: Optional[str] = FailureStage.NONE.value
+    eligibleEvidenceCount: Optional[int] = 0
 
 
 class EvidenceSufficiency(BaseModel):
@@ -129,6 +164,8 @@ class EvidenceSufficiency(BaseModel):
     score: float
     signals: EvidenceSufficiencySignals
     scope: Optional[str] = None
+    disposition: Optional[str] = None
+    failureStage: Optional[str] = None
 
 
 # Response Item & Envelope
@@ -727,9 +764,9 @@ def compute_evidence_coverage(
                 found_idents += 1
         s_entity = found_idents / len(route.extractedIdentifiers) if route.extractedIdentifiers else 0.0
     else:
-        # Non-identifier semantic query: not equipment-specific, so entity coverage is satisfied
-        # proportionally to content presence
-        s_entity = 1.0 if s_content >= 0.25 else (0.5 if s_content > 0.1 else 0.0)
+        # Non-identifier semantic query: not equipment-specific, so entity coverage is proportional
+        # to actual non-stopword content presence in evidence candidates
+        s_entity = min(1.0, s_content)
 
     # 3. Lexical retrieval support (s_lexical)
     lexical_count = sum(
@@ -973,6 +1010,8 @@ def evaluate_sufficiency(
             reason="Zero candidates retrieved",
             score=0.0,
             scope=ScopeDecision.OUT_OF_SCOPE.value,
+            disposition=EvidenceDisposition.INSUFFICIENT.value,
+            failureStage=FailureStage.RETRIEVAL_ZERO_CANDIDATES.value,
             signals=EvidenceSufficiencySignals(
                 resultCount=0,
                 topRerankScore=0.0,
@@ -980,7 +1019,10 @@ def evaluate_sufficiency(
                 sourceCoverage=[],
                 conflictingEvidence=False,
                 scopeDecision=ScopeDecision.OUT_OF_SCOPE.value,
-                scopeReason="Zero candidates retrieved in project corpus"
+                scopeReason="Zero candidates retrieved in project corpus",
+                disposition=EvidenceDisposition.INSUFFICIENT.value,
+                failureStage=FailureStage.RETRIEVAL_ZERO_CANDIDATES.value,
+                eligibleEvidenceCount=0
             )
         )
 
@@ -990,6 +1032,8 @@ def evaluate_sufficiency(
             reason=f"Candidate count ({len(candidates)}) below minimum required ({min_evidence_count})",
             score=0.0,
             scope=ScopeDecision.OUT_OF_SCOPE.value,
+            disposition=EvidenceDisposition.INSUFFICIENT.value,
+            failureStage=FailureStage.RETRIEVAL_ZERO_CANDIDATES.value,
             signals=EvidenceSufficiencySignals(
                 resultCount=len(candidates),
                 topRerankScore=0.0,
@@ -997,7 +1041,10 @@ def evaluate_sufficiency(
                 sourceCoverage=[],
                 conflictingEvidence=False,
                 scopeDecision=ScopeDecision.OUT_OF_SCOPE.value,
-                scopeReason=f"Candidate count ({len(candidates)}) below minimum required ({min_evidence_count})"
+                scopeReason=f"Candidate count ({len(candidates)}) below minimum required ({min_evidence_count})",
+                disposition=EvidenceDisposition.INSUFFICIENT.value,
+                failureStage=FailureStage.RETRIEVAL_ZERO_CANDIDATES.value,
+                eligibleEvidenceCount=0
             )
         )
 
@@ -1030,6 +1077,8 @@ def evaluate_sufficiency(
             reason=f"Target identifier(s) {missing_identifiers} not supported by retrieved evidence",
             score=top_score,
             scope=ScopeDecision.OUT_OF_SCOPE.value,
+            disposition=EvidenceDisposition.INSUFFICIENT.value,
+            failureStage=FailureStage.SCOPE_GATE_REJECTION.value,
             signals=EvidenceSufficiencySignals(
                 resultCount=len(candidates),
                 topRerankScore=top_score,
@@ -1037,7 +1086,10 @@ def evaluate_sufficiency(
                 sourceCoverage=all_sources,
                 conflictingEvidence=False,
                 scopeDecision=ScopeDecision.OUT_OF_SCOPE.value,
-                scopeReason=f"Target identifier(s) {missing_identifiers} not supported by retrieved evidence"
+                scopeReason=f"Target identifier(s) {missing_identifiers} not supported by retrieved evidence",
+                disposition=EvidenceDisposition.INSUFFICIENT.value,
+                failureStage=FailureStage.SCOPE_GATE_REJECTION.value,
+                eligibleEvidenceCount=0
             )
         )
 
@@ -1052,6 +1104,8 @@ def evaluate_sufficiency(
             reason=f"Out of project scope: {scope_res.reason}",
             score=top_score,
             scope=scope_dec_str,
+            disposition=EvidenceDisposition.INSUFFICIENT.value,
+            failureStage=FailureStage.SCOPE_GATE_REJECTION.value,
             signals=EvidenceSufficiencySignals(
                 resultCount=len(candidates),
                 topRerankScore=top_score,
@@ -1061,7 +1115,10 @@ def evaluate_sufficiency(
                 scopeDecision=scope_dec_str,
                 scopeReason=scope_reason_str,
                 evidenceCoverageScore=scope_res.signals.evidenceCoverageScore,
-                topicSimilarityScore=top_score
+                topicSimilarityScore=top_score,
+                disposition=EvidenceDisposition.INSUFFICIENT.value,
+                failureStage=FailureStage.SCOPE_GATE_REJECTION.value,
+                eligibleEvidenceCount=0
             )
         )
 
@@ -1074,6 +1131,8 @@ def evaluate_sufficiency(
             reason=f"Conflicting evidence detected across retrieved project sources: {c_summary}",
             score=top_score,
             scope=scope_dec_str,
+            disposition=EvidenceDisposition.CONFLICT.value,
+            failureStage=FailureStage.CONFLICT_GATE_REJECTION.value,
             signals=EvidenceSufficiencySignals(
                 resultCount=len(candidates),
                 topRerankScore=top_score,
@@ -1091,7 +1150,10 @@ def evaluate_sufficiency(
                 revisionResolution=getattr(conflict_res, "revision_resolution", "unresolved"),
                 evidenceConflictCheck=getattr(conflict_res, "evidence_check", None),
                 evidenceCoverageScore=scope_res.signals.evidenceCoverageScore if scope_res else None,
-                topicSimilarityScore=top_score
+                topicSimilarityScore=top_score,
+                disposition=EvidenceDisposition.CONFLICT.value,
+                failureStage=FailureStage.CONFLICT_GATE_REJECTION.value,
+                eligibleEvidenceCount=0
             )
         )
 
@@ -1107,21 +1169,56 @@ def evaluate_sufficiency(
                 top_candidate = candidates[0]
                 top_score = top_candidate.rerankScore if top_candidate.rerankScore is not None else top_score
 
-    # 4. Multi-Signal Score Threshold Aggregation (Sections 18-20)
+    # 4. Two-Stage Sufficiency Safety Contract (Sections 7, 8)
     # Generic resolution for cross-encoder length dilution and short decisive passages.
     # Preserves calibrated SUFFICIENCY_THRESHOLD (0.35) without global lowering.
     coverage_score = scope_res.signals.evidenceCoverageScore if (scope_res and scope_res.signals) else 0.0
-    if scope_res and scope_res.decision == ScopeDecision.IN_SCOPE and coverage_score >= 0.60 and top_score >= 0.25:
-        aggregated_score = max(top_score, 0.45 * top_score + 0.55 * coverage_score)
+    content_overlap = scope_res.signals.contentWordOverlap if (scope_res and scope_res.signals) else 0.0
+
+    # STAGE 1 — CANDIDATE RELEVANCE ELIGIBILITY:
+    # A candidate must demonstrate genuine semantic relevance to the information need.
+    # Eligibility floor: rerankScore >= 0.15.
+    # Below 0.15, passages are cross-encoder noise/distractors.
+    ELIGIBILITY_FLOOR = 0.15
+    eligible_candidates = [
+        c for c in candidates
+        if (c.rerankScore is not None and c.rerankScore >= ELIGIBILITY_FLOOR)
+    ]
+    eligible_count = len(eligible_candidates)
+
+    # STAGE 2 — COLLECTIVE EVIDENCE-SET COVERAGE AGGREGATION:
+    # Aggregation is permitted ONLY when eligible evidence exists.
+    # Distractor chunks (rerankScore < 0.15) can NEVER manufacture sufficiency via coverage bonus.
+    if scope_res and scope_res.decision == ScopeDecision.IN_SCOPE and content_overlap > 0.0 and eligible_count > 0:
+        if top_score >= threshold:
+            aggregated_score = top_score
+        # Case A: Strong single passage with length dilution (top_score >= 0.25, coverage >= 0.60)
+        elif top_score >= 0.25 and coverage_score >= 0.60:
+            aggregated_score = max(top_score, 0.45 * top_score + 0.55 * coverage_score)
+        # Case B: Multi-passage complementary evidence (>=2 eligible chunks collectively satisfying facets)
+        elif eligible_count >= 2 and top_score >= 0.20 and coverage_score >= 0.65:
+            aggregated_score = max(top_score, 0.40 * top_score + 0.60 * coverage_score)
+        # Case C: High coverage with moderate top score (top_score >= 0.20, coverage >= 0.75)
+        elif top_score >= 0.20 and coverage_score >= 0.75:
+            aggregated_score = max(top_score, 0.35 * top_score + 0.65 * coverage_score)
+        else:
+            aggregated_score = top_score
     else:
         aggregated_score = top_score
 
     if aggregated_score < threshold:
+        fail_stage = (
+            FailureStage.RERANKER_REJECTION.value
+            if eligible_count == 0
+            else FailureStage.SUFFICIENCY_GATE_REJECTION.value
+        )
         return EvidenceSufficiency(
             sufficient=False,
             reason=f"Top evidence score ({aggregated_score:.4f}) below sufficiency threshold ({threshold:.4f})",
             score=aggregated_score,
             scope=scope_dec_str,
+            disposition=EvidenceDisposition.INSUFFICIENT.value,
+            failureStage=fail_stage,
             signals=EvidenceSufficiencySignals(
                 resultCount=len(candidates),
                 topRerankScore=top_score,
@@ -1135,15 +1232,26 @@ def evaluate_sufficiency(
                 revisionResolution=rev_res,
                 evidenceConflictCheck=getattr(conflict_res, "evidence_check", None),
                 evidenceCoverageScore=scope_res.signals.evidenceCoverageScore if scope_res else None,
-                topicSimilarityScore=top_score
+                topicSimilarityScore=top_score,
+                disposition=EvidenceDisposition.INSUFFICIENT.value,
+                failureStage=fail_stage,
+                eligibleEvidenceCount=eligible_count
             )
         )
+
+    disposition = (
+        EvidenceDisposition.PARTIAL.value
+        if (coverage_score > 0 and coverage_score < 0.65)
+        else EvidenceDisposition.SUPPORTED.value
+    )
 
     return EvidenceSufficiency(
         sufficient=True,
         reason="Evidence sufficient for generation",
         score=aggregated_score,
         scope=scope_dec_str,
+        disposition=disposition,
+        failureStage=FailureStage.NONE.value,
         signals=EvidenceSufficiencySignals(
             resultCount=len(candidates),
             topRerankScore=top_score,
@@ -1157,7 +1265,10 @@ def evaluate_sufficiency(
             revisionResolution=rev_res,
             evidenceConflictCheck=getattr(conflict_res, "evidence_check", None),
             evidenceCoverageScore=scope_res.signals.evidenceCoverageScore if scope_res else None,
-            topicSimilarityScore=top_score
+            topicSimilarityScore=top_score,
+            disposition=disposition,
+            failureStage=FailureStage.NONE.value,
+            eligibleEvidenceCount=eligible_count
         )
     )
 
@@ -1476,11 +1587,34 @@ def retrieve_evidence(
                 {"chunkId": c.chunkId, "text": c.text, "candidate": c}
                 for c in rrf_pool
             ]
-            rerank_results = rerank(query=query, passages=passages, top_n=RERANK_CANDIDATE_K)
+            # Sanitize query for cross-encoder reranker: strip document references
+            from src.pipeline.query_understanding import strip_document_filename_references
+            clean_rerank_q = strip_document_filename_references(query)
+            rerank_q = clean_rerank_q if len(clean_rerank_q) >= 3 else query
+            rerank_results = rerank(query=rerank_q, passages=passages, top_n=RERANK_CANDIDATE_K)
             for res in rerank_results:
                 cand = res["candidate"]
                 cand.rerankScore = float(res.get("rerankScore", 0.0))
                 reranked_pool.append(cand)
+
+            # Corroborate with alternative high-fidelity user/semantic query if distinct
+            alt_q = None
+            if search_queries and len(search_queries) > 0:
+                candidate_alt = strip_document_filename_references(search_queries[0])
+                if candidate_alt and candidate_alt.lower() != rerank_q.lower() and len(candidate_alt) >= 3:
+                    alt_q = candidate_alt
+            elif hasattr(route, "rawQuery") and route.rawQuery and route.rawQuery.lower() != rerank_q.lower():
+                alt_q = route.rawQuery
+
+            if alt_q:
+                try:
+                    alt_res = rerank(query=alt_q, passages=passages, top_n=RERANK_CANDIDATE_K)
+                    alt_scores = {r.get("chunkId", r.get("id")): float(r.get("rerankScore", r.get("score", 0.0))) for r in alt_res}
+                    for cand in reranked_pool:
+                        if cand.chunkId in alt_scores:
+                            cand.rerankScore = max(cand.rerankScore or 0.0, alt_scores[cand.chunkId])
+                except Exception as alt_err:
+                    logger.debug(f"Alt rerank failed: {alt_err}")
         except Exception as e:
             logger.error(f"Reranking stage failed: {e}")
             raise RuntimeError(f"FlashRank reranking infrastructure failure: {e}") from e

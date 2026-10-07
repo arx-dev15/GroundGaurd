@@ -114,6 +114,8 @@ class QueryPlan(BaseModel):
             self.retrieval_mode = "broad"
         elif self.retrieval_strategy == "comparative" and self.retrieval_mode == "focused":
             self.retrieval_mode = "comparative"
+        elif (self.operation == "compound" or (len(self.search_queries) > 1 and " and " in (self.standalone_query or "").lower())) and self.retrieval_mode == "focused":
+            self.retrieval_mode = "broad"
 
 
 # ---------------------------------------------------------------------------
@@ -324,10 +326,12 @@ def extract_lexical_anchors(query: str) -> List[str]:
             anchors.append(tag)
 
     # 2b. Technical acronyms and alphanumeric codes (e.g. INT4, FP16, FIDO2, ZTNA, SRAM)
-    for m in re.finditer(r'\b[A-Z]{2,}\d*\b|\b[A-Z]+\d+\b', query):
-        acro = m.group(0).strip()
-        if acro.lower() not in _STOPWORDS_SET and len(acro) >= 2:
-            anchors.append(acro)
+    for m in re.finditer(r'\b[A-Za-z]{2,5}\d*\b', query):
+        token = m.group(0).strip()
+        lower_t = token.lower()
+        if lower_t not in _STOPWORDS_SET and (token.isupper() or len(token) <= 4 or bool(re.search(r'\d', token))):
+            if lower_t not in {w.lower() for w in anchors}:
+                anchors.append(token)
 
     # 3. Capitalized multi-word or single-word entities (skip initial sentence word)
     tokens = query.split()
@@ -601,6 +605,27 @@ def _find_prior_document(
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def strip_document_filename_references(text: str, doc_filenames: Optional[List[str]] = None) -> str:
+    """
+    Strips document file references (e.g. 'in Manual.pdf', 'of Notes.txt') from search queries.
+    Prevents file names from polluting BM25 keyword tokens and cross-encoder reranking.
+    """
+    if not text:
+        return ""
+    clean = text
+    if doc_filenames:
+        for fn in doc_filenames:
+            if fn and fn.lower() in clean.lower():
+                clean = re.sub(rf'\b(?:in|from|frm|within|of|for|about)\s+(?:the\s+)?{re.escape(fn)}\b', '', clean, flags=re.I)
+                clean = re.sub(rf'\b{re.escape(fn)}\b', '', clean, flags=re.I)
+    # Strip filename with preceding preposition (non-greedy, e.g. 'from the DHT11 Notes for Students.pdf')
+    clean = re.sub(r'\b(?:in|from|frm|within|of|for|about)\s+(?:the\s+)?[A-Za-z0-9_\-.][A-Za-z0-9_\-.\s]{0,50}?\.(?:pdf|txt|md)\b', '', clean, flags=re.I)
+    # Strip standalone filename without spaces (e.g. 'KC450_Chiller_Manual.pdf')
+    clean = re.sub(r'\b[A-Za-z0-9_\-.]+\.(?:pdf|txt|md)\b', '', clean, flags=re.I)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return clean if len(clean) >= 2 else text
+
+
 async def understand_query(
     query: str,
     conversation_context: Optional[List[Dict[str, Any]]] = None,
@@ -674,6 +699,25 @@ async def understand_query(
 
     if plan is None:
         plan = _make_fallback_plan(raw_query)
+
+    # Clean standalone_query and search_queries: strip document file references
+    if plan.standalone_query:
+        plan.standalone_query = strip_document_filename_references(plan.standalone_query, ready_doc_titles)
+
+    if plan.search_queries:
+        cleaned_sqs = []
+        for sq in plan.search_queries:
+            csq = strip_document_filename_references(sq, ready_doc_titles)
+            if csq and csq not in cleaned_sqs:
+                cleaned_sqs.append(csq)
+        if cleaned_sqs:
+            plan.search_queries = cleaned_sqs
+
+    # Clean standalone_query: strip trailing document file references (e.g. 'in document.pdf')
+    if plan.standalone_query:
+        clean_sa = re.sub(r'\s+(?:in|from|within)\s+(?:the\s+)?[A-Za-z0-9_\s-]+\.(?:pdf|txt|md)\s*$', '', plan.standalone_query, flags=re.I).strip()
+        if clean_sa and len(clean_sa) >= 3:
+            plan.standalone_query = clean_sa
 
     # Safety: ensure standalone_query is never empty
     if not plan.standalone_query:

@@ -46,12 +46,13 @@ import { getProjectClaimsPaginated } from '@/lib/conversations-api';
 
 // Editorial Overview Components
 import { ProjectPulseHero } from '@/components/overview/project-pulse-hero';
-import { ProjectUnderstanding } from '@/components/overview/project-understanding';
-import { TrustSummary } from '@/components/overview/trust-summary';
+import { ProjectBrief } from '@/components/overview/project-brief';
+import { SourceFingerprint } from '@/components/overview/source-fingerprint';
 import { ContinueWorking } from '@/components/overview/continue-working';
 import { KnowledgeOrigin } from '@/components/overview/knowledge-origin';
 import { WhatMattersNext } from '@/components/overview/what-matters-next';
 import { QuietTrustFooter } from '@/components/overview/quiet-trust-footer';
+import { buildSourceFingerprints } from '@/lib/overview-helpers';
 import type { ProjectClaimItem } from '@groundguard/types';
 
 export default function RealProjectOverviewPage() {
@@ -80,7 +81,7 @@ export default function RealProjectOverviewPage() {
         apiClient.get<{ documents: GroundDocument[] }>(`/v1/projects/${projectId}/documents`).catch(() => ({ documents: [] })),
         apiClient.get<{ conversations: Conversation[] }>(`/v1/projects/${projectId}/conversations`).catch(() => ({ conversations: [] })),
         apiClient.get<ProjectMetricsResponse>(`/v1/projects/${projectId}/metrics`).catch(() => null),
-        getProjectClaimsPaginated(projectId, { limit: 15 }).catch(() => ({ claims: [] })),
+        getProjectClaimsPaginated(projectId, { limit: 500 }).catch(() => ({ claims: [] })),
       ]);
 
       setProject(projRes.project);
@@ -155,6 +156,28 @@ export default function RealProjectOverviewPage() {
       }),
     [documents.length, readyDocs.length, processingDocs.length, failedDocs.length, flaggedClaims, conversations.length, projectId]
   );
+
+  // Source Fingerprints (Deterministic Real Evidence Attribution)
+  const fingerprints = React.useMemo(() => {
+    return buildSourceFingerprints({
+      documents,
+      claims,
+      metrics,
+    });
+  }, [documents, claims, metrics]);
+
+  // Primary Hotspot derived from real claim concentration
+  const primaryHotspot = React.useMemo(() => {
+    let topRegion = null;
+    let maxReview = 0;
+    for (const fp of fingerprints) {
+      if (fp.hotspotRegion && fp.hotspotRegion.needsReviewCount > maxReview) {
+        maxReview = fp.hotspotRegion.needsReviewCount;
+        topRegion = fp.hotspotRegion;
+      }
+    }
+    return topRegion;
+  }, [fingerprints]);
 
   // Loading Skeleton State (Smooth, zero layout shift)
   if (isLoading) {
@@ -390,18 +413,19 @@ export default function RealProjectOverviewPage() {
   // 7. Quiet Trust Footer
   // =========================================================================
   // =========================================================================
-  // STATE B: POPULATED PROJECT — EDITORIAL RESEARCH OVERVIEW
-  // Section Structure (Exact):
-  // A. Project hero + B. Evidence lineage (integrated in ProjectPulseHero)
-  // C. Project understanding (What this project is about)
-  // D. Trust summary (Trust at a glance)
-  // E. Continue where you left off + Recent knowledge (compact 60/40 grid)
-  // F. What matters next (Max 3 prioritized actions)
-  // G. Quiet footer
+  // STATE B: POPULATED PROJECT — THE EVIDENCE OBSERVATORY
+  // Narrative Story:
+  // 1. PROJECT IDENTITY & HERO
+  // 2. EVIDENCE LINEAGE (Transformation: How knowledge became trust)
+  // 3. PROJECT BRIEF (Deterministic factual editorial summary)
+  // 4. SOURCE FINGERPRINT (Localization: Where trust lives inside source material)
+  // 5. CONTINUE WHERE YOU LEFT OFF & RECENT KNOWLEDGE (Working threads & navigation)
+  // 6. WHAT MATTERS NEXT (Max 3 state-aware next actions)
+  // 7. QUIET TRUST FOOTER
   // =========================================================================
   return (
     <div className="space-y-8 max-w-[1400px] w-full mx-auto py-2">
-      {/* A. Project Hero + B. Evidence Lineage (The Signature Visual) */}
+      {/* 1. Project Hero + 2. Evidence Lineage (Top Signature Visual) */}
       <ProjectPulseHero
         projectId={projectId}
         projectName={project.name}
@@ -418,22 +442,42 @@ export default function RealProjectOverviewPage() {
         flaggedClaims={flaggedClaims}
       />
 
-      {/* C. Project Understanding: What this project is about */}
-      <ProjectUnderstanding
-        documents={documents}
-        claims={claims}
+      {/* Subtle Visual Connector: Lineage (Transformation) -> Fingerprint (Localization) */}
+      <div className="flex items-center justify-between px-2 text-[10px] font-mono text-muted-foreground/40 tracking-widest uppercase select-none">
+        <div className="flex items-center gap-2">
+          <span className="h-1 w-1 rounded-full bg-border" />
+          <span>EVIDENCE TRANSFORMATION: HOW KNOWLEDGE BECAME TRUST</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span>SOURCE LOCALIZATION: WHERE TRUST LIVES</span>
+          <span className="h-1 w-1 rounded-full bg-border" />
+        </div>
+      </div>
+
+      {/* 3. Project Brief (Deterministic Factual Editorial Summary - 0 LLM Calls) */}
+      <ProjectBrief
+        totalDocs={documents.length}
+        readyDocsCount={readyDocs.length}
+        totalChunks={totalChunks}
+        totalClaims={totalClaims}
+        verifiedClaims={verifiedClaims}
+        recoveredClaims={recoveredClaims}
+        flaggedClaims={flaggedClaims}
+        hotspotLabel={primaryHotspot?.label || null}
       />
 
-      {/* D. Trust Summary: Trust at a glance (Sentence-form communication) */}
-      <TrustSummary
+      {/* 4. Source Fingerprint (Second Signature Visual Surface) */}
+      <SourceFingerprint
         projectId={projectId}
+        documents={documents}
+        claims={claims}
         totalClaims={totalClaims}
         verifiedClaims={verifiedClaims}
         recoveredClaims={recoveredClaims}
         flaggedClaims={flaggedClaims}
       />
 
-      {/* E. Continue where you left off + Recent knowledge */}
+      {/* 5. Continue Where You Left Off + Recent Knowledge */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start pt-1">
         <div className="lg:col-span-7">
           <ContinueWorking
@@ -450,10 +494,10 @@ export default function RealProjectOverviewPage() {
         </div>
       </div>
 
-      {/* F. What Matters Next (Max 3 editorial actions) */}
+      {/* 6. What Matters Next (Max 3 state-aware decisions) */}
       <WhatMattersNext steps={recommendedSteps} />
 
-      {/* G. Quiet Trust Footer */}
+      {/* 7. Quiet Trust Footer */}
       <QuietTrustFooter projectId={projectId} />
     </div>
   );

@@ -13,6 +13,10 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Shield,
+  BookOpen,
+  History,
+  Pin,
+  Lock,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ProjectSwitcher } from '@/components/layout/project-switcher';
@@ -25,7 +29,7 @@ export function AppSidebar() {
   const shouldReduceMotion = useReducedMotion();
   const { sidebarCollapsed, toggleSidebar, currentProjectId } = useShell();
 
-  const navItems = [
+  const primaryNavItems = [
     {
       label: 'Overview',
       href: `/projects/${currentProjectId}/overview`,
@@ -56,13 +60,40 @@ export function AppSidebar() {
     },
   ];
 
-  const settingsItem = {
-    label: 'Settings',
-    href: `/projects/${currentProjectId}/settings`,
-    icon: Settings,
-    activePattern: `/projects/${currentProjectId}/settings`,
-    shortcut: 'G S',
-  };
+  const secondaryNavItems = [
+    {
+      label: 'Docs',
+      href: '/docs',
+      icon: BookOpen,
+      activePattern: '/docs',
+      shortcut: 'G D',
+      isPostMvp: false,
+    },
+    {
+      label: 'Settings',
+      href: `/projects/${currentProjectId}/settings`,
+      icon: Settings,
+      activePattern: `/projects/${currentProjectId}/settings`,
+      shortcut: 'G S',
+      isPostMvp: false,
+    },
+    {
+      label: 'Activity',
+      href: '#',
+      icon: History,
+      shortcut: '',
+      isPostMvp: true,
+      description: 'Audit events & project timeline (Coming later)',
+    },
+    {
+      label: 'Pinned',
+      href: '#',
+      icon: Pin,
+      shortcut: '',
+      isPostMvp: true,
+      description: 'Pin key claims & passages (Coming later)',
+    },
+  ];
 
   return (
     <motion.aside
@@ -123,117 +154,164 @@ export function AppSidebar() {
           </TooltipProvider>
         </div>
 
-        {/* Primary Navigation List */}
-        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1" aria-label="Main Navigation">
-          <TooltipProvider delayDuration={150}>
-            {navItems.map((item) => {
-              const isActive = pathname.startsWith(item.activePattern);
-              const Icon = item.icon;
+        {/* Primary & Secondary Navigation Lists */}
+        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4" aria-label="Main Navigation">
+          {/* Primary Navigation */}
+          <div className="space-y-1">
+            {!sidebarCollapsed && (
+              <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 select-none">
+                Workspace
+              </div>
+            )}
+            <TooltipProvider delayDuration={150}>
+              {primaryNavItems.map((item) => {
+                const isActive = pathname.startsWith(item.activePattern);
+                const Icon = item.icon;
 
-              const linkContent = (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={cn(
-                    'relative flex items-center transition-all duration-150 outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md',
-                    sidebarCollapsed
-                      ? 'h-9 w-9 mx-auto justify-center'
-                      : 'w-full gap-2.5 px-2.5 py-1.5 text-xs',
-                    isActive
-                      ? 'bg-accent/80 text-foreground font-medium shadow-xs'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40 font-normal'
-                  )}
-                >
-                  {/* Subtle active left accent indicator */}
-                  {isActive && !sidebarCollapsed && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-primary" />
-                  )}
-
-                  <Icon
+                const linkContent = (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    aria-current={isActive ? 'page' : undefined}
                     className={cn(
-                      'h-4 w-4 shrink-0 transition-colors',
-                      isActive ? 'text-foreground' : 'text-muted-foreground'
+                      'relative flex items-center transition-all duration-150 outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md',
+                      sidebarCollapsed
+                        ? 'h-9 w-9 mx-auto justify-center'
+                        : 'w-full gap-2.5 px-2.5 py-1.5 text-xs',
+                      isActive
+                        ? 'bg-accent/80 text-foreground font-medium shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/40 font-normal'
                     )}
-                  />
+                  >
+                    {isActive && !sidebarCollapsed && (
+                      <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-primary" />
+                    )}
 
-                  {!sidebarCollapsed && (
-                    <span className="truncate flex-1 leading-tight">{item.label}</span>
-                  )}
-                </Link>
-              );
+                    <Icon
+                      className={cn(
+                        'h-4 w-4 shrink-0 transition-colors',
+                        isActive ? 'text-foreground' : 'text-muted-foreground'
+                      )}
+                    />
 
-              if (sidebarCollapsed) {
-                return (
-                  <Tooltip key={item.label}>
-                    <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-                    <TooltipContent side="right" className="text-xs flex items-center gap-2">
-                      <span>{item.label}</span>
-                      <span className="text-[10px] font-mono text-muted-foreground">{item.shortcut}</span>
-                    </TooltipContent>
-                  </Tooltip>
+                    {!sidebarCollapsed && (
+                      <span className="truncate flex-1 leading-tight">{item.label}</span>
+                    )}
+                  </Link>
                 );
-              }
 
-              return linkContent;
-            })}
+                if (sidebarCollapsed) {
+                  return (
+                    <Tooltip key={item.label}>
+                      <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs flex items-center gap-2">
+                        <span>{item.label}</span>
+                        <span className="text-[10px] font-mono text-muted-foreground">{item.shortcut}</span>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
 
-            {/* Subtle Divider */}
-            <div className="py-2">
-              <div className="border-t border-border/50 mx-1" />
-            </div>
+                return linkContent;
+              })}
+            </TooltipProvider>
+          </div>
 
-            {/* Settings Navigation */}
-            {(() => {
-              const isActive = pathname.startsWith(settingsItem.activePattern);
-              const Icon = settingsItem.icon;
+          {/* Secondary Navigation */}
+          <div className="space-y-1 pt-1 border-t border-border/40">
+            {!sidebarCollapsed && (
+              <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 select-none">
+                Project Rail
+              </div>
+            )}
+            <TooltipProvider delayDuration={150}>
+              {secondaryNavItems.map((item) => {
+                const isActive = item.activePattern ? pathname.startsWith(item.activePattern) : false;
+                const Icon = item.icon;
 
-              const linkContent = (
-                <Link
-                  href={settingsItem.href}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={cn(
-                    'relative flex items-center transition-all duration-150 outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md',
-                    sidebarCollapsed
-                      ? 'h-9 w-9 mx-auto justify-center'
-                      : 'w-full gap-2.5 px-2.5 py-1.5 text-xs',
-                    isActive
-                      ? 'bg-accent/80 text-foreground font-medium shadow-xs'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40 font-normal'
-                  )}
-                >
-                  {isActive && !sidebarCollapsed && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-primary" />
-                  )}
+                if (item.isPostMvp) {
+                  const content = (
+                    <div
+                      key={item.label}
+                      aria-disabled="true"
+                      className={cn(
+                        'relative flex items-center select-none opacity-45 cursor-not-allowed',
+                        sidebarCollapsed
+                          ? 'h-8 w-8 mx-auto justify-center rounded-md'
+                          : 'w-full gap-2.5 px-2.5 py-1.5 text-xs rounded-md text-muted-foreground'
+                      )}
+                    >
+                      <Icon className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                      {!sidebarCollapsed && (
+                        <>
+                          <span className="truncate flex-1 leading-tight">{item.label}</span>
+                          <span className="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-muted/60 text-muted-foreground/70">
+                            Post-MVP
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  );
 
-                  <Icon
+                  return (
+                    <Tooltip key={item.label}>
+                      <TooltipTrigger asChild>{content}</TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs">
+                        <span className="font-medium">{item.label} (Post-MVP)</span>
+                        <span className="text-muted-foreground text-[10px] block">{item.description}</span>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                const linkContent = (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    aria-current={isActive ? 'page' : undefined}
                     className={cn(
-                      'h-4 w-4 shrink-0 transition-colors',
-                      isActive ? 'text-foreground' : 'text-muted-foreground'
+                      'relative flex items-center transition-all duration-150 outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md',
+                      sidebarCollapsed
+                        ? 'h-9 w-9 mx-auto justify-center'
+                        : 'w-full gap-2.5 px-2.5 py-1.5 text-xs',
+                      isActive
+                        ? 'bg-accent/80 text-foreground font-medium shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/40 font-normal'
                     )}
-                  />
+                  >
+                    {isActive && !sidebarCollapsed && (
+                      <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-primary" />
+                    )}
 
-                  {!sidebarCollapsed && (
-                    <span className="truncate flex-1 leading-tight">{settingsItem.label}</span>
-                  )}
-                </Link>
-              );
+                    <Icon
+                      className={cn(
+                        'h-4 w-4 shrink-0 transition-colors',
+                        isActive ? 'text-foreground' : 'text-muted-foreground'
+                      )}
+                    />
 
-              if (sidebarCollapsed) {
-                return (
-                  <Tooltip key={settingsItem.label}>
-                    <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-                    <TooltipContent side="right" className="text-xs flex items-center gap-2">
-                      <span>{settingsItem.label}</span>
-                      <span className="text-[10px] font-mono text-muted-foreground">{settingsItem.shortcut}</span>
-                    </TooltipContent>
-                  </Tooltip>
+                    {!sidebarCollapsed && (
+                      <span className="truncate flex-1 leading-tight">{item.label}</span>
+                    )}
+                  </Link>
                 );
-              }
 
-              return linkContent;
-            })()}
-          </TooltipProvider>
+                if (sidebarCollapsed) {
+                  return (
+                    <Tooltip key={item.label}>
+                      <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs flex items-center gap-2">
+                        <span>{item.label}</span>
+                        <span className="text-[10px] font-mono text-muted-foreground">{item.shortcut}</span>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                return linkContent;
+              })}
+            </TooltipProvider>
+          </div>
         </nav>
       </div>
 

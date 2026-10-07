@@ -51,7 +51,9 @@ from src.pipeline.retrieval import (
     RetrieveResponse,
     EvidenceItem,
     EvidenceSufficiency,
-    RetrieveMetadata
+    RetrieveMetadata,
+    EvidenceDisposition,
+    FailureStage,
 )
 from src.pipeline.context import context_builder
 from src.pipeline.prompts import build_grounded_user_prompt
@@ -149,7 +151,7 @@ def classify_premise_outcome(answer: str, is_proposition: bool, is_abstained: bo
     if not is_proposition:
         return "NOT_APPLICABLE"
     if is_abstained:
-        return "INSUFFICIENT"
+        return EvidenceDisposition.INSUFFICIENT.value
     ans_lower = answer.lower().strip()
     
     # Check for mixed / partial support
@@ -157,14 +159,50 @@ def classify_premise_outcome(answer: str, is_proposition: bool, is_abstained: bo
     has_correct = bool(re.search(r'\b(?:no\b|not [a-zA-Z0-9_\-]+|instead of|rather than|but specifies that|but states that)\b', ans_lower))
     
     if (has_confirm and has_correct) or "partially" in ans_lower or ("confirms that" in ans_lower and "specifies that" in ans_lower):
-        return "PARTIALLY_SUPPORTED"
+        return EvidenceDisposition.PARTIALLY_SUPPORTED.value
     if ans_lower.startswith("no") or ("the project documentation states that" in ans_lower and ("not " in ans_lower or "instead" in ans_lower)):
-        return "CONTRADICTED"
+        return EvidenceDisposition.CONTRADICTED.value
     if ans_lower.startswith("yes") or "confirms that" in ans_lower or "the project documentation states that" in ans_lower:
-        return "SUPPORTED"
+        return EvidenceDisposition.SUPPORTED.value
     if "does not specify" in ans_lower or "not mentioned" in ans_lower or "insufficient" in ans_lower:
-        return "INSUFFICIENT"
-    return "SUPPORTED" if has_confirm else ("CONTRADICTED" if has_correct else "SUPPORTED")
+        return EvidenceDisposition.INSUFFICIENT.value
+    return EvidenceDisposition.SUPPORTED.value if has_confirm else (EvidenceDisposition.CONTRADICTED.value if has_correct else EvidenceDisposition.SUPPORTED.value)
+
+def determine_evidence_disposition(
+    answer: str,
+    is_abstention: bool,
+    is_conflict: bool,
+    sufficiency: Optional[EvidenceSufficiency] = None,
+    is_proposition: bool = False
+) -> str:
+    """
+    Unified Answerability Decision Contract (Section 1, 2):
+    Maps final generation output and sufficiency state to the canonical 5-state disposition:
+    SUPPORTED | PARTIAL | CONTRADICTED | CONFLICT | INSUFFICIENT
+    """
+    if is_conflict:
+        return EvidenceDisposition.CONFLICT.value
+    if is_abstention:
+        return EvidenceDisposition.INSUFFICIENT.value
+    if is_proposition:
+        premise_disp = classify_premise_outcome(answer, is_proposition=True, is_abstained=False)
+        if premise_disp in (EvidenceDisposition.CONTRADICTED.value, EvidenceDisposition.PARTIALLY_SUPPORTED.value):
+            return premise_disp
+
+    ans_lower = answer.lower()
+    # Check for qualified partial support (e.g., states X but does not establish Y)
+    partial_indicators = [
+        "does not explain", "does not establish", "does not specify",
+        "does not provide", "not mentioned", "partially", "only explains",
+        "only identifies", "only specifies", "does not contain"
+    ]
+    if any(p in ans_lower for p in partial_indicators) and any(kw in ans_lower for kw in ("identifies", "states", "specifies", "confirms", "indicates", "instructs", "shows")):
+        return EvidenceDisposition.PARTIAL.value
+
+    if sufficiency and getattr(sufficiency, "disposition", None):
+        return sufficiency.disposition
+
+    return EvidenceDisposition.SUPPORTED.value
 
 def sanitize_user_facing_answer(
     raw_answer: str,
@@ -246,6 +284,15 @@ def sanitize_user_facing_answer(
     # Deduplicate consecutive identical citations: [Doc.pdf, p. 4] [Doc.pdf, p. 4]
     text = re.sub(r'(\[[^\]]+\])(?:\s*\1)+', r'\1', text)
 
+    # Safety guard: if raw answer contained substantial prose (>40 chars) but sanitization lost >80% of content,
+    # preserve raw answer to prevent destructive truncation.
+    if len(raw_answer.strip()) > 40 and len(text) < len(raw_answer.strip()) * 0.2:
+        logger.warning(
+            f"[sanitize_user_facing_answer] Prevented destructive content loss: "
+            f"raw_len={len(raw_answer.strip())} sanitized_len={len(text)}"
+        )
+        return raw_answer.strip()
+
     return text
 
 def filter_relevant_evidence(
@@ -270,6 +317,97 @@ def filter_relevant_evidence(
         filtered = [item for item in included_items if item.chunkId in referenced_cids]
         return filtered if filtered else included_items
     return included_items
+
+def _fetch_successor_chunk(project_id: str, document_id: str, chunk_index: int) -> Optional[Dict[str, Any]]:
+    try:
+        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+        res = qdrant_store.client.scroll(
+            collection_name="groundguard_chunks",
+            scroll_filter=Filter(
+                must=[
+                    FieldCondition(key="projectId", match=MatchValue(value=project_id)),
+                    FieldCondition(key="documentId", match=MatchValue(value=document_id)),
+                    FieldCondition(key="chunkIndex", match=MatchValue(value=chunk_index)),
+                ]
+            ),
+            limit=1
+        )
+        if res and res[0]:
+            return res[0][0].payload
+    except Exception as e:
+        logger.warning("[/generate successor error] %s", e)
+    return None
+
+def _apply_bounded_context_expansion_and_ordering(retrieval_res: Any, project_id: str, plan: Any) -> None:
+    """
+    Bounded Local Context Expansion & Procedural Reading-Order Preservation (Sections 12, 13).
+    Expands high-confidence procedure, setup, section, or list chunks with their immediate successor chunk.
+    Preserves bounded token context (max 2 successor chunks).
+    """
+    if not retrieval_res or not retrieval_res.results:
+        return
+
+    target_norm = (plan.target or "").strip().lower()
+    is_proc_or_section = plan.retrieval_strategy in ("section", "procedural") or plan.operation in ("procedure", "explain")
+    expanded_count = 0
+    cands_snapshot = list(retrieval_res.results[:3])
+    for matched_ev in cands_snapshot:
+        if expanded_count >= 2:
+            break
+        doc_id = matched_ev.documentId
+        c_idx = matched_ev.metadata.get("chunkIndex") if matched_ev.metadata else None
+        if not doc_id or c_idx is None:
+            continue
+
+        is_high_conf = bool((matched_ev.score and matched_ev.score >= 0.35) or (matched_ev.rerankScore and matched_ev.rerankScore >= 0.35))
+        is_target_hit = bool(target_norm and len(target_norm) >= 3 and (target_norm in (matched_ev.heading or "").lower() or target_norm in (matched_ev.text or "").lower()))
+
+        if is_high_conf or is_proc_or_section or is_target_hit:
+            succ_payload = _fetch_successor_chunk(project_id, doc_id, c_idx + 1)
+            if succ_payload:
+                succ_chunk_id = succ_payload.get("chunkId")
+                if not any(e.chunkId == succ_chunk_id for e in retrieval_res.results):
+                    succ_ev = EvidenceItem(
+                        evidenceId=f"ev_{uuid.uuid4().hex[:8]}",
+                        chunkId=succ_chunk_id,
+                        documentId=doc_id,
+                        text=succ_payload.get("text", ""),
+                        pageNumber=succ_payload.get("pageNumber", matched_ev.pageNumber),
+                        section=succ_payload.get("section", matched_ev.section),
+                        heading=succ_payload.get("heading"),
+                        identifiers=succ_payload.get("identifierKeys", []),
+                        sources=["context_neighborhood"],
+                        rrfScore=matched_ev.rrfScore,
+                        rerankScore=matched_ev.rerankScore,
+                        score=matched_ev.score,
+                        metadata={
+                            "chunkIndex": succ_payload.get("chunkIndex", c_idx + 1),
+                            **(succ_payload.get("metadata") or {})
+                        }
+                    )
+                    idx = retrieval_res.results.index(matched_ev)
+                    retrieval_res.results.insert(idx + 1, succ_ev)
+                    expanded_count += 1
+                    logger.info("[context expansion] Added successor chunkIndex=%d for doc=%s", c_idx + 1, doc_id)
+
+    # Section heading sufficiency confirmation
+    if retrieval_res.results and target_norm and (plan.retrieval_strategy == "section" or plan.target):
+        heading_matched = any(target_norm in (ev.heading or "").lower() or (len(target_norm) >= 4 and target_norm in ev.text.lower()) for ev in retrieval_res.results)
+        if heading_matched and retrieval_res.sufficiency and not retrieval_res.sufficiency.sufficient:
+            retrieval_res.sufficiency.sufficient = True
+            retrieval_res.sufficiency.reason = f"Section topic '{plan.target}' matched in document evidence"
+            retrieval_res.sufficiency.score = max(retrieval_res.sufficiency.score or 0.0, 0.85)
+
+    # Procedural Reading-Order Preservation
+    if plan.retrieval_strategy in ("procedural", "section") or plan.operation == "procedure":
+        retrieval_res.results.sort(
+            key=lambda ev: (
+                ev.documentId or "",
+                ev.pageNumber or 1,
+                (ev.metadata.get("chunkIndex", 0) if ev.metadata else 0)
+            )
+        )
+
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -846,77 +984,24 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 question_slot=plan.question_slot,
             )
 
-        # Strategy D: Section Neighborhood Expansion (if section requested and heading matched)
-        if retrieval_res and retrieval_res.results and (plan.retrieval_strategy == "section" or plan.target):
-            target_norm = (plan.target or "").strip().lower()
-            matching_idx = None
-            for idx, ev in enumerate(retrieval_res.results):
-                heading_text = (ev.heading or "").lower()
-                body_text = (ev.text or "").lower()
-                if (target_norm and target_norm in heading_text) or (len(target_norm) >= 4 and target_norm in body_text):
-                    matching_idx = idx
-                    break
-
-            if matching_idx is not None:
-                matched_ev = retrieval_res.results[matching_idx]
-                doc_id = matched_ev.documentId
-                c_idx = matched_ev.metadata.get("chunkIndex") if matched_ev.metadata else None
-                if doc_id and c_idx is not None:
-                    succ_payload = _fetch_successor_chunk(payload.projectId, doc_id, c_idx + 1)
-                    if succ_payload:
-                        succ_chunk_id = succ_payload.get("chunkId")
-                        if not any(e.chunkId == succ_chunk_id for e in retrieval_res.results):
-                            succ_ev = EvidenceItem(
-                                evidenceId=f"ev_{uuid.uuid4().hex[:8]}",
-                                chunkId=succ_chunk_id,
-                                documentId=doc_id,
-                                text=succ_payload.get("text", ""),
-                                pageNumber=succ_payload.get("pageNumber", matched_ev.pageNumber),
-                                section=succ_payload.get("section", matched_ev.section),
-                                heading=succ_payload.get("heading"),
-                                identifiers=succ_payload.get("identifierKeys", []),
-                                sources=["section_neighborhood"],
-                                rrfScore=matched_ev.rrfScore,
-                                rerankScore=matched_ev.rerankScore,
-                                score=matched_ev.score,
-                                metadata={
-                                    "chunkIndex": succ_payload.get("chunkIndex", c_idx + 1),
-                                    **(succ_payload.get("metadata") or {})
-                                }
-                            )
-                            retrieval_res.results.insert(matching_idx + 1, succ_ev)
-                            logger.info("[/generate section] Expanded neighborhood with chunkIndex=%d for doc=%s", c_idx + 1, doc_id)
-
-                # Ensure high sufficiency if exact heading matched in evidence
-                if retrieval_res.sufficiency and not retrieval_res.sufficiency.sufficient:
-                    retrieval_res.sufficiency.sufficient = True
-                    retrieval_res.sufficiency.reason = f"Section heading '{plan.target}' matched in document evidence"
-                    retrieval_res.sufficiency.score = max(retrieval_res.sufficiency.score or 0.0, 0.85)
-
-        # Strategy E: Procedural Order Preservation
-        if plan.retrieval_strategy == "procedural" or plan.operation == "procedure":
-            if retrieval_res and retrieval_res.results:
-                retrieval_res.results.sort(
-                    key=lambda ev: (
-                        ev.documentId or "",
-                        ev.pageNumber or 1,
-                        (ev.metadata.get("chunkIndex", 0) if ev.metadata else 0)
-                    )
-                )
-                logger.info("[/generate procedure] Sorted %d evidence items into source reading order", len(retrieval_res.results))
+        # Bounded Local Context Expansion & Procedural Order Preservation
+        _apply_bounded_context_expansion_and_ordering(retrieval_res, payload.projectId, plan)
 
         # Strategy F: Technical Parameter Grounding (Section 29, 30)
         if retrieval_res and retrieval_res.results and plan.operation in ("lookup", "extract"):
             top_ev = retrieval_res.results[0]
             if retrieval_res.sufficiency and not retrieval_res.sufficiency.sufficient:
-                query_tokens = [w.lower() for w in re.findall(r'[A-Za-z0-9_]+', (plan.target or "") + " " + " ".join(plan.search_queries or [])) if len(w) >= 2]
-                body_tokens = set(re.findall(r'[A-Za-z0-9_]+', top_ev.text.lower()))
-                overlap = sum(1 for t in query_tokens if t in body_tokens)
-                if overlap >= 2 or (top_ev.rrfScore and top_ev.rrfScore > 0.015):
-                    retrieval_res.sufficiency.sufficient = True
-                    retrieval_res.sufficiency.reason = f"Technical parameter matched in document evidence ({overlap} token matches)"
-                    retrieval_res.sufficiency.score = max(retrieval_res.sufficiency.score or 0.0, 0.75)
-                    logger.info("[/generate lookup] Technical parameter match validated (score=0.75)")
+                target_norm = (plan.target or "").strip().lower()
+                if target_norm and len(target_norm) >= 3 and target_norm in top_ev.text.lower():
+                    # Require candidate to satisfy Stage 1 relevance eligibility floor (>= 0.15)
+                    # to prevent weak distractor passages from manufacturing sufficiency
+                    if top_ev.rerankScore and top_ev.rerankScore >= 0.15:
+                        retrieval_res.sufficiency.sufficient = True
+                        retrieval_res.sufficiency.reason = f"Technical parameter '{plan.target}' matched in eligible document evidence"
+                        retrieval_res.sufficiency.score = max(retrieval_res.sufficiency.score or 0.0, 0.75)
+                        retrieval_res.sufficiency.disposition = EvidenceDisposition.SUPPORTED.value
+                        retrieval_res.sufficiency.failureStage = FailureStage.NONE.value
+                        logger.info("[/generate lookup] Technical parameter match validated (score=0.75)")
 
     except Exception as ret_err:
         logger.error(
@@ -998,6 +1083,15 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             target_doc=plan.resolved_document_name,
             llm_runtime=llm_runtime,
         )
+        fail_stage = (
+            retrieval_res.sufficiency.failureStage
+            if (retrieval_res.sufficiency and getattr(retrieval_res.sufficiency, "failureStage", None))
+            else (
+                FailureStage.RETRIEVAL_ZERO_CANDIDATES.value
+                if not retrieval_res.results
+                else FailureStage.SUFFICIENCY_GATE_REJECTION.value
+            )
+        )
         return GenerateResult(
             requestId=req_id,
             generationId=gen_id,
@@ -1009,9 +1103,17 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             metadata={
                 "abstention": True,
                 "reason": reason,
+                "disposition": EvidenceDisposition.INSUFFICIENT.value,
+                "supportDisposition": EvidenceDisposition.INSUFFICIENT.value,
+                "failureStage": fail_stage,
+                "sufficiencyScore": retrieval_res.sufficiency.score if retrieval_res.sufficiency else 0.0,
+                "topRerankScore": (retrieval_res.sufficiency.signals.topRerankScore if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else 0.0),
                 "candidateCount": len(retrieval_res.results),
+                "eligibleEvidenceCount": (retrieval_res.sufficiency.signals.eligibleEvidenceCount if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else 0),
+                "evidenceCount": 0,
                 "intent": "grounded_query_insufficient",
                 "task": plan.task,
+                "queryStrategy": plan.retrieval_strategy,
                 "fallbackUsed": fallback_used,
                 "conflict": False,
                 "premiseClassification": classify_premise_outcome(unsupported_msg, plan.is_proposition, True),
@@ -1083,6 +1185,14 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         cleaned_answer = sanitize_user_facing_answer(llm_res.answer, included_items)
         supporting_evidence = filter_relevant_evidence(included_items, claims, is_abstention=False)
 
+        final_disp = determine_evidence_disposition(
+            answer=cleaned_answer,
+            is_abstention=False,
+            is_conflict=is_conflict,
+            sufficiency=retrieval_res.sufficiency,
+            is_proposition=plan.is_proposition,
+        )
+
         return GenerateResult(
             requestId=req_id,
             generationId=gen_id,
@@ -1093,6 +1203,13 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             modelVersion=llm_res.modelVersion,
             metadata={
                 "abstention": False,
+                "disposition": final_disp,
+                "supportDisposition": final_disp,
+                "failureStage": FailureStage.NONE.value,
+                "sufficiencyScore": retrieval_res.sufficiency.score if retrieval_res.sufficiency else 1.0,
+                "topRerankScore": (retrieval_res.sufficiency.signals.topRerankScore if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else 1.0),
+                "candidateCount": len(retrieval_res.results),
+                "eligibleEvidenceCount": (retrieval_res.sufficiency.signals.eligibleEvidenceCount if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else len(included_items)),
                 "conflict": is_conflict,
                 "conflictType": (retrieval_res.sufficiency.signals.conflictType if (retrieval_res.sufficiency and retrieval_res.sufficiency.signals) else None) if is_conflict else None,
                 "conflictSummary": conflict_summary,
@@ -1103,6 +1220,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "provider": llm_res.provider,
                 "claimExtraction": claim_extraction_meta,
                 "task": plan.task,
+                "queryStrategy": plan.retrieval_strategy,
                 "retrievalMode": plan.retrieval_mode,
                 "retrievalStrategy": plan.retrieval_strategy,
                 "operation": plan.operation,
@@ -1335,6 +1453,9 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             yield _format_sse("generation.failed", {"code": "RETRIEVAL_ERROR", "message": str(ret_err)})
             return
 
+        # Bounded Local Context Expansion & Procedural Order Preservation
+        _apply_bounded_context_expansion_and_ordering(retrieval_res, payload.projectId, plan)
+
         yield _format_sse("retrieval.completed", {"generationId": gen_id, "evidenceCount": len(retrieval_res.results)})
 
         # Sufficiency check
@@ -1398,6 +1519,15 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             seq += 1
             yield _format_sse("answer.completed", {"generationId": gen_id, "answer": unsupported_msg})
             yield _format_sse("claims.completed", {"generationId": gen_id, "claims": []})
+            fail_stage = (
+                retrieval_res.sufficiency.failureStage
+                if (retrieval_res.sufficiency and getattr(retrieval_res.sufficiency, "failureStage", None))
+                else (
+                    FailureStage.RETRIEVAL_ZERO_CANDIDATES.value
+                    if not retrieval_res.results
+                    else FailureStage.SUFFICIENCY_GATE_REJECTION.value
+                )
+            )
             final_res = GenerateResult(
                 requestId=req_id,
                 generationId=gen_id,
@@ -1409,9 +1539,17 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                 metadata={
                     "abstention": True,
                     "reason": reason,
+                    "disposition": EvidenceDisposition.INSUFFICIENT.value,
+                    "supportDisposition": EvidenceDisposition.INSUFFICIENT.value,
+                    "failureStage": fail_stage,
+                    "sufficiencyScore": retrieval_res.sufficiency.score if retrieval_res.sufficiency else 0.0,
+                    "topRerankScore": (retrieval_res.sufficiency.signals.topRerankScore if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else 0.0),
                     "candidateCount": len(retrieval_res.results),
+                    "eligibleEvidenceCount": (retrieval_res.sufficiency.signals.eligibleEvidenceCount if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else 0),
+                    "evidenceCount": 0,
                     "intent": "grounded_query_insufficient",
                     "task": plan.task,
+                    "queryStrategy": plan.retrieval_strategy,
                     "fallbackUsed": fallback_used,
                     "conflict": False,
                     "premiseClassification": classify_premise_outcome(unsupported_msg, plan.is_proposition, True),
@@ -1492,6 +1630,14 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
         cleaned_answer = sanitize_user_facing_answer(full_answer, included_items)
         supporting_evidence = filter_relevant_evidence(included_items, claims, is_abstention=False)
 
+        final_disp = determine_evidence_disposition(
+            answer=cleaned_answer,
+            is_abstention=False,
+            is_conflict=is_conflict,
+            sufficiency=retrieval_res.sufficiency,
+            is_proposition=plan.is_proposition,
+        )
+
         final_res = GenerateResult(
             requestId=req_id,
             generationId=gen_id,
@@ -1502,6 +1648,13 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             modelVersion=llm_runtime.get_model_version(),
             metadata={
                 "abstention": False,
+                "disposition": final_disp,
+                "supportDisposition": final_disp,
+                "failureStage": FailureStage.NONE.value,
+                "sufficiencyScore": retrieval_res.sufficiency.score if retrieval_res.sufficiency else 1.0,
+                "topRerankScore": (retrieval_res.sufficiency.signals.topRerankScore if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else 1.0),
+                "candidateCount": len(retrieval_res.results),
+                "eligibleEvidenceCount": (retrieval_res.sufficiency.signals.eligibleEvidenceCount if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else len(included_items)),
                 "conflict": is_conflict,
                 "conflictType": (retrieval_res.sufficiency.signals.conflictType if (retrieval_res.sufficiency and retrieval_res.sufficiency.signals) else None) if is_conflict else None,
                 "conflictSummary": conflict_summary,
@@ -1512,6 +1665,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                 "provider": llm_runtime.provider,
                 "claimExtraction": claim_meta,
                 "task": plan.task,
+                "queryStrategy": plan.retrieval_strategy,
                 "retrievalMode": plan.retrieval_mode,
                 "retrievalStrategy": plan.retrieval_strategy,
                 "operation": plan.operation,

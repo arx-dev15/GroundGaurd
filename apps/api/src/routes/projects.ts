@@ -4,13 +4,19 @@ import { projectRepository } from '../repositories/project.repository';
 import { BadRequestError, NotFoundError } from '../utils/errors';
 import { Project } from '@groundguard/contracts';
 
-function toPublicProject(dbProj: { id: string; name: string; description?: string; createdAt: Date; updatedAt: Date }): Project {
+function toPublicProject(dbProj: { id: string; name: string; description?: string; createdAt?: Date | string | null; updatedAt?: Date | string | null }): Project {
+  const parseDate = (d?: Date | string | null) => {
+    if (!d) return new Date(0).toISOString();
+    const parsed = new Date(d);
+    return isNaN(parsed.getTime()) ? new Date(0).toISOString() : parsed.toISOString();
+  };
+
   return {
     id: dbProj.id,
     name: dbProj.name,
     description: dbProj.description || undefined,
-    createdAt: dbProj.createdAt.toISOString(),
-    updatedAt: dbProj.updatedAt.toISOString(),
+    createdAt: parseDate(dbProj.createdAt),
+    updatedAt: parseDate(dbProj.updatedAt),
   };
 }
 

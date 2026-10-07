@@ -79,13 +79,19 @@ export async function authRoutes(fastify: FastifyInstance) {
       expiresIn: config.jwtExpiresIn as jwt.SignOptions['expiresIn'],
     });
 
+    const parseDate = (d?: Date | string | null) => {
+      if (!d) return new Date(0).toISOString();
+      const parsed = new Date(d);
+      return isNaN(parsed.getTime()) ? new Date(0).toISOString() : parsed.toISOString();
+    };
+
     return reply.status(200).send({
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
-        createdAt: user.createdAt.toISOString(),
-        updatedAt: user.updatedAt.toISOString(),
+        createdAt: parseDate(user.createdAt),
+        updatedAt: parseDate(user.updatedAt),
       },
       token,
     });
@@ -106,13 +112,19 @@ export async function authRoutes(fastify: FastifyInstance) {
       throw new AppError('UNAUTHORIZED', 'Authenticated user no longer exists', 401);
     }
 
+    const parseDate = (d?: Date | string | null) => {
+      if (!d) return new Date(0).toISOString();
+      const parsed = new Date(d);
+      return isNaN(parsed.getTime()) ? new Date(0).toISOString() : parsed.toISOString();
+    };
+
     return reply.status(200).send({
       user: {
         id: dbUser.id,
         email: dbUser.email,
         name: dbUser.name,
-        createdAt: dbUser.createdAt.toISOString(),
-        updatedAt: dbUser.updatedAt.toISOString(),
+        createdAt: parseDate(dbUser.createdAt),
+        updatedAt: parseDate(dbUser.updatedAt),
       },
     });
   });

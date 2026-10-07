@@ -1,0 +1,61 @@
+{
+  "total": 42,
+  "supported_passes": 32,
+  "supported_total": 34,
+  "partial_passes": 1,
+  "partial_total": 2,
+  "unsupported_passes": 6,
+  "unsupported_total": 6,
+  "failures": [
+    {
+      "index": 12,
+      "doc_type": "Narrative / Prose",
+      "class": "INFORMAL / TYPO",
+      "query": "wher will the gate of mornin open?",
+      "expected": "SUPPORTED",
+      "is_sufficient": false,
+      "score": 0.00014483020640909672,
+      "anchors_found": [
+        "watchtower",
+        "dawn",
+        "mourning"
+      ],
+      "expected_anchors": [
+        "watchtower",
+        "dawn",
+        "mourning"
+      ],
+      "reason": "Top evidence score (0.0001) below sufficiency threshold (0.3500)"
+    },
+    {
+      "index": 18,
+      "doc_type": "Research Paper",
+      "class": "FALSE PREMISE",
+      "query": "Does the framework perform full INT2 quantization of activations?",
+      "expected": "SUPPORTED",
+      "is_sufficient": false,
+      "score": 0.016415754333138466,
+      "anchors_found": [
+        "int8",
+        "activations",
+        "quantized"
+      ],
+      "expected_anchors": [
+        "int8",
+        "activations",
+        "quantized"
+      ],
+      "reason": "Top evidence score (0.0164) below sufficiency threshold (0.3500)"
+    },
+    {
+      "index": 19,
+      "doc_type": "Research Paper",
+      "class": "PARTIAL PREMISE",
+      "query": "What core is targeted and what is the author's university email?",
+      "expected": "PARTIAL",
+      "is_sufficient": false,
+      "score": 1.5873794836807065e-05,
+      "reason": "Failed to retrieve grounded portion"
+    }
+  ]
+}

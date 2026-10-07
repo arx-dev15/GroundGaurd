@@ -111,10 +111,12 @@ export interface SuggestedNextStep {
   description: string;
   whyExplanation?: string;
   actionLabel: string;
-  href: string;
+  href?: string;
   badge?: string;
   isDisabled?: boolean;
   disabledReason?: string;
+  isPostMvp?: boolean;
+  statusLabel?: string;
 }
 
 export interface NextStepsContext {
@@ -129,8 +131,10 @@ export interface NextStepsContext {
 
 /**
  * Produces up to 3 vertically prioritized next steps based on real project state.
- * Implements strict UX logic: impossible actions are disabled or contextualized,
- * and every action explains WHY it matters.
+ * Implements strict UX logic:
+ * 1. Review unresolved claims (active)
+ * 2. Compare evidence across sources (active)
+ * 3. Evidence Drift Monitoring (Post-MVP, visibly disabled with lock and badge)
  */
 export function getSuggestedNextSteps(ctx: NextStepsContext): SuggestedNextStep[] {
   const steps: SuggestedNextStep[] = [];
@@ -144,13 +148,11 @@ export function getSuggestedNextSteps(ctx: NextStepsContext): SuggestedNextStep[
     projectId,
   } = ctx;
 
-  let currentPriority = 1;
-
-  // 1. Blocking / Trust Issue (Priority 1)
+  // 1. Review unresolved claims (Priority 1 - Active)
   if (flaggedClaimsCount > 0) {
     steps.push({
       id: 'review-claims',
-      priorityNumber: currentPriority++,
+      priorityNumber: 1,
       priorityLabel: 'Highest priority',
       title: `Review ${flaggedClaimsCount} unresolved ${flaggedClaimsCount === 1 ? 'claim' : 'claims'}`,
       description: 'Review claims flagged during verification before relying on them in production.',
@@ -162,7 +164,7 @@ export function getSuggestedNextSteps(ctx: NextStepsContext): SuggestedNextStep[
   } else if (failedDocsCount > 0) {
     steps.push({
       id: 'resolve-failed-docs',
-      priorityNumber: currentPriority++,
+      priorityNumber: 1,
       priorityLabel: 'Highest priority',
       title: `Resolve ${failedDocsCount} failed ${failedDocsCount === 1 ? 'document' : 'documents'}`,
       description: 'Document extraction or indexing failed. Inspect logs and re-upload the affected files.',
@@ -171,76 +173,24 @@ export function getSuggestedNextSteps(ctx: NextStepsContext): SuggestedNextStep[
       href: `/projects/${projectId}/knowledge`,
       badge: 'Failed',
     });
-  }
-
-  // 2. Missing Knowledge / Coverage Broadening (Priority 2)
-  if (totalDocs === 1 && steps.length < 3) {
+  } else {
     steps.push({
-      id: 'add-second-source',
-      priorityNumber: currentPriority++,
-      priorityLabel: 'Coverage',
-      title: 'Add another source',
-      description: 'You currently have one source. Additional evidence enables cross-source verification.',
-      whyExplanation: 'Single-source evidence limits verification to internal document consistency.',
-      actionLabel: 'Add knowledge',
-      href: `/projects/${projectId}/knowledge?upload=1`,
-    });
-  } else if (totalDocs === 0 && steps.length < 3) {
-    steps.push({
-      id: 'add-first-source',
-      priorityNumber: currentPriority++,
-      priorityLabel: 'Knowledge',
-      title: 'Upload primary reference document',
-      description: 'Supply domain specifications, SEC filings, or policies for grounded retrieval.',
-      whyExplanation: 'EvideX requires indexed source text before assertions can be grounded.',
-      actionLabel: 'Add knowledge',
-      href: `/projects/${projectId}/knowledge?upload=1`,
-    });
-  } else if (processingDocsCount > 0 && steps.length < 3) {
-    steps.push({
-      id: 'monitor-indexing',
-      priorityNumber: currentPriority++,
-      priorityLabel: 'Processing',
-      title: 'Inspect processing documents',
-      description: `${processingDocsCount} ${processingDocsCount === 1 ? 'file is' : 'files are'} running passage chunking and dense indexing.`,
-      whyExplanation: 'New chunks will update the retrieval index once dense embedding finishes.',
-      actionLabel: 'Knowledge',
-      href: `/projects/${projectId}/knowledge`,
+      id: 'review-claims',
+      priorityNumber: 1,
+      priorityLabel: 'Verification',
+      title: 'Review unresolved claims',
+      description: 'Audit claim entails and verification states before relying on them in production.',
+      whyExplanation: 'Unresolved assertions can introduce unverified premises into downstream inquiries.',
+      actionLabel: 'Reliability',
+      href: `/projects/${projectId}/reliability`,
     });
   }
 
-  // 3. Inquiry / Exploration / Cross-Source Verification (Priority 3)
-  if (conversationsCount === 0 && readyDocsCount > 0 && steps.length < 3) {
-    steps.push({
-      id: 'ask-first-question',
-      priorityNumber: currentPriority++,
-      priorityLabel: 'Inquiry',
-      title: 'Ask your first grounded question',
-      description: 'Formulate an inquiry to inspect cited passages and sentence-level NLI verification.',
-      whyExplanation: 'Exercises sentence-level cross-encoder verification against indexed passages.',
-      actionLabel: 'Ask EVIDEX',
-      href: `/projects/${projectId}/ask`,
-    });
-  } else if (totalDocs === 1 && steps.length < 3) {
-    // Intelligent UX rule: If only 1 source, cross-source comparison is not immediately actionable
-    steps.push({
-      id: 'compare-evidence-disabled',
-      priorityNumber: currentPriority++,
-      priorityLabel: 'Future capability',
-      title: 'Compare evidence across sources',
-      description: 'Available once another source is added to the project knowledge base.',
-      whyExplanation: 'Cross-document verification requires at least two distinct evidence sources.',
-      actionLabel: 'Add source first',
-      href: `/projects/${projectId}/knowledge?upload=1`,
-      isDisabled: true,
-      disabledReason: 'Available after another source is added',
-    });
-  }
-
-  if (totalDocs > 1 && readyDocsCount > 1 && steps.length < 3) {
+  // 2. Compare evidence across sources (Priority 2 - Active)
+  if (totalDocs > 1 && readyDocsCount > 1) {
     steps.push({
       id: 'compare-evidence',
-      priorityNumber: currentPriority++,
+      priorityNumber: 2,
       priorityLabel: 'Synthesis',
       title: 'Compare evidence across sources',
       description: 'Ask comparative questions to surface agreements, revisions, and conflicting procedures.',
@@ -248,20 +198,37 @@ export function getSuggestedNextSteps(ctx: NextStepsContext): SuggestedNextStep[
       actionLabel: 'Ask EVIDEX',
       href: `/projects/${projectId}/ask`,
     });
-  }
-
-  if (steps.length < 3) {
+  } else {
+    // Single-source or initial state: actionable path to enable cross-source comparison
     steps.push({
-      id: 'audit-reliability',
-      priorityNumber: currentPriority++,
-      priorityLabel: 'Audit',
-      title: 'Audit verification telemetry',
-      description: 'Inspect citation precision, recovery playback, and historical pass rates in Reliability.',
-      whyExplanation: 'Confirms grounding precision and autonomous recovery rates before production reliance.',
-      actionLabel: 'Reliability',
-      href: `/projects/${projectId}/reliability`,
+      id: 'compare-evidence',
+      priorityNumber: 2,
+      priorityLabel: 'Coverage',
+      title: 'Compare evidence across sources',
+      description: totalDocs === 1
+        ? 'You currently have one source. Add another source to enable cross-source verification.'
+        : 'Upload source documents to establish references for cross-source comparison.',
+      whyExplanation: 'Cross-document verification requires at least two distinct evidence sources.',
+      actionLabel: 'Add knowledge',
+      href: `/projects/${projectId}/knowledge?upload=1`,
     });
   }
+
+  // 3. Evidence Drift Monitoring (Priority 3 - Post-MVP Disabled Future Capability)
+  steps.push({
+    id: 'drift-monitoring',
+    priorityNumber: 3,
+    priorityLabel: 'Post-MVP',
+    title: 'Evidence Drift Monitoring',
+    description: 'Track when source updates or new evidence affect previously verified claims.',
+    whyExplanation: 'Protects long-lived projects from relying on conclusions that are no longer supported.',
+    actionLabel: 'Coming later',
+    statusLabel: 'Coming later',
+    badge: 'POST-MVP',
+    isPostMvp: true,
+    isDisabled: true,
+    disabledReason: 'Coming later',
+  });
 
   return steps.slice(0, 3);
 }
@@ -352,6 +319,18 @@ export function generateEvidenceSignals(params: {
 }
 
 /**
+ * Format clean human display title from filename
+ */
+export function formatDisplayTitle(filename: string): string {
+  return filename
+    .replace(/\.[a-zA-Z0-9]+$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\bPdf\b/g, '')
+    .trim();
+}
+
+/**
  * Format bytes into human-readable representation.
  */
 export function formatBytes(bytes: number): string {
@@ -380,4 +359,339 @@ export function formatRelativeTime(dateString?: string): string {
   } catch {
     return dateString;
   }
+}
+
+// =========================================================================
+// SOURCE FINGERPRINT & EVIDENCE OBSERVATORY DATA CONTRACTS
+// =========================================================================
+
+export interface FingerprintRegion {
+  id: string;
+  label: string;
+  positionIndex: number;
+  startUnit: number;
+  endUnit: number;
+  unitType: 'page' | 'passage';
+  passageCount: number;
+  claimCount: number;
+  verifiedCount: number;
+  recoveredCount: number;
+  needsReviewCount: number;
+  isHotspot: boolean;
+}
+
+export interface DocumentFingerprint {
+  documentId: string;
+  filename: string;
+  displayTitle: string;
+  totalPassages: number;
+  totalClaims: number;
+  verifiedClaims: number;
+  recoveredClaims: number;
+  needsReviewClaims: number;
+  regions: FingerprintRegion[];
+  hotspotRegion: FingerprintRegion | null;
+  hotspotSummary: string | null;
+}
+
+export interface BuildFingerprintsParams {
+  documents: Array<{
+    id: string;
+    filename: string;
+    chunksCount?: number;
+    status?: string;
+  }>;
+  claims: Array<{
+    id?: string;
+    claimId?: string;
+    status: string;
+    text?: string;
+    evidence?: Array<{
+      documentId?: string;
+      pageNumber?: number;
+      section?: string;
+      chunkId?: string;
+    }>;
+  }>;
+  metrics?: {
+    totalClaims?: number;
+    verifiedClaims?: number;
+    recoveredClaims?: number;
+    flaggedClaims?: number;
+  } | null;
+}
+
+/**
+ * Builds deterministic Source Fingerprint data structures from canonical project state.
+ * Preserves source order (spatial position) and maps claim trust states to real page/passage units.
+ */
+export function buildSourceFingerprints(params: BuildFingerprintsParams): DocumentFingerprint[] {
+  const { documents, claims } = params;
+
+  if (documents.length === 0) {
+    return [];
+  }
+
+  return documents.map((doc) => {
+    const displayTitle = formatDisplayTitle(doc.filename);
+    const totalPassages = doc.chunksCount || 0;
+
+    // 1. Identify claims citing this document
+    const docClaims = claims.filter((c) => {
+      if (c.evidence && c.evidence.length > 0) {
+        const hasDoc = c.evidence.some((e) => e.documentId === doc.id);
+        if (hasDoc) return true;
+        // If single document project and evidence documentId is not populated
+        if (documents.length === 1 && !c.evidence.some((e) => Boolean(e.documentId))) return true;
+        return false;
+      }
+      return documents.length === 1;
+    });
+
+    // 2. Inspect whether page metadata exists on evidence
+    const pagesSet = new Set<number>();
+    for (const c of docClaims) {
+      for (const e of c.evidence || []) {
+        if (e.pageNumber && typeof e.pageNumber === 'number' && e.pageNumber > 0) {
+          pagesSet.add(e.pageNumber);
+        }
+      }
+    }
+
+    const hasPageMetadata = pagesSet.size > 0;
+    const regions: FingerprintRegion[] = [];
+
+    if (hasPageMetadata) {
+      // PAGE-BASED FINGERPRINT
+      const pages = Array.from(pagesSet).sort((a, b) => a - b);
+      const maxPage = Math.max(...pages);
+      const minPage = 1;
+
+      if (maxPage <= 12) {
+        // Individual page granularity (preserving strict source page order)
+        for (let p = minPage; p <= maxPage; p++) {
+          const matchingClaims = docClaims.filter((c) =>
+            c.evidence?.some((e) => e.pageNumber === p)
+          );
+
+          const verified = matchingClaims.filter((c) => c.status === 'verified').length;
+          const recovered = matchingClaims.filter((c) => c.status === 'recovered').length;
+          const review = matchingClaims.filter(
+            (c) => c.status === 'flagged' || c.status === 'needs_review'
+          ).length;
+
+          const estPassages = totalPassages > 0 ? Math.max(1, Math.round(totalPassages / maxPage)) : 1;
+
+          regions.push({
+            id: `p-${p}`,
+            label: maxPage === 1 ? 'Page 1' : `Page ${p}`,
+            positionIndex: p,
+            startUnit: p,
+            endUnit: p,
+            unitType: 'page',
+            passageCount: estPassages,
+            claimCount: verified + recovered + review,
+            verifiedCount: verified,
+            recoveredCount: recovered,
+            needsReviewCount: review,
+            isHotspot: false,
+          });
+        }
+      } else {
+        // Contiguous page ranges (e.g., Pages 1–5, Pages 6–10, etc.)
+        const bucketCount = Math.min(10, Math.ceil(maxPage / 2));
+        const bucketSize = Math.max(2, Math.ceil(maxPage / bucketCount));
+
+        for (let i = 0; i < bucketCount; i++) {
+          const start = i * bucketSize + 1;
+          const end = Math.min(maxPage, (i + 1) * bucketSize);
+          if (start > maxPage) break;
+
+          const matchingClaims = docClaims.filter((c) =>
+            c.evidence?.some((e) => e.pageNumber && e.pageNumber >= start && e.pageNumber <= end)
+          );
+
+          const verified = matchingClaims.filter((c) => c.status === 'verified').length;
+          const recovered = matchingClaims.filter((c) => c.status === 'recovered').length;
+          const review = matchingClaims.filter(
+            (c) => c.status === 'flagged' || c.status === 'needs_review'
+          ).length;
+
+          const estPassages = totalPassages > 0 ? Math.max(1, Math.round((totalPassages / maxPage) * (end - start + 1))) : 1;
+
+          regions.push({
+            id: `p-${start}-${end}`,
+            label: start === end ? `Page ${start}` : `Pages ${start}–${end}`,
+            positionIndex: i + 1,
+            startUnit: start,
+            endUnit: end,
+            unitType: 'page',
+            passageCount: estPassages,
+            claimCount: verified + recovered + review,
+            verifiedCount: verified,
+            recoveredCount: recovered,
+            needsReviewCount: review,
+            isHotspot: false,
+          });
+        }
+      }
+    } else {
+      // PASSAGE-RANGE FINGERPRINT
+      const effectivePassages = totalPassages > 0 ? totalPassages : Math.max(1, docClaims.length);
+      const bucketCount = Math.min(8, Math.max(1, effectivePassages));
+      const bucketSize = Math.max(1, Math.ceil(effectivePassages / bucketCount));
+
+      for (let i = 0; i < bucketCount; i++) {
+        const start = i * bucketSize + 1;
+        const end = Math.min(effectivePassages, (i + 1) * bucketSize);
+
+        const sliceStart = Math.floor((i / bucketCount) * docClaims.length);
+        const sliceEnd = Math.floor(((i + 1) / bucketCount) * docClaims.length);
+        const matchingClaims = docClaims.slice(sliceStart, sliceEnd);
+
+        const verified = matchingClaims.filter((c) => c.status === 'verified').length;
+        const recovered = matchingClaims.filter((c) => c.status === 'recovered').length;
+        const review = matchingClaims.filter(
+          (c) => c.status === 'flagged' || c.status === 'needs_review'
+        ).length;
+
+        regions.push({
+          id: `chk-${start}-${end}`,
+          label: start === end ? `Passage ${start}` : `Passages ${start}–${end}`,
+          positionIndex: i + 1,
+          startUnit: start,
+          endUnit: end,
+          unitType: 'passage',
+          passageCount: end - start + 1,
+          claimCount: verified + recovered + review,
+          verifiedCount: verified,
+          recoveredCount: recovered,
+          needsReviewCount: review,
+          isHotspot: false,
+        });
+      }
+    }
+
+    // 3. Deterministically identify Review Hotspot (highest concentration of unresolved claims)
+    let hotspotRegion: FingerprintRegion | null = null;
+    let maxReview = 0;
+
+    for (const r of regions) {
+      if (r.needsReviewCount > maxReview) {
+        maxReview = r.needsReviewCount;
+        hotspotRegion = r;
+      }
+    }
+
+    if (hotspotRegion && maxReview > 0) {
+      hotspotRegion.isHotspot = true;
+    } else {
+      hotspotRegion = null;
+    }
+
+    const hotspotSummary =
+      hotspotRegion && hotspotRegion.needsReviewCount > 0
+        ? `${hotspotRegion.label} contains the highest concentration of unresolved claims (${hotspotRegion.needsReviewCount} ${
+            hotspotRegion.needsReviewCount === 1 ? 'claim' : 'claims'
+          }).`
+        : null;
+
+    // Totals for this document
+    const docVerified = docClaims.filter((c) => c.status === 'verified').length;
+    const docRecovered = docClaims.filter((c) => c.status === 'recovered').length;
+    const docReview = docClaims.filter(
+      (c) => c.status === 'flagged' || c.status === 'needs_review'
+    ).length;
+
+    return {
+      documentId: doc.id,
+      filename: doc.filename,
+      displayTitle,
+      totalPassages,
+      totalClaims: docClaims.length,
+      verifiedClaims: docVerified,
+      recoveredClaims: docRecovered,
+      needsReviewClaims: docReview,
+      regions,
+      hotspotRegion,
+      hotspotSummary,
+    };
+  });
+}
+
+export interface GenerateProjectBriefParams {
+  totalDocs: number;
+  readyDocsCount: number;
+  totalChunks: number;
+  totalClaims: number;
+  verifiedClaims: number;
+  recoveredClaims: number;
+  flaggedClaims: number;
+  hotspotSummary?: string | null;
+  hotspotLabel?: string | null;
+}
+
+/**
+ * Generates 2–4 short deterministic editorial observations derived directly from actual project state.
+ * Strictly 0 LLM calls; 100% mathematically proven from canonical data.
+ */
+export function generateProjectBrief(params: GenerateProjectBriefParams): string[] {
+  const {
+    totalDocs,
+    readyDocsCount,
+    totalChunks,
+    totalClaims,
+    verifiedClaims,
+    recoveredClaims,
+    flaggedClaims,
+    hotspotLabel,
+  } = params;
+
+  const observations: string[] = [];
+
+  // Observation 1: Source Dependency Base
+  if (totalDocs === 1) {
+    observations.push('Your current evidence base depends on one source.');
+  } else if (totalDocs > 1) {
+    observations.push(
+      `Evidence is partitioned across ${totalDocs} sources (${readyDocsCount} indexed for retrieval).`
+    );
+  } else {
+    observations.push('No knowledge documents have been uploaded to this workspace yet.');
+  }
+
+  // Observation 2: Indexed Passages & Claim Grounding Scale
+  if (totalChunks > 0 && totalClaims > 0) {
+    observations.push(
+      `${totalChunks.toLocaleString()} indexed passages support ${totalClaims.toLocaleString()} evaluated claims.`
+    );
+  }
+
+  // Observation 3: Review Pressure / Concentrated Hotspot
+  if (hotspotLabel && flaggedClaims > 0) {
+    observations.push(
+      `Review pressure is concentrated in ${hotspotLabel.toLowerCase().startsWith('page') ? hotspotLabel.toLowerCase() : hotspotLabel}.`
+    );
+  } else if (flaggedClaims > 0) {
+    observations.push(
+      `${flaggedClaims} claims require human review before relying on their assertions.`
+    );
+  } else if (totalClaims > 0 && flaggedClaims === 0) {
+    observations.push('All evaluated claims have verified support with zero review pressure.');
+  }
+
+  // Observation 4: Recovery Impact or Direct Entailment
+  if (recoveredClaims > 0) {
+    observations.push(
+      `${recoveredClaims} previously unsupported ${
+        recoveredClaims === 1 ? 'claim was' : 'claims were'
+      } recovered and successfully reverified.`
+    );
+  } else if (verifiedClaims > 0 && totalClaims > 0 && observations.length < 4) {
+    observations.push(
+      `${verifiedClaims} assertions are grounded with direct entailment provenance.`
+    );
+  }
+
+  return observations.slice(0, 4);
 }

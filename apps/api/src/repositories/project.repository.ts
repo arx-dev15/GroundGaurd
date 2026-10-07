@@ -6,8 +6,8 @@ export interface DBProject {
   userId: string;
   name: string;
   description?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: Date | null;
+  updatedAt: Date | null;
 }
 
 export class ProjectRepository {
@@ -32,7 +32,7 @@ export class ProjectRepository {
       SELECT id, user_id AS "userId", name, description, created_at AS "createdAt", updated_at AS "updatedAt"
       FROM projects
       WHERE user_id = $1
-      ORDER BY created_at DESC;
+      ORDER BY created_at DESC NULLS LAST;
     `;
     const res = await pool.query(query, [userId]);
     return res.rows;

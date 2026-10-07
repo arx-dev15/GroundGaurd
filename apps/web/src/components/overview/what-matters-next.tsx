@@ -1,9 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Compass, Info } from 'lucide-react';
+import { ArrowRight, Compass, Lock } from 'lucide-react';
 import type { SuggestedNextStep } from '@/lib/overview-helpers';
 
 interface WhatMattersNextProps {
@@ -34,40 +33,53 @@ export function WhatMattersNext({ steps }: WhatMattersNextProps) {
       {/* Prioritized Action Decisions */}
       <div className="divide-y divide-border/25">
         {prioritizedSteps.map((step) => {
-          if (step.isDisabled) {
+          const isPostMvp = step.isPostMvp || step.badge === 'POST-MVP';
+          const isInactive = step.isDisabled || isPostMvp || !step.href;
+
+          if (isInactive) {
             return (
               <div
                 key={step.id}
-                className="py-4 px-3 -mx-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 opacity-45 cursor-not-allowed select-none"
+                role="group"
+                aria-disabled="true"
+                className="py-4 px-3 -mx-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 opacity-55 cursor-not-allowed select-none transition-none"
               >
                 <div className="flex items-start gap-4 min-w-0">
-                  <div className="h-8 w-8 rounded-full border border-border/40 bg-card/20 flex items-center justify-center font-mono text-sm font-semibold text-muted-foreground/60 shrink-0 mt-0.5">
+                  <div className="h-8 w-8 rounded-full border border-border/40 bg-muted/20 flex items-center justify-center font-mono text-sm font-medium text-muted-foreground/60 shrink-0 mt-0.5">
                     {step.priorityNumber}
                   </div>
                   <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-sm sm:text-base font-medium text-foreground">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="text-sm sm:text-base font-medium text-foreground/85">
                         {step.title}
                       </span>
-                      {step.priorityLabel && (
-                        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
-                          · {step.priorityLabel}
+                      {isPostMvp ? (
+                        <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-border/60 bg-muted/40 text-muted-foreground/90 font-semibold">
+                          POST-MVP
                         </span>
+                      ) : (
+                        step.priorityLabel && (
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
+                            · {step.priorityLabel}
+                          </span>
+                        )
                       )}
                     </div>
-                    <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                    <p className="text-xs sm:text-sm text-muted-foreground/85 leading-relaxed">
                       {step.description}
                     </p>
                     {step.whyExplanation && (
-                      <p className="text-[11px] text-muted-foreground/75 italic">
-                        Why: {step.whyExplanation}
+                      <p className="text-xs text-muted-foreground/75 flex items-baseline gap-1.5 pt-0.5">
+                        <span className="font-medium text-muted-foreground/90">Why:</span>
+                        <span>{step.whyExplanation}</span>
                       </p>
                     )}
                   </div>
                 </div>
 
-                <div className="text-xs text-muted-foreground/75 italic shrink-0 self-start sm:self-center pl-12 sm:pl-0">
-                  {step.disabledReason || 'Unavailable in current state'}
+                <div className="flex items-center gap-1.5 text-xs sm:text-sm font-mono text-muted-foreground/70 shrink-0 self-start sm:self-center pl-12 sm:pl-0">
+                  <Lock className="h-3.5 w-3.5 text-muted-foreground/60" />
+                  <span>{step.statusLabel || 'Coming later'}</span>
                 </div>
               </div>
             );
@@ -76,7 +88,7 @@ export function WhatMattersNext({ steps }: WhatMattersNextProps) {
           return (
             <div
               key={step.id}
-              onClick={() => router.push(step.href)}
+              onClick={() => step.href && router.push(step.href)}
               className="group py-4 px-3 -mx-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-card/50 transition-all duration-150 cursor-pointer"
             >
               <div className="flex items-start gap-4 min-w-0">
@@ -98,7 +110,7 @@ export function WhatMattersNext({ steps }: WhatMattersNextProps) {
                     {step.description}
                   </p>
                   {step.whyExplanation && (
-                    <p className="text-xs text-muted-foreground/85 flex items-center gap-1.5 pt-0.5">
+                    <p className="text-xs text-muted-foreground/85 flex items-baseline gap-1.5 pt-0.5">
                       <span className="font-medium text-foreground/75">Why:</span>
                       <span>{step.whyExplanation}</span>
                     </p>

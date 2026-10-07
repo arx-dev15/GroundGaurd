@@ -18,7 +18,7 @@ export function ContinueWorking({
   conversations,
 }: ContinueWorkingProps) {
   const router = useRouter();
-  const recentWork = React.useMemo(() => conversations.slice(0, 4), [conversations]);
+  const recentWork = React.useMemo(() => conversations.slice(0, 3), [conversations]);
 
   return (
     <div className="space-y-4 select-none">
