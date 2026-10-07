@@ -124,3 +124,79 @@ def get_project_knowledge_summary(project_id: str) -> Dict[str, Any]:
     finally:
         conn.close()
 
+
+def get_project_ready_documents_with_chunk_counts(project_id: str) -> List[Dict[str, Any]]:
+    """
+    Returns all documents in status = 'ready' for project_id, along with their
+    canonical chunk count from PostgreSQL chunks table.
+    """
+    conn = get_connection()
+    if conn is None:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT d.id, d.filename, d.chunks_count, count(c.id) as actual_chunks
+                FROM documents d
+                LEFT JOIN chunks c ON c.document_id = d.id
+                WHERE d.project_id = %s AND d.status = 'ready'
+                GROUP BY d.id, d.filename, d.chunks_count
+                ORDER BY d.created_at ASC;
+                """,
+                (project_id,)
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "document_id": str(r[0]),
+                    "filename": str(r[1]),
+                    "declared_chunks": int(r[2] or 0),
+                    "actual_pg_chunks": int(r[3] or 0),
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        logger.error(f"Error fetching ready documents with chunk counts: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_document_canonical_chunks(document_id: str) -> List[Dict[str, Any]]:
+    """
+    Fetches raw chunk records from PostgreSQL for re-indexing / repair.
+    """
+    conn = get_connection()
+    if conn is None:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, chunk_index, page_number, text, section, heading, identifiers
+                FROM chunks
+                WHERE document_id = %s
+                ORDER BY chunk_index ASC;
+                """,
+                (document_id,)
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": str(r[0]),
+                    "chunk_index": int(r[1] or 0),
+                    "page_number": int(r[2] or 1),
+                    "text": str(r[3] or ""),
+                    "section": r[4],
+                    "heading": r[5],
+                    "identifiers": r[6],
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        logger.error(f"Error fetching document canonical chunks: {e}")
+        return []
+    finally:
+        conn.close()
+

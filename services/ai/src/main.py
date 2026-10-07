@@ -42,6 +42,7 @@ from src.pipeline.query_understanding import (
     QueryPlan,
     build_telemetry,
     _make_fallback_plan,
+    detect_user_challenge,
 )
 from src.pipeline.qdrant_store import qdrant_store
 from src.pipeline.tantivy_store import tantivy_store
@@ -194,15 +195,66 @@ def determine_evidence_disposition(
     partial_indicators = [
         "does not explain", "does not establish", "does not specify",
         "does not provide", "not mentioned", "partially", "only explains",
-        "only identifies", "only specifies", "does not contain"
+        "only identifies", "only specifies", "does not contain",
+        "does not state", "not specified", "not state", "not named"
     ]
-    if any(p in ans_lower for p in partial_indicators) and any(kw in ans_lower for kw in ("identifies", "states", "specifies", "confirms", "indicates", "instructs", "shows")):
+    if any(p in ans_lower for p in partial_indicators) and (
+        "[" in answer or any(kw in ans_lower for kw in ("identifies", "states", "specifies", "confirms", "indicates", "instructs", "shows", "are", "is", "include", "includes", "stating"))
+    ):
         return EvidenceDisposition.PARTIAL.value
 
     if sufficiency and getattr(sufficiency, "disposition", None):
         return sufficiency.disposition
 
     return EvidenceDisposition.SUPPORTED.value
+
+
+def format_display_title(filename_or_title: str) -> str:
+    """
+    Derives a clean, readable display title from a raw filename or title for user-facing citations.
+    e.g. 'campus_monitor__an_ai_driven_real_time_smart_campus_environment_monitoring_system_IEEE (3) (1).pdf' -> 'Campus Monitor'
+    e.g. 'pump_p101a_specs.pdf' -> 'Pump P-101A Specs'
+    e.g. 'dht11_datasheet.pdf' -> 'DHT11 Datasheet'
+    """
+    if not filename_or_title:
+        return "Document"
+    name = str(filename_or_title).strip()
+    name = re.sub(r'\.[a-zA-Z0-9]+$', '', name)
+    name = re.sub(r'\s*\(\d+\)\s*', ' ', name)
+    name = re.sub(r'[\-_]+copy\b', '', name, flags=re.I)
+    if '__' in name:
+        name = name.split('__')[0]
+    
+    # Protect equipment tags like P-101A, V-204
+    name = re.sub(r'([A-Za-z])-([0-9])', r'\1_HYP_\2', name)
+    name = re.sub(r'[\-_]+', ' ', name)
+    name = name.replace('_HYP_', '-')
+    name = name.strip()
+    
+    words = name.split()
+    capitalized = []
+    for w in words:
+        if w.isupper() or any(c.isdigit() for c in w):
+            capitalized.append(w)
+        else:
+            capitalized.append(w.capitalize())
+    clean_name = " ".join(capitalized)
+    if len(clean_name) > 35:
+        clean_name = clean_name[:32].strip() + "..."
+    return clean_name or "Document"
+
+
+def is_meta_turn(content: str) -> bool:
+    if not content:
+        return True
+    s = content.strip().lower()
+    meta_patterns = [
+        r'^(?:(?:please\s+)?(?:answer|respond|reply|tell\s+me)|hello\??|hey\??|hi\??|come\s+on\??|bro+|dude|waiting\.*)\b',
+        r'^(?:answer\s+bro+|hello\?+|respond|come\s+on|pls\s+answer|plz\s+answer|just\s+answer)$',
+    ]
+    if len(s) < 30 and any(re.search(pat, s) for pat in meta_patterns):
+        return True
+    return False
 
 def sanitize_user_facing_answer(
     raw_answer: str,
@@ -211,9 +263,10 @@ def sanitize_user_facing_answer(
     """
     Cleans user-facing answer text:
     1. Removes raw internal identifiers (doc_..., chunk_..., UUIDs) and replaces with clean human document names.
-    2. Strips metadata dumps (Document Name:, Document ID:, Chunk ID:, etc.).
-    3. Removes conversational boilerplate and repetitive preambles ('Based on the project documentation...').
-    4. Deduplicates consecutive citation tags.
+    2. Formats user-facing citations with clean display titles (e.g. [Campus Monitor, p. 5] instead of raw long filenames).
+    3. Strips metadata dumps (Document Name:, Document ID:, Chunk ID:, etc.).
+    4. Removes conversational boilerplate and repetitive preambles ('Based on the project documentation...').
+    5. Deduplicates consecutive citation tags.
     """
     if not raw_answer or not raw_answer.strip():
         return ""
@@ -229,11 +282,11 @@ def sanitize_user_facing_answer(
             fname = meta.get("filename") or meta.get("title") or getattr(item, "document_name", None)
             if doc_id:
                 if fname:
-                    doc_id_to_name[doc_id] = fname
+                    doc_id_to_name[doc_id] = format_display_title(fname)
                 elif doc_id.startswith("doc_"):
                     clean_s = doc_id[4:].replace("_", " ").strip()
                     if not re.fullmatch(r"[0-9a-fA-F-]+", clean_s):
-                        doc_id_to_name[doc_id] = clean_s.title() + ".pdf"
+                        doc_id_to_name[doc_id] = clean_s.title()
 
     # Replace known doc_ids in text with human names
     for did, hname in doc_id_to_name.items():
@@ -246,7 +299,7 @@ def sanitize_user_facing_answer(
         if re.fullmatch(r"[0-9a-fA-F-]+", raw_slug):
             return "Project Document"
         clean = raw_slug.replace("_", " ").strip().title()
-        return f"{clean}.pdf" if not clean.lower().endswith((".pdf", ".txt", ".md")) else clean
+        return format_display_title(clean)
 
     text = re.sub(r'\bdoc_([a-zA-Z0-9_\-]+)\b', _clean_doc_match, text)
 
@@ -263,9 +316,9 @@ def sanitize_user_facing_answer(
         cleaned_lines.append(line)
     text = "\n".join(cleaned_lines)
 
-    # Strip robotic boilerplate prefixes at start of answer
+    # Strip robotic boilerplate prefixes at start of answer (Section 7)
     text = re.sub(
-        r'^(?:Based on the (?:provided |retrieved )?project documentation,\s*(?:the answer (?:to your question )?is that\s*)?|According to the (?:provided |retrieved )?project documentation,\s*)',
+        r'^(?:Based on the (?:provided |retrieved |available |current )?(?:project )?(?:documentation|evidence),\s*(?:the answer (?:to your question )?is that\s*)?|According to the (?:provided |retrieved |available |current )?(?:project )?(?:documentation|evidence),\s*|(?:The (?:provided |available |retrieved |current )?(?:project )?(?:documentation|evidence) states that\s*))',
         '',
         text,
         flags=re.IGNORECASE
@@ -281,11 +334,22 @@ def sanitize_user_facing_answer(
         flags=re.IGNORECASE
     ).strip()
 
-    # Deduplicate consecutive identical citations: [Doc.pdf, p. 4] [Doc.pdf, p. 4]
+    # Format user-facing citations into clean display labels (Section 6)
+    def _clean_citation(m):
+        content = m.group(1).strip()
+        p_match = re.search(r',\s*(p(?:p)?\.?\s*\d+(?:\s*-\s*\d+)?)', content, re.I)
+        page_suffix = f", {p_match.group(1)}" if p_match else ""
+        raw_doc_part = content[:p_match.start()].strip() if p_match else content
+        clean_title = format_display_title(raw_doc_part)
+        return f"[{clean_title}{page_suffix}]"
+
+    text = re.sub(r'\[([^\]]+)\]', _clean_citation, text)
+
+    # Deduplicate consecutive identical citations: [Doc, p. 4] [Doc, p. 4]
     text = re.sub(r'(\[[^\]]+\])(?:\s*\1)+', r'\1', text)
 
     # Safety guard: if raw answer contained substantial prose (>40 chars) but sanitization lost >80% of content,
-    # preserve raw answer to prevent destructive truncation.
+    # preserve raw answer to prevent destructive truncation (Section 9).
     if len(raw_answer.strip()) > 40 and len(text) < len(raw_answer.strip()) * 0.2:
         logger.warning(
             f"[sanitize_user_facing_answer] Prevented destructive content loss: "
@@ -294,6 +358,7 @@ def sanitize_user_facing_answer(
         return raw_answer.strip()
 
     return text
+
 
 def filter_relevant_evidence(
     included_items: List[EvidenceItem],
@@ -636,7 +701,7 @@ def _is_genuine_naked_referent(q_str: str, ctx: Optional[List[Dict[str, Any]]]) 
     if ctx and len(ctx) > 0:
         return False
     # Substantive anchors: hyphenated codes, model tags, units, numbers, acronyms
-    if bool(re.search(r'\b[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+\b|\b(?!(?:PDF|DOC|URL)\b)[A-Z]{2,}\d*\b|\b\d+(?:\.\d+)?\s*(?:kg|bar|kpa|mpa|v|volts?|hz|mhz|ghz|m3/h|°c|c|f|sec|ms|s|gb|mb|kb|ports?|kw|hours?|mins?|minutes?)\b', q_str)):
+    if bool(re.search(r'\b[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+\b|\b(?!(?:PDF|DOC|URL)\b)[A-Z]{2,}\d*\b|\b\d+(?:\.\d+)?\s*(?:kg|bar|kpa|mpa|v|volts?|hz|mhz|ghz|m3/h|Â°c|c|f|sec|ms|s|gb|mb|kb|ports?|kw|hours?|mins?|minutes?)\b', q_str)):
         return False
     # Meaningful domain words
     domain_words = [w for w in re.findall(r'[a-zA-Z]{4,}', clean) if w not in {
@@ -682,11 +747,43 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         payload.projectId, req_id, gen_id, payload.query
     )
 
+    # Sanitize conversation context to prevent meta-message contamination (e.g. 'answer brooo', 'hello?')
+    clean_conv_ctx = None
+    if payload.conversationContext:
+        clean_conv_ctx = [turn for turn in payload.conversationContext if not is_meta_turn(turn.get("content", ""))]
+        if not clean_conv_ctx:
+            clean_conv_ctx = None
+
+    # Step 0: Challenge / Correction Turn Detection
+    is_challenge = False
+    prior_factual_query = None
+    is_challenge_retry = False
+    effective_query = payload.query
+
+    prior_challenges = 0
+    if clean_conv_ctx:
+        for turn in clean_conv_ctx:
+            if turn.get("role") == "user":
+                ch, _ = detect_user_challenge(turn.get("content", ""))
+                if ch:
+                    prior_challenges += 1
+
+    if prior_challenges < 1:
+        is_challenge, prior_factual_query = detect_user_challenge(payload.query, clean_conv_ctx)
+        if is_challenge and prior_factual_query:
+            effective_query = prior_factual_query
+            is_challenge_retry = True
+            logger.info(
+                f"[/generate challenge retry] Inherited prior factual query: '{effective_query}' "
+                f"for challenge turn '{payload.query}'"
+            )
+
     # Step 0a: Legacy conversational/product-help fast path (fast deterministic routing -> natural LLM generation)
-    intent, sub_intent = classify_intent(payload.query)
+    # Challenge retries bypass social/help fast-path to retrieve document evidence
+    intent, sub_intent = ("grounded", None) if is_challenge_retry else classify_intent(payload.query)
     logger.info(
-        "[/generate intent] project_id=%s req_id=%s intent=%s sub_intent=%s",
-        payload.projectId, req_id, intent, sub_intent
+        "[/generate intent] project_id=%s req_id=%s intent=%s sub_intent=%s challenge_retry=%s",
+        payload.projectId, req_id, intent, sub_intent, is_challenge_retry
     )
 
     try:
@@ -695,13 +792,13 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         proj_context = {}
     project_name = proj_context.get("projectName") if isinstance(proj_context, dict) else None
 
-    if intent == "conversational":
+    if intent == "conversational" and not is_challenge_retry:
         logger.info("[/generate responseMode] conversational_llm")
         reply = await generate_social_response(
             user_message=payload.query,
             sub_intent=sub_intent or "greeting",
             project_name=project_name,
-            recent_context=payload.conversationContext,
+            recent_context=clean_conv_ctx,
             llm_runtime=llm_runtime,
         )
         return GenerateResult(
@@ -716,12 +813,12 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             claims=[]
         )
 
-    if intent == "product_help":
+    if intent == "product_help" and not is_challenge_retry:
         logger.info("[/generate responseMode] conversational_llm")
         reply = await generate_product_help_llm(
             user_message=payload.query,
             project_name=project_name,
-            recent_context=payload.conversationContext,
+            recent_context=clean_conv_ctx,
             llm_runtime=llm_runtime,
         )
         return GenerateResult(
@@ -739,13 +836,13 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
     # Step 0b: Semantic Query Understanding (1 Gemini call; safe fallback on any failure)
     try:
         plan = await understand_query(
-            query=payload.query,
-            conversation_context=payload.conversationContext,
+            query=effective_query,
+            conversation_context=clean_conv_ctx,
             project_context=proj_context,
         )
     except Exception as plan_err:
         logger.warning("[/generate planner error] %s — using fallback plan", plan_err)
-        plan = _make_fallback_plan(payload.query)
+        plan = _make_fallback_plan(effective_query)
 
     logger.info(
         "[/generate plan] task=%s mode=%s queries=%d standalone='%s'",
@@ -923,7 +1020,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                         retrieval_res = type("_CoverageResult", (), {"results": coverage_items, "sufficiency": coverage_suf})()
                         logger.info("[/generate coverage] Retrieved %d representative chunks for doc=%s", len(coverage_items), target_doc_id)
                 except Exception as cov_err:
-                    logger.warning("[/generate coverage error] %s — falling back to standard retrieval", cov_err)
+                    logger.warning("[/generate coverage error] %s â€” falling back to standard retrieval", cov_err)
 
         # Strategy B: Broad / Comparative / Cross-Document Multi-Query
         if retrieval_res is None and retrieval_mode in ("broad", "comparative", "cross_document") and len(search_queries) > 1:
@@ -973,7 +1070,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
 
         # Strategy C: Focused / Section Retrieval
         if retrieval_res is None:
-            focused_q = plan.standalone_query or payload.query or (plan.search_queries[0] if plan.search_queries else "")
+            focused_q = plan.standalone_query or effective_query or (plan.search_queries[0] if plan.search_queries else "")
             retrieval_res = retrieve_evidence(
                 project_id=payload.projectId,
                 query=focused_q,
@@ -982,6 +1079,8 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 search_queries=plan.search_queries,
                 lexical_anchors=plan.lexical_anchors,
                 question_slot=plan.question_slot,
+                facet_set=getattr(plan, "facets", None),
+                is_challenge_retry=is_challenge_retry,
             )
 
         # Bounded Local Context Expansion & Procedural Order Preservation
@@ -1137,6 +1236,12 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         pass
 
     # Preserve BOTH: original instruction (payload.query) and resolved retrieval subject (plan.standalone_query)
+    clean_conv_ctx = None
+    if payload.conversationContext:
+        clean_conv_ctx = [turn for turn in payload.conversationContext if not is_meta_turn(turn.get("content", ""))]
+        if not clean_conv_ctx:
+            clean_conv_ctx = None
+
     context_text, included_items, omitted_items = context_builder.build_context(retrieval_res.results)
     conflict_summary = (
         retrieval_res.sufficiency.signals.conflictSummary
@@ -1144,9 +1249,9 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         else None
     )
     user_prompt = build_grounded_user_prompt(
-        query=payload.query,
+        query=effective_query,
         evidence_context=context_text,
-        conversation_context=payload.conversationContext,
+        conversation_context=clean_conv_ctx,
         standalone_query=plan.standalone_query,
         operation=plan.operation,
         is_proposition=plan.is_proposition,
@@ -1288,20 +1393,51 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
 
         yield _format_sse("generation.started", {"generationId": gen_id, "requestId": req_id})
 
+        # Sanitize conversation context to prevent meta-message contamination (e.g. 'answer brooo', 'hello?')
+        clean_conv_ctx = None
+        if payload.conversationContext:
+            clean_conv_ctx = [turn for turn in payload.conversationContext if not is_meta_turn(turn.get("content", ""))]
+            if not clean_conv_ctx:
+                clean_conv_ctx = None
+
+        # Step 0: Challenge / Correction Turn Detection
+        is_challenge = False
+        prior_factual_query = None
+        is_challenge_retry = False
+        effective_query = payload.query
+
+        prior_challenges = 0
+        if clean_conv_ctx:
+            for turn in clean_conv_ctx:
+                if turn.get("role") == "user":
+                    ch, _ = detect_user_challenge(turn.get("content", ""))
+                    if ch:
+                        prior_challenges += 1
+
+        if prior_challenges < 1:
+            is_challenge, prior_factual_query = detect_user_challenge(payload.query, clean_conv_ctx)
+            if is_challenge and prior_factual_query:
+                effective_query = prior_factual_query
+                is_challenge_retry = True
+                logger.info(
+                    f"[/generate/stream challenge retry] Inherited prior factual query: '{effective_query}' "
+                    f"for challenge turn '{payload.query}'"
+                )
+
         # Step 0a: Intent classification
-        intent, sub_intent = classify_intent(payload.query)
+        intent, sub_intent = ("grounded", None) if is_challenge_retry else classify_intent(payload.query)
         try:
             proj_context = get_project_knowledge_summary(payload.projectId)
         except Exception:
             proj_context = {}
         project_name = proj_context.get("projectName") if isinstance(proj_context, dict) else None
 
-        if intent == "conversational":
+        if intent == "conversational" and not is_challenge_retry:
             reply = await generate_social_response(
                 user_message=payload.query,
                 sub_intent=sub_intent or "greeting",
                 project_name=project_name,
-                recent_context=payload.conversationContext,
+                recent_context=clean_conv_ctx,
                 llm_runtime=llm_runtime,
             )
             yield _format_sse("answer.started", {"generationId": gen_id})
@@ -1323,11 +1459,11 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             yield _format_sse("generation.completed", final_res.model_dump())
             return
 
-        if intent == "product_help":
+        if intent == "product_help" and not is_challenge_retry:
             reply = await generate_product_help_llm(
                 user_message=payload.query,
                 project_name=project_name,
-                recent_context=payload.conversationContext,
+                recent_context=clean_conv_ctx,
                 llm_runtime=llm_runtime,
             )
             yield _format_sse("answer.started", {"generationId": gen_id})
@@ -1352,16 +1488,16 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
         # Step 0b: Semantic Query Understanding
         try:
             plan = await understand_query(
-                query=payload.query,
-                conversation_context=payload.conversationContext,
+                query=effective_query,
+                conversation_context=clean_conv_ctx,
                 project_context=proj_context,
             )
         except Exception as plan_err:
             logger.warning("[/generate/stream planner error] %s — using fallback plan", plan_err)
-            plan = _make_fallback_plan(payload.query)
+            plan = _make_fallback_plan(effective_query)
 
         if plan.needs_clarification:
-            if _is_genuine_naked_referent(payload.query, payload.conversationContext):
+            if _is_genuine_naked_referent(payload.query, clean_conv_ctx):
                 clarification_msg = await generate_clarification_llm(
                     user_query=payload.query,
                     structured_clarification=plan.clarification_question,
@@ -1438,7 +1574,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
         retrieval_res = None
 
         try:
-            focused_q = plan.standalone_query or payload.query or (plan.search_queries[0] if plan.search_queries else "")
+            focused_q = plan.standalone_query or effective_query or (plan.search_queries[0] if plan.search_queries else "")
             retrieval_res = retrieve_evidence(
                 project_id=payload.projectId,
                 query=focused_q,
@@ -1447,6 +1583,8 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                 search_queries=plan.search_queries,
                 lexical_anchors=plan.lexical_anchors,
                 question_slot=plan.question_slot,
+                facet_set=getattr(plan, "facets", None),
+                is_challenge_retry=is_challenge_retry,
             )
         except Exception as ret_err:
             logger.error("[/generate/stream retrieval error] %s", ret_err)
@@ -1581,9 +1719,9 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             else None
         )
         user_prompt = build_grounded_user_prompt(
-            query=payload.query,
+            query=effective_query,
             evidence_context=context_text,
-            conversation_context=payload.conversationContext,
+            conversation_context=clean_conv_ctx,
             standalone_query=plan.standalone_query,
             operation=plan.operation,
             is_proposition=plan.is_proposition,
@@ -1727,6 +1865,75 @@ async def recover(payload: RecoverRequest, x_request_id: Optional[str] = Header(
         modelVersion=result.modelVersion,
         reason=result.reason
     )
+
+
+# ---------------------------------------------------------------------------
+# Index Lifecycle Verification & Legacy Reconciliation (Infrastructure Correctness)
+# ---------------------------------------------------------------------------
+
+class VerifyIndexResponse(BaseModel):
+    consistent: bool
+    documentId: str
+    projectId: str
+    qdrantCount: int
+    tantivyCount: int
+    expectedCount: Optional[int] = None
+
+class RepairIndexResponse(BaseModel):
+    repaired: bool
+    documentId: str
+    projectId: str
+
+class ReconcileRequest(BaseModel):
+    dryRun: Optional[bool] = False
+    maxDocuments: Optional[int] = None
+    targetProjectId: Optional[str] = None
+
+@app.get("/documents/{document_id}/verify-index", response_model=VerifyIndexResponse)
+async def verify_document_index(
+    document_id: str,
+    projectId: str = Query(..., description="Project ID owning the document"),
+    expectedCount: Optional[int] = Query(None, description="Expected chunk count from PostgreSQL"),
+    x_request_id: Optional[str] = Header(None)
+):
+    """
+    Verifies that Qdrant and Tantivy have the exact expected chunk count for (projectId, documentId).
+    Enforces 3-way lifecycle consistency before setting READY status.
+    """
+    from src.pipeline.index_verifier import verify_document_index_parity
+    res = verify_document_index_parity(projectId, document_id, expectedCount)
+    return VerifyIndexResponse(**res)
+
+@app.post("/documents/{document_id}/repair-index", response_model=RepairIndexResponse)
+async def repair_document_index_endpoint(
+    document_id: str,
+    projectId: str = Query(..., description="Project ID owning the document"),
+    x_request_id: Optional[str] = Header(None)
+):
+    """
+    Reconstructs Qdrant and Tantivy indexes from canonical PostgreSQL chunks.
+    """
+    from src.pipeline.index_verifier import repair_document_index
+    success = repair_document_index(projectId, document_id)
+    return RepairIndexResponse(
+        repaired=success,
+        documentId=document_id,
+        projectId=projectId
+    )
+
+@app.post("/admin/reconcile-indexes")
+async def reconcile_indexes_endpoint(payload: Optional[ReconcileRequest] = None):
+    """
+    Automated reconciliation tooling (Section 4).
+    Reconciles all documents marked READY in PostgreSQL with downstream Qdrant and Tantivy indexes.
+    """
+    from src.pipeline.index_verifier import reconcile_legacy_indexes
+    dry_run = payload.dryRun if payload else False
+    max_docs = payload.maxDocuments if payload else None
+    target_proj = payload.targetProjectId if payload else None
+    res = reconcile_legacy_indexes(dry_run=dry_run, max_documents=max_docs, target_project_id=target_proj)
+    return res
+
 
 if __name__ == "__main__":
     import uvicorn

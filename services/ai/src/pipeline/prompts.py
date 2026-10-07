@@ -2,6 +2,7 @@
 GroundGuard Phase 5: Grounded RAG Prompt Construction & Untrusted Boundary
 Implements safe instruction boundaries and engineering-grounded system prompts.
 """
+import re
 from typing import Optional, List, Dict, Any
 
 
@@ -106,14 +107,23 @@ def build_grounded_user_prompt(
     """
     context_section = ""
     if conversation_context and len(conversation_context) > 0:
-        turns_text = "\n".join([
-            f"{turn.get('role', 'user').upper()}: {turn.get('content', '')}"
-            for turn in conversation_context
-        ])
-        context_section = (
-            f"PREVIOUS CONVERSATION CONTEXT (for pronoun/referent resolution only; NOT evidence):\n"
-            f"{turns_text}\n\n"
-        )
+        valid_turns = []
+        for turn in conversation_context:
+            cnt = (turn.get("content", "") or "").strip().lower()
+            if len(cnt) < 30 and re.search(r'^(?:(?:please\s+)?(?:answer|respond|reply|tell\s+me)|hello\??|hey\??|hi\??|come\s+on\??|bro+|dude|waiting\.*)\b', cnt):
+                continue
+            if re.search(r'^(?:answer\s+bro+|hello\?+|respond|come\s+on|pls\s+answer|plz\s+answer|just\s+answer)$', cnt):
+                continue
+            valid_turns.append(turn)
+        if valid_turns:
+            turns_text = "\n".join([
+                f"{turn.get('role', 'user').upper()}: {turn.get('content', '')}"
+                for turn in valid_turns
+            ])
+            context_section = (
+                f"PREVIOUS CONVERSATION CONTEXT (for pronoun/referent resolution only; NOT evidence):\n"
+                f"{turns_text}\n\n"
+            )
 
     resolved_section = ""
     if standalone_query and standalone_query.strip() and standalone_query.strip().lower() != query.strip().lower():

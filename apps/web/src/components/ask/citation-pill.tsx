@@ -12,6 +12,24 @@ import {
 import { cn } from '@/lib/utils';
 import type { EvidenceItem } from '@groundguard/types';
 
+function formatDisplayTitle(filenameOrTitle?: string): string {
+  if (!filenameOrTitle) return 'Document';
+  let name = filenameOrTitle.replace(/\.[a-zA-Z0-9]+$/, '').replace(/\s*\(\d+\)\s*/g, ' ').trim();
+  if (name.includes('__')) {
+    name = name.split('__')[0];
+  }
+  name = name.replace(/([A-Za-z])-([0-9])/g, '$1_HYP_$2');
+  name = name.replace(/[-_]+/g, ' ');
+  name = name.replace(/_HYP_/g, '-').trim();
+  const words = name.split(/\s+/).map((w) => {
+    if (w.toUpperCase() === w || /\d/.test(w)) return w;
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  });
+  let clean = words.join(' ');
+  if (clean.length > 35) clean = clean.slice(0, 32).trim() + '...';
+  return clean || 'Document';
+}
+
 interface CitationPillProps {
   index: number;
   evidence?: EvidenceItem;
@@ -31,7 +49,8 @@ export function CitationPill({
 }: CitationPillProps) {
   const docId = evidence?.documentId;
   const pageNumber = evidence?.pageNumber ?? (evidence?.metadata?.pageNumber as number | undefined);
-  const docFilename = (evidence?.metadata?.filename as string) || (evidence?.metadata?.documentFilename as string) || 'Document';
+  const rawDocFilename = (evidence?.metadata?.filename as string) || (evidence?.metadata?.documentFilename as string) || 'Document';
+  const docFilename = formatDisplayTitle(rawDocFilename);
   const heading = evidence?.heading || (evidence?.metadata?.heading as string);
   const snippet = evidence?.text || '';
 

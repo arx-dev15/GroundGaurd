@@ -46,6 +46,38 @@ def sanitize_evidence_text(raw_text: str) -> str:
     return sanitized.strip()
 
 
+def format_display_title(filename_or_title: str) -> str:
+    """
+    Derives a clean, readable display title from a raw filename or title for user-facing citations.
+    e.g. 'campus_monitor__an_ai_driven_real_time_smart_campus_environment_monitoring_system_IEEE (3) (1).pdf' -> 'Campus Monitor'
+    e.g. 'pump_p101a_specs.pdf' -> 'Pump P-101A Specs'
+    e.g. 'dht11_datasheet.pdf' -> 'DHT11 Datasheet'
+    """
+    if not filename_or_title:
+        return "Document"
+    name = str(filename_or_title).strip()
+    name = re.sub(r'\.[a-zA-Z0-9]+$', '', name)
+    name = re.sub(r'\s*\(\d+\)\s*', ' ', name)
+    name = re.sub(r'[\-_]+copy\b', '', name, flags=re.I)
+    if '__' in name:
+        name = name.split('__')[0]
+    name = re.sub(r'([A-Za-z])-([0-9])', r'\1_HYP_\2', name)
+    name = re.sub(r'[_\-]+', ' ', name)
+    name = name.replace('_HYP_', '-')
+    name = name.strip()
+    words = name.split()
+    capitalized = []
+    for w in words:
+        if w.isupper() or any(c.isdigit() for c in w):
+            capitalized.append(w)
+        else:
+            capitalized.append(w.capitalize())
+    clean_name = " ".join(capitalized)
+    if len(clean_name) > 35:
+        clean_name = clean_name[:32].strip() + "..."
+    return clean_name or "Document"
+
+
 class ContextBuilder:
     """
     Builds structured, bounded, injection-sanitized evidence context for LLM consumption.
@@ -97,8 +129,8 @@ class ContextBuilder:
             section_info = f" | Section: {section}" if section else ""
             heading_info = f" | Heading: {heading}" if heading else ""
             tags_info = f" | Identifiers: {', '.join(identifiers)}" if identifiers else ""
-
-            header = f"[Evidence Block {len(included) + 1}] (Document: {display_name} | {page_info}{section_info}{heading_info}{tags_info})"
+            clean_display_name = format_display_title(display_name)
+            header = f"[Evidence Block {len(included) + 1}] (Document: {clean_display_name} | {page_info}{section_info}{heading_info}{tags_info})"
             block = f"{header}\n{clean_chunk_text}\n"
 
             # 4. Budget enforcement

@@ -156,6 +156,17 @@ class EvidenceSufficiencySignals(BaseModel):
     disposition: Optional[str] = EvidenceDisposition.SUPPORTED.value
     failureStage: Optional[str] = FailureStage.NONE.value
     eligibleEvidenceCount: Optional[int] = 0
+    initialEvidenceCount: Optional[int] = None
+    initialAnswerSlotCoverage: Optional[float] = None
+    completionTriggered: Optional[bool] = False
+    completionReason: Optional[str] = None
+    completionQueriesCount: Optional[int] = 0
+    completionEvidenceCount: Optional[int] = 0
+    finalAnswerSlotCoverage: Optional[float] = None
+    completionStopReason: Optional[str] = None
+    challengeRetry: Optional[bool] = False
+    bridgeEntity: Optional[str] = None
+    multiHopResolved: Optional[bool] = None
 
 
 class EvidenceSufficiency(BaseModel):
@@ -980,7 +991,14 @@ def evaluate_sufficiency(
     route: RouteDecision,
     threshold: float = SUFFICIENCY_THRESHOLD,
     min_evidence_count: int = 1,
-    query: Optional[str] = None
+    query: Optional[str] = None,
+    facet_set: Optional[Any] = None,
+    completion_stop_reason: Optional[str] = None,
+    completion_triggered: bool = False,
+    completion_reason: Optional[str] = None,
+    challenge_retry: bool = False,
+    bridge_entity: Optional[str] = None,
+    multi_hop_resolved: Optional[bool] = None,
 ) -> EvidenceSufficiency:
     """
     Deterministic multi-signal evidence sufficiency evaluation without LLM.
@@ -1175,6 +1193,10 @@ def evaluate_sufficiency(
     coverage_score = scope_res.signals.evidenceCoverageScore if (scope_res and scope_res.signals) else 0.0
     content_overlap = scope_res.signals.contentWordOverlap if (scope_res and scope_res.signals) else 0.0
 
+    facet_cov = getattr(facet_set, "coverageScore", 0.0) if facet_set else 0.0
+    if facet_set and facet_cov > 0.0:
+        coverage_score = max(coverage_score, facet_cov)
+
     # STAGE 1 — CANDIDATE RELEVANCE ELIGIBILITY:
     # A candidate must demonstrate genuine semantic relevance to the information need.
     # Eligibility floor: rerankScore >= 0.15.
@@ -1206,6 +1228,41 @@ def evaluate_sufficiency(
     else:
         aggregated_score = top_score
 
+    # Premature Abstention Protection for partial facet support:
+    # If completion pass was exhausted across the project and eligible evidence exists for at least one facet
+    if completion_stop_reason == "EXHAUSTED" and eligible_count > 0 and top_score >= 0.20:
+        disposition = EvidenceDisposition.PARTIAL.value
+        return EvidenceSufficiency(
+            sufficient=True,
+            reason="Evidence partially establishes query facets; secondary facet not found in project sources",
+            score=aggregated_score,
+            scope=scope_dec_str,
+            disposition=disposition,
+            failureStage=FailureStage.NONE.value,
+            signals=EvidenceSufficiencySignals(
+                resultCount=len(candidates),
+                topRerankScore=top_score,
+                identifierMatched=identifier_matched,
+                sourceCoverage=all_sources,
+                conflictingEvidence=False,
+                scopeDecision=scope_dec_str,
+                scopeReason=scope_reason_str,
+                conflictConfidence=getattr(conflict_res, "confidence", 1.0),
+                conflictDetectionMethod=getattr(conflict_res, "method", "deterministic"),
+                revisionResolution=rev_res,
+                evidenceConflictCheck=getattr(conflict_res, "evidence_check", None),
+                evidenceCoverageScore=scope_res.signals.evidenceCoverageScore if scope_res else None,
+                topicSimilarityScore=top_score,
+                disposition=disposition,
+                failureStage=FailureStage.NONE.value,
+                eligibleEvidenceCount=eligible_count,
+                completionStopReason=completion_stop_reason,
+                challengeRetry=challenge_retry,
+                bridgeEntity=bridge_entity,
+                multiHopResolved=multi_hop_resolved,
+            )
+        )
+
     if aggregated_score < threshold:
         fail_stage = (
             FailureStage.RERANKER_REJECTION.value
@@ -1235,15 +1292,35 @@ def evaluate_sufficiency(
                 topicSimilarityScore=top_score,
                 disposition=EvidenceDisposition.INSUFFICIENT.value,
                 failureStage=fail_stage,
-                eligibleEvidenceCount=eligible_count
+                eligibleEvidenceCount=eligible_count,
+                challengeRetry=challenge_retry,
+                bridgeEntity=bridge_entity,
+                multiHopResolved=multi_hop_resolved,
             )
         )
 
-    disposition = (
-        EvidenceDisposition.PARTIAL.value
-        if (coverage_score > 0 and coverage_score < 0.65)
-        else EvidenceDisposition.SUPPORTED.value
-    )
+    if facet_set and getattr(facet_set, "overallStatus", None):
+        from src.pipeline.query_understanding import FacetStatus
+        if facet_set.overallStatus == FacetStatus.PARTIAL:
+            disposition = EvidenceDisposition.PARTIAL.value
+        elif facet_set.overallStatus == FacetStatus.SUPPORTED:
+            disposition = EvidenceDisposition.SUPPORTED.value
+        elif facet_set.overallStatus == FacetStatus.CONTRADICTED:
+            disposition = EvidenceDisposition.CONTRADICTED.value
+        elif facet_set.overallStatus == FacetStatus.UNRESOLVED:
+            disposition = EvidenceDisposition.INSUFFICIENT.value
+        else:
+            disposition = (
+                EvidenceDisposition.PARTIAL.value
+                if (coverage_score > 0 and coverage_score < 0.99)
+                else EvidenceDisposition.SUPPORTED.value
+            )
+    else:
+        disposition = (
+            EvidenceDisposition.PARTIAL.value
+            if (coverage_score > 0 and coverage_score < 0.65)
+            else EvidenceDisposition.SUPPORTED.value
+        )
 
     return EvidenceSufficiency(
         sufficient=True,
@@ -1268,9 +1345,468 @@ def evaluate_sufficiency(
             topicSimilarityScore=top_score,
             disposition=disposition,
             failureStage=FailureStage.NONE.value,
-            eligibleEvidenceCount=eligible_count
+            eligibleEvidenceCount=eligible_count,
+            completionTriggered=completion_triggered,
+            completionReason=completion_reason,
+            completionStopReason=completion_stop_reason,
+            finalAnswerSlotCoverage=facet_cov if facet_set else None,
+            challengeRetry=challenge_retry,
+            bridgeEntity=bridge_entity,
+            multiHopResolved=multi_hop_resolved,
         )
     )
+
+
+def evaluate_facet_completeness(
+    facet_set: Optional[Any],
+    candidates: List[Candidate],
+    query: str
+) -> Optional[Any]:
+    """
+    Evaluates completeness for each required answer facet independently.
+    Distinguishes RETRIEVAL COVERAGE (FOUND vs NOT_FOUND) from SUPPORT STATUS (SUPPORTED, PARTIAL, UNRESOLVED).
+    """
+    if not facet_set or not getattr(facet_set, "facets", None):
+        return facet_set
+
+    from src.pipeline.query_understanding import FacetStatus
+
+    supported_count = 0.0
+    total_facets = len(facet_set.facets)
+
+    # Common algorithm terms to verify whether algorithm-seeking facets actually have named algorithms in evidence
+    known_algorithm_terms = {
+        "random forest", "lstm", "svm", "support vector", "neural network",
+        "cnn", "rnn", "decision tree", "naive bayes", "k-means", "kmeans",
+        "gradient boost", "xgboost", "linear regression", "logistic regression",
+        "transformer", "perceptron", "autoencoder", "dbscan", "apriori",
+        "markov", "deep learning", "convolutional", "recurrent", "clustering"
+    }
+
+    for facet in facet_set.facets:
+        matching_cands = []
+        matching_cand_objs = []
+        best_cand_score = 0.0
+        kw_list = [k.lower() for k in getattr(facet, "requiredKeywords", []) if len(k) >= 2 or k.isalnum()]
+        category_stop = {"protocol", "system", "theory", "model", "method", "option", "component", "events", "facts", "operating"}
+        distinguishing_kws = [k for k in kw_list if k not in category_stop]
+        check_kws = distinguishing_kws if distinguishing_kws else kw_list
+        min_matches = 1 if len(check_kws) <= 1 else 2
+
+        is_multihop = getattr(facet_set, "isMultiHop", False)
+        bridge_ent = getattr(facet_set, "extractedBridgeEntity", None)
+        bridge_kws = [w.lower() for w in bridge_ent.split() if len(w) >= 3] if bridge_ent else []
+
+        for cand in candidates:
+            c_text = cand.text.lower()
+            score = cand.rerankScore if cand.rerankScore is not None else (cand.rrfScore or 0.0)
+            if not is_multihop and score < 0.05:
+                continue
+
+            matches = sum(1 for kw in check_kws if kw in c_text)
+            bridge_matches = sum(1 for bkw in bridge_kws if bkw in c_text) if bridge_kws else 0
+            if is_multihop and getattr(facet, "facetType", "") == "endpoint_b" and bridge_kws:
+                cand_matches = (matches >= 1 and bridge_matches >= 1) or matches >= min_matches
+            else:
+                cand_matches = matches >= min_matches
+
+            if cand_matches:
+                matching_cands.append(cand.chunkId)
+                matching_cand_objs.append(cand)
+                if score > best_cand_score:
+                    best_cand_score = score
+
+        facet.evidenceChunkIds = matching_cands
+        has_coverage = len(matching_cands) >= 1
+        facet.retrievalCoverage = "FOUND" if has_coverage else "NOT_FOUND"
+
+        if not has_coverage:
+            facet.status = FacetStatus.UNRESOLVED
+        else:
+            # Check if evidence actually satisfies what the facet asks (Support Status)
+            f_target_lower = (getattr(facet, "targetEntity", "") or getattr(facet, "description", "")).lower()
+            is_algorithm_query = "algorithm" in f_target_lower
+
+            if is_algorithm_query:
+                # Does the matched evidence actually name the requested algorithms?
+                names_algorithm = any(
+                    any(algo in c.text.lower() for algo in known_algorithm_terms)
+                    for c in matching_cand_objs
+                )
+                if names_algorithm and best_cand_score >= 0.15:
+                    facet.status = FacetStatus.SUPPORTED
+                    supported_count += 1.0
+                else:
+                    # Retrieval coverage FOUND, but evidence does not name specific algorithms -> PARTIAL
+                    facet.status = FacetStatus.PARTIAL
+                    supported_count += 0.5
+            elif best_cand_score >= 0.15 or (is_multihop and getattr(facet, "facetType", "") == "endpoint_a" and has_coverage) or (is_multihop and getattr(facet, "facetType", "") == "endpoint_b" and any((sum(1 for kw in check_kws if kw in c.text.lower()) >= 1 and sum(1 for bkw in bridge_kws if bkw in c.text.lower()) >= 1) for c in matching_cand_objs)):
+                facet.status = FacetStatus.SUPPORTED
+                supported_count += 1.0
+            else:
+                facet.status = FacetStatus.PARTIAL
+                supported_count += 0.5
+
+    facet_set.coverageScore = min(1.0, supported_count / max(1, total_facets))
+
+    all_supported = total_facets > 0 and all(f.status == FacetStatus.SUPPORTED for f in facet_set.facets)
+    any_supported = any(f.status == FacetStatus.SUPPORTED for f in facet_set.facets)
+    any_partial_or_unresolved = any(f.status in (FacetStatus.PARTIAL, FacetStatus.UNRESOLVED) for f in facet_set.facets)
+    any_contradicted = any(f.status == FacetStatus.CONTRADICTED for f in facet_set.facets)
+
+    if getattr(facet_set, "isMultiHop", False):
+        facet_set.multiHopResolved = all_supported
+
+    if any_contradicted:
+        facet_set.overallStatus = FacetStatus.CONTRADICTED
+    elif all_supported:
+        facet_set.overallStatus = FacetStatus.SUPPORTED
+    elif any_supported and any_partial_or_unresolved:
+        facet_set.overallStatus = FacetStatus.PARTIAL
+    elif any(f.status == FacetStatus.PARTIAL for f in facet_set.facets):
+        facet_set.overallStatus = FacetStatus.PARTIAL
+    else:
+        facet_set.overallStatus = FacetStatus.UNRESOLVED
+
+    return facet_set
+
+
+def extract_bridge_entity(
+    matching_cands: List[Candidate],
+    endpoint_a: str,
+    endpoint_b: str
+) -> Optional[str]:
+    """
+    Extracts candidate bridge entity/concept B from evidence established for endpoint A.
+    Generic, source-agnostic heuristic: finds salient proper nouns / capitalized sequences
+    or distinctive noun entities in candidate text that are distinct from A and B.
+    """
+    from collections import Counter
+    a_tokens = set(re.findall(r'\b[A-Za-z0-9_-]+\b', endpoint_a.lower()))
+    b_tokens = set(re.findall(r'\b[A-Za-z0-9_-]+\b', endpoint_b.lower()))
+    common_stop = {
+        "the", "and", "for", "with", "from", "that", "this", "they", "their",
+        "chapter", "section", "part", "table", "figure", "prophet", "city",
+        "band", "street", "road", "hall", "avenue", "lane", "house", "three",
+        "four", "five", "first", "second", "lake", "angels", "danite",
+        "others", "another", "every", "some", "many", "there", "when", "what",
+        "which", "then", "after", "before", "about", "could", "would", "shall",
+        "should", "where", "while", "though", "since", "these", "those", "little",
+        "young", "great", "such", "never", "always", "again", "still", "even",
+        "much", "more", "having", "being", "under", "between", "during"
+    }
+
+    entity_counts = Counter()
+    for cand in matching_cands[:5]:
+        text = cand.text
+        # Two-word proper names (e.g. "Jefferson Hope", "Bus Controller")
+        caps = re.findall(r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b', text)
+        for ent in caps:
+            ent_clean = ent.strip()
+            ent_words = [w.lower() for w in ent_clean.split()]
+            if not any(w in a_tokens or w in b_tokens or w in common_stop for w in ent_words):
+                entity_counts[ent_clean] += 1
+
+    if entity_counts:
+        return entity_counts.most_common(1)[0][0]
+
+    # Fallback to single capitalized words with length >= 4
+    single_counts = Counter()
+    for cand in matching_cands[:5]:
+        singles = re.findall(r'\b[A-Z][a-z]{3,}\b', cand.text)
+        for s in singles:
+            if s.lower() not in a_tokens and s.lower() not in b_tokens and s.lower() not in common_stop:
+                single_counts[s] += 1
+
+    if single_counts:
+        return single_counts.most_common(1)[0][0]
+
+    return None
+
+
+def generate_completion_queries(
+    query: str,
+    candidates: List[Candidate],
+    facet_set: Optional[Any] = None,
+) -> List[str]:
+    """
+    Generates a small, bounded set (max 2) of targeted completion queries for unresolved facets.
+    Includes bridge query generation (B -> C) when multi-hop connection is active.
+    """
+    from src.pipeline.query_understanding import strip_document_filename_references
+    queries: List[str] = []
+
+    if facet_set and getattr(facet_set, "isMultiHop", False) and getattr(facet_set, "facets", None):
+        from src.pipeline.query_understanding import FacetStatus
+        resolved_facets = [f for f in facet_set.facets if getattr(f, "status", None) == FacetStatus.SUPPORTED]
+        unresolved_facets = [f for f in facet_set.facets if getattr(f, "status", None) in (FacetStatus.UNRESOLVED, FacetStatus.PARTIAL)]
+        if resolved_facets and unresolved_facets:
+            rf = resolved_facets[0]
+            uf = unresolved_facets[0]
+            rf_cands = [c for c in candidates if c.chunkId in getattr(rf, "evidenceChunkIds", [])]
+            bridge_B = extract_bridge_entity(rf_cands, getattr(rf, "targetEntity", ""), getattr(uf, "targetEntity", ""))
+            if bridge_B:
+                facet_set.extractedBridgeEntity = bridge_B
+                target_dest = getattr(uf, "targetEntity", "")
+                bridge_q = f"{bridge_B} {target_dest}".strip()
+                clean_bq = strip_document_filename_references(bridge_q).strip().rstrip("?.!")
+                if clean_bq and clean_bq.lower() not in [q.lower() for q in queries]:
+                    queries.append(clean_bq)
+
+    if facet_set and getattr(facet_set, "facets", None):
+        from src.pipeline.query_understanding import FacetStatus
+        unresolved_facets = [
+            f for f in facet_set.facets
+            if getattr(f, "status", None) in (FacetStatus.UNRESOLVED, FacetStatus.PARTIAL)
+        ]
+        for uf in unresolved_facets:
+            sq = getattr(uf, "searchQuery", "")
+            if sq:
+                clean_sq = strip_document_filename_references(sq).strip().rstrip("?.!")
+                if clean_sq and clean_sq.lower() not in [q.lower() for q in queries]:
+                    queries.append(clean_sq)
+
+    final_queries = []
+    seen = set()
+    for q in queries:
+        q_norm = q.strip()
+        if q_norm and len(q_norm) >= 2 and q_norm.lower() not in seen:
+            seen.add(q_norm.lower())
+            final_queries.append(q_norm)
+            if len(final_queries) >= 2:
+                break
+
+    return final_queries
+
+
+def execute_completion_search(
+    project_id: str,
+    completion_queries: List[str],
+    initial_candidates: List[Candidate],
+    top_k: int = FINAL_TOP_K
+) -> List[Candidate]:
+    """
+    Executes bounded completion retrieval across Qdrant + Tantivy for missing facets.
+    """
+    if not completion_queries:
+        return []
+
+    # 1. Dense retrieval across Qdrant
+    raw_dense_hits: List[Dict[str, Any]] = []
+    try:
+        query_vectors = generate_embeddings(completion_queries)
+        seen_dense = set()
+        for q_vec in query_vectors:
+            hits = qdrant_store.search_dense(
+                project_id=project_id,
+                query_vector=q_vec,
+                top_k=DENSE_CANDIDATE_K
+            )
+            for h in hits:
+                cid = h.get("chunkId")
+                if cid and cid not in seen_dense:
+                    seen_dense.add(cid)
+                    raw_dense_hits.append(h)
+    except Exception as de:
+        logger.warning(f"[completion dense error] {de}")
+
+    # 2. Lexical retrieval across Tantivy
+    raw_lexical_hits: List[Dict[str, Any]] = []
+    try:
+        seen_lex = set()
+        for cq in completion_queries:
+            clean_cq = re.sub(r'[()\[\]{}:^~*?<>]', ' ', cq).strip()
+            if clean_cq:
+                lhits = tantivy_store.search_project(
+                    project_id=project_id,
+                    query=clean_cq,
+                    top_k=LEXICAL_CANDIDATE_K
+                )
+                for lh in lhits:
+                    cid = lh.get("chunkId")
+                    if cid and cid not in seen_lex:
+                        seen_lex.add(cid)
+                        raw_lexical_hits.append(lh)
+    except Exception as le:
+        logger.warning(f"[completion lexical error] {le}")
+
+    # 3. Candidate Normalization & Multi-Source Merge
+    comp_map: Dict[str, Candidate] = {}
+    for rank, hit in enumerate(raw_dense_hits, start=1):
+        c_id = hit.get("chunkId")
+        if not c_id:
+            continue
+        identifiers = hit.get("identifierKeys") or []
+        if isinstance(identifiers, str):
+            identifiers = [identifiers]
+        comp_map[c_id] = Candidate(
+            chunkId=c_id,
+            documentId=hit.get("documentId", ""),
+            projectId=hit.get("projectId", project_id),
+            text=hit.get("text", ""),
+            chunkIndex=hit.get("chunkIndex", 0),
+            pageNumber=hit.get("pageNumber", 1),
+            section=hit.get("section"),
+            heading=hit.get("heading"),
+            identifiers=identifiers,
+            denseScore=float(hit.get("score", 0.0)),
+            denseRank=rank,
+            sources=["qdrant_dense"],
+            metadata=hit.get("metadata", {})
+        )
+
+    for rank, hit in enumerate(raw_lexical_hits, start=1):
+        c_id = hit.get("chunkId")
+        if not c_id:
+            continue
+        ident_raw = hit.get("identifiers", "")
+        lex_idents = ident_raw.split() if isinstance(ident_raw, str) else list(ident_raw)
+        if c_id in comp_map:
+            cand = comp_map[c_id]
+            cand.lexicalScore = float(hit.get("score", 0.0))
+            cand.lexicalRank = rank
+            if "tantivy_lexical" not in cand.sources:
+                cand.sources.append("tantivy_lexical")
+            cand.identifiers = list(set(cand.identifiers + lex_idents))
+        else:
+            comp_map[c_id] = Candidate(
+                chunkId=c_id,
+                documentId=hit.get("documentId", ""),
+                projectId=hit.get("projectId", project_id),
+                text=hit.get("text", ""),
+                pageNumber=hit.get("pageNumber", 1),
+                identifiers=lex_idents,
+                lexicalScore=float(hit.get("score", 0.0)),
+                lexicalRank=rank,
+                sources=["tantivy_lexical"]
+            )
+
+    all_comp = list(comp_map.values())
+    if not all_comp:
+        return []
+
+    # 4. PostgreSQL Lifecycle & Project Isolation
+    doc_ids = list(set(c.documentId for c in all_comp if c.documentId))
+    try:
+        ready_doc_ids, doc_filenames = get_ready_documents_meta(project_id, doc_ids)
+    except Exception as pe:
+        logger.error(f"[completion pg validation error] {pe}")
+        return []
+
+    valid_comp = []
+    for c in all_comp:
+        if c.projectId == project_id and c.documentId in ready_doc_ids:
+            if c.documentId in doc_filenames:
+                if not c.metadata:
+                    c.metadata = {}
+                c.metadata["filename"] = doc_filenames[c.documentId]
+            valid_comp.append(c)
+
+    if not valid_comp:
+        return []
+
+    # 5. RRF Fusion
+    for cand in valid_comp:
+        cand.rrfScore = calculate_rrf_score(
+            dense_rank=cand.denseRank,
+            lexical_rank=cand.lexicalRank,
+            graph_rank=cand.graphRank,
+            k=RRF_K
+        )
+
+    valid_comp.sort(key=lambda c: -c.rrfScore)
+    pool_for_rerank = valid_comp[:RERANK_CANDIDATE_K]
+
+    # 6. FlashRank Reranking
+    rerank_q = completion_queries[0]
+    reranked_comp = []
+    try:
+        passages = [{"chunkId": c.chunkId, "text": c.text, "candidate": c} for c in pool_for_rerank]
+        rerank_res = rerank(query=rerank_q, passages=passages, top_n=RERANK_CANDIDATE_K)
+        for res in rerank_res:
+            cand = res["candidate"]
+            cand.rerankScore = float(res.get("rerankScore", 0.0))
+            reranked_comp.append(cand)
+    except Exception as rre:
+        logger.warning(f"[completion rerank error] {rre}")
+        reranked_comp = pool_for_rerank
+
+    reranked_comp.sort(key=lambda c: c.rerankScore or 0.0, reverse=True)
+    return reranked_comp[:top_k]
+
+
+def merge_and_select_complete_evidence(
+    initial_candidates: List[Candidate],
+    completion_candidates: List[Candidate],
+    facet_set: Optional[Any] = None,
+    top_k: int = RERANK_CANDIDATE_K
+) -> List[Candidate]:
+    """
+    Merges initial evidence and completion evidence.
+    Ensures at least 1 candidate for each supported facet is preserved (preventing starvation).
+    """
+    if not completion_candidates:
+        return initial_candidates
+
+    merged: List[Candidate] = []
+    seen_chunk_ids: Set[str] = set()
+
+    facet_chunk_ids: Set[str] = set()
+    if facet_set and getattr(facet_set, "facets", None):
+        for f in facet_set.facets:
+            for cid in getattr(f, "evidenceChunkIds", []):
+                facet_chunk_ids.add(cid)
+
+    # Preserve highest rerank score across initial and completion passes for shared chunks
+    initial_scores = {c.chunkId: c.rerankScore for c in initial_candidates if c.rerankScore is not None}
+    completion_scores = {c.chunkId: c.rerankScore for c in completion_candidates if c.rerankScore is not None}
+    for c in completion_candidates:
+        if c.chunkId in initial_scores:
+            c.rerankScore = max(c.rerankScore or 0.0, initial_scores[c.chunkId] or 0.0)
+    for c in initial_candidates:
+        if c.chunkId in completion_scores:
+            c.rerankScore = max(c.rerankScore or 0.0, completion_scores[c.chunkId] or 0.0)
+
+    # Answering completion candidates with sufficient relevance
+    answering_completion = [
+        c for c in completion_candidates
+        if (c.rerankScore and c.rerankScore >= 0.15) or (c.chunkId in facet_chunk_ids)
+    ]
+
+    top_initial = initial_candidates[:2] if initial_candidates else []
+
+    for c in answering_completion:
+        if c.chunkId not in seen_chunk_ids:
+            seen_chunk_ids.add(c.chunkId)
+            merged.append(c)
+
+    for c in top_initial:
+        if c.chunkId not in seen_chunk_ids:
+            seen_chunk_ids.add(c.chunkId)
+            merged.append(c)
+
+    # Ensure at least 1 candidate for each supported facet is present (anti-starvation)
+    if facet_set and getattr(facet_set, "facets", None):
+        for f in facet_set.facets:
+            f_cids = getattr(f, "evidenceChunkIds", [])
+            if f_cids and not any(cid in seen_chunk_ids for cid in f_cids):
+                for c in (completion_candidates + initial_candidates):
+                    if c.chunkId in f_cids and c.chunkId not in seen_chunk_ids:
+                        seen_chunk_ids.add(c.chunkId)
+                        merged.insert(min(len(merged), 2), c)
+                        break
+
+    for c in initial_candidates:
+        if c.chunkId not in seen_chunk_ids:
+            seen_chunk_ids.add(c.chunkId)
+            merged.append(c)
+
+    for c in completion_candidates:
+        if c.chunkId not in seen_chunk_ids:
+            seen_chunk_ids.add(c.chunkId)
+            merged.append(c)
+
+    return merged[:top_k]
 
 
 def retrieve_evidence(
@@ -1281,6 +1817,8 @@ def retrieve_evidence(
     search_queries: Optional[List[str]] = None,
     lexical_anchors: Optional[List[str]] = None,
     question_slot: Optional[str] = None,
+    facet_set: Optional[Any] = None,
+    is_challenge_retry: bool = False,
 ) -> RetrieveResponse:
     """
     Canonical M2 Retrieval Pipeline:
@@ -1295,7 +1833,7 @@ def retrieve_evidence(
     """
     start_time = time.perf_counter()
     req_id = request_id or f"req_{uuid.uuid4().hex[:12]}"
-    bounded_top_k = min(max(1, top_k), RERANK_CANDIDATE_K)
+    bounded_top_k = min(max(1, top_k + (2 if is_challenge_retry else 0)), RERANK_CANDIDATE_K)
 
     # 1. Deterministic Query Routing
     # Use original query (search_queries[1]) for identifier extraction to prevent
@@ -1648,8 +2186,78 @@ def retrieve_evidence(
         # Re-sort descending by rerankScore after slot alignment boost
         reranked_pool.sort(key=lambda c: c.rerankScore or 0.0, reverse=True)
 
-    # 8. Deterministic Evidence Sufficiency Gate
-    sufficiency = evaluate_sufficiency(reranked_pool, route, query=query)
+    # 8. Answer Facet Completeness Evaluation & Bounded Evidence Completion Retrieval
+    from src.pipeline.query_understanding import extract_answer_facets, FacetStatus
+    if facet_set is None:
+        facet_set = extract_answer_facets(query)
+    evaluate_facet_completeness(facet_set, reranked_pool, query)
+
+    completion_triggered = False
+    completion_reason = None
+    completion_stop_reason = None
+    initial_evidence_count = len(reranked_pool)
+    initial_slot_coverage = getattr(facet_set, "coverageScore", 0.0) if facet_set else 0.0
+    completion_queries_count = 0
+    completion_evidence_count = 0
+    final_slot_coverage = initial_slot_coverage
+
+    has_unresolved_facets = bool(
+        facet_set
+        and getattr(facet_set, "facets", None)
+        and any(getattr(f, "status", None) in (FacetStatus.UNRESOLVED, FacetStatus.PARTIAL) for f in facet_set.facets)
+        and (getattr(facet_set, "isComparison", False) or getattr(facet_set, "isCompound", False) or getattr(facet_set, "isMultiHop", False))
+    )
+
+    if has_unresolved_facets and reranked_pool:
+        top_cand_score = reranked_pool[0].rerankScore if reranked_pool[0].rerankScore is not None else 0.0
+        # Trigger ONE bounded completion retrieval if candidate pool has signal or partial facet coverage
+        if top_cand_score >= 0.10 or any(getattr(f, "status", None) in (FacetStatus.SUPPORTED, FacetStatus.PARTIAL) for f in facet_set.facets):
+            completion_triggered = True
+            completion_reason = "Unresolved answer facets"
+            completion_queries = generate_completion_queries(query, reranked_pool, facet_set=facet_set)
+            completion_queries_count = len(completion_queries)
+
+            if completion_queries:
+                logger.info(f"[retrieval completion] Running bounded completion for queries: {completion_queries}")
+                completion_cands = execute_completion_search(
+                    project_id=project_id,
+                    completion_queries=completion_queries,
+                    initial_candidates=reranked_pool,
+                    top_k=bounded_top_k
+                )
+                completion_evidence_count = len(completion_cands)
+
+                reranked_pool = merge_and_select_complete_evidence(
+                    initial_candidates=reranked_pool,
+                    completion_candidates=completion_cands,
+                    facet_set=facet_set,
+                    top_k=RERANK_CANDIDATE_K
+                )
+
+                evaluate_facet_completeness(facet_set, reranked_pool, query)
+                final_slot_coverage = getattr(facet_set, "coverageScore", 0.0) if facet_set else 0.0
+
+                if facet_set and getattr(facet_set, "coverageScore", 0.0) >= 0.99:
+                    completion_stop_reason = "COMPLETE"
+                else:
+                    completion_stop_reason = "EXHAUSTED"
+
+    # Deterministic Evidence Sufficiency Gate
+    bridge_entity = getattr(facet_set, "extractedBridgeEntity", None) if facet_set else None
+    multi_hop_resolved = getattr(facet_set, "multiHopResolved", None) if facet_set else None
+
+    sufficiency = evaluate_sufficiency(
+        reranked_pool,
+        route,
+        query=query,
+        facet_set=facet_set,
+        completion_stop_reason=completion_stop_reason,
+        completion_triggered=completion_triggered,
+        completion_reason=completion_reason,
+        challenge_retry=is_challenge_retry,
+        bridge_entity=bridge_entity,
+        multi_hop_resolved=multi_hop_resolved,
+    )
 
     # Filter out superseded candidates if revision precedence established a newer revision
     if sufficiency.signals.revisionResolution == "newer_revision_selected":

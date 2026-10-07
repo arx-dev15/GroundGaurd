@@ -308,34 +308,39 @@ class RealLLMRuntime:
             "contents": [{"parts": [{"text": user_prompt}]}],
             "generationConfig": generation_config
         }
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            async with client.stream("POST", url, headers=headers, json=payload) as response:
-                if response.status_code != 200:
-                    err_body = await response.aread()
-                    raise LLMUnavailableError(f"Gemini streaming error (HTTP {response.status_code}): {err_body.decode('utf-8', errors='ignore')}")
+        for attempt in range(3):
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    if response.status_code in (429, 503) and attempt < 2:
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
+                    if response.status_code != 200:
+                        err_body = await response.aread()
+                        raise LLMUnavailableError(f"Gemini streaming error (HTTP {response.status_code}): {err_body.decode('utf-8', errors='ignore')}")
 
-                buffer = ""
-                async for chunk in response.aiter_text():
-                    buffer += chunk
-                    while True:
-                        match = re.search(r'\r?\n\r?\n', buffer)
-                        if not match:
-                            break
-                        block = buffer[:match.start()]
-                        buffer = buffer[match.end():]
-                        for line in block.splitlines():
-                            line = line.strip()
-                            if line.startswith("data:"):
-                                raw_data = line[5:].strip()
-                                try:
-                                    data = json.loads(raw_data)
-                                    parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                                    # Extract ONLY user-visible answer text; do NOT expose thought or private reasoning
-                                    delta = "".join(p.get("text", "") for p in parts if "text" in p and not p.get("thought"))
-                                    if delta:
-                                        yield delta
-                                except Exception:
-                                    pass
+                    buffer = ""
+                    async for chunk in response.aiter_text():
+                        buffer += chunk
+                        while True:
+                            match = re.search(r'\r?\n\r?\n', buffer)
+                            if not match:
+                                break
+                            block = buffer[:match.start()]
+                            buffer = buffer[match.end():]
+                            for line in block.splitlines():
+                                line = line.strip()
+                                if line.startswith("data:"):
+                                    raw_data = line[5:].strip()
+                                    try:
+                                        data = json.loads(raw_data)
+                                        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                                        # Extract ONLY user-visible answer text; do NOT expose thought or private reasoning
+                                        delta = "".join(p.get("text", "") for p in parts if "text" in p and not p.get("thought"))
+                                        if delta:
+                                            yield delta
+                                    except Exception:
+                                        pass
+                    return
 
     async def _stream_groq(self, system_prompt: str, user_prompt: str):
         import json

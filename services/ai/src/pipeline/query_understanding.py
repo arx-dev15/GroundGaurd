@@ -17,6 +17,7 @@ import json
 import time
 import logging
 import asyncio
+from enum import Enum
 from typing import Optional, List, Dict, Any, Literal, Tuple
 from pydantic import BaseModel, Field, validator
 from dotenv import load_dotenv
@@ -78,6 +79,71 @@ AllowedRetrievalStrategy = Literal[
 ]
 
 
+class InformationNeed(str, Enum):
+    IDENTITY = "IDENTITY"
+    DEFINITION = "DEFINITION"
+    FUNCTION = "FUNCTION"
+    PURPOSE = "PURPOSE"
+    CAUSE = "CAUSE"
+    LOCATION = "LOCATION"
+    TIME = "TIME"
+    PERSON = "PERSON"
+    RELATIONSHIP = "RELATIONSHIP"
+    NUMERIC = "NUMERIC"
+    STATE = "STATE"
+    PROCEDURE = "PROCEDURE"
+    SEQUENCE = "SEQUENCE"
+    SUMMARY = "SUMMARY"
+    COMPARISON = "COMPARISON"
+    EXPLANATION = "EXPLANATION"
+
+
+class FacetStatus(str, Enum):
+    SUPPORTED = "SUPPORTED"
+    PARTIAL = "PARTIAL"
+    UNRESOLVED = "UNRESOLVED"
+    CONTRADICTED = "CONTRADICTED"
+    CONFLICTING = "CONFLICTING"
+
+
+class AnswerFacet(BaseModel):
+    facetId: str
+    facetType: str = "general"
+    description: str
+    informationNeed: InformationNeed = InformationNeed.DEFINITION
+    targetEntity: str = ""
+    requiredKeywords: List[str] = Field(default_factory=list)
+    searchQuery: str = ""
+    retrievalCoverage: str = "NOT_FOUND"  # "FOUND" or "NOT_FOUND"
+    status: FacetStatus = FacetStatus.UNRESOLVED
+    evidenceChunkIds: List[str] = Field(default_factory=list)
+
+
+class AnswerFacetSet(BaseModel):
+    facets: List[AnswerFacet] = Field(default_factory=list)
+    overallStatus: FacetStatus = FacetStatus.UNRESOLVED
+    coverageScore: float = 0.0
+    isComparison: bool = False
+    isCompound: bool = False
+    isMultiHop: bool = False
+    bridgeEntities: List[str] = Field(default_factory=list)
+    extractedBridgeEntity: Optional[str] = None
+    multiHopResolved: Optional[bool] = None
+
+    @property
+    def facet_statuses(self) -> Dict[str, str]:
+        res = {}
+        for i, f in enumerate(self.facets):
+            val = f.status.value if hasattr(f.status, "value") else str(f.status)
+            res[f.facetId] = val
+            res[f"facet_{i}"] = val
+        return res
+
+    @property
+    def all_facets_supported(self) -> bool:
+        return len(self.facets) > 0 and all(f.status == FacetStatus.SUPPORTED for f in self.facets)
+
+
 class QueryPlan(BaseModel):
     task: AllowedTask = "targeted"
     standalone_query: str = ""
@@ -86,6 +152,7 @@ class QueryPlan(BaseModel):
     comparison_targets: List[str] = Field(default_factory=list)
     needs_clarification: bool = False
     clarification_question: Optional[str] = None
+    facets: Optional[AnswerFacetSet] = None
 
     # Four-dimensional general model (Section 13)
     source_scope: AllowedSourceScope = "project"
@@ -269,13 +336,21 @@ def _build_planner_prompt(
         parts.append(f"READY DOCUMENTS ({len(ready_doc_titles)} ready): " + titles_str)
 
     if conversation_context:
-        recent = conversation_context[-6:]
-        ctx_lines = []
-        for turn in recent:
-            role = turn.get("role", "user").upper()
-            content = (turn.get("content", "") or "")[:400]
-            ctx_lines.append(role + ": " + content)
-        parts.append("RECENT CONVERSATION:\n" + "\n".join(ctx_lines))
+        valid_turns = []
+        for turn in conversation_context[-6:]:
+            cnt = (turn.get("content", "") or "").strip().lower()
+            if len(cnt) < 30 and re.search(r'^(?:(?:please\s+)?(?:answer|respond|reply|tell\s+me)|hello\??|hey\??|hi\??|come\s+on\??|bro+|dude|waiting\.*)\b', cnt):
+                continue
+            if re.search(r'^(?:answer\s+bro+|hello\?+|respond|come\s+on|pls\s+answer|plz\s+answer|just\s+answer)$', cnt):
+                continue
+            valid_turns.append(turn)
+        if valid_turns:
+            ctx_lines = []
+            for turn in valid_turns:
+                role = turn.get("role", "user").upper()
+                content = (turn.get("content", "") or "")[:400]
+                ctx_lines.append(role + ": " + content)
+            parts.append("RECENT CONVERSATION:\n" + "\n".join(ctx_lines))
 
     parts.append("USER QUERY: " + query)
     parts.append("Return a QueryPlan JSON object:")
@@ -411,6 +486,260 @@ def detect_proposition(query: str) -> Tuple[bool, Optional[str], Optional[str], 
 
 
 # ---------------------------------------------------------------------------
+# User Challenge / Correction Detection (Pass 2)
+# ---------------------------------------------------------------------------
+
+def detect_user_challenge(
+    query: str,
+    conversation_context: Optional[List[Dict[str, Any]]] = None
+) -> Tuple[bool, Optional[str]]:
+    """
+    Detects user challenge / correction turns:
+    'look again', 'check again', 'you missed it', 'are you sure?', "that's in the document",
+    'look carefully', 'i think the document contains more detail', 'read again', 'check the source'.
+    Recovers the prior substantive factual query that was challenged.
+    """
+    if not query:
+        return False, None
+
+    q_clean = query.strip().lower().rstrip(".!?")
+
+    challenge_patterns = [
+        r'\b(?:no\s+there\s+is|look\s+carefully|look\s+again|check\s+again|check\s+carefully|check\s+the\s+source|check\s+the\s+document)\b',
+        r'\b(?:you\s+missed\s+it|it\s+is\s+in\s+the\s+document|that\s+is\s+in\s+the\s+source|it\s+does\s+say|it\s+does\s+state|are\s+you\s+sure)\b',
+        r'\b(?:read\s+again|re-?examine|re-?read|it\s+is\s+there|no\s+it\s+is\s+there|i\s+think\s+the\s+document\s+contains)\b',
+        r'\b(?:contains?\s+more\s+detail|more\s+information\s+in\s+the\s+document|search\s+again)\b',
+    ]
+
+    is_challenge = any(bool(re.search(pat, q_clean, re.I)) for pat in challenge_patterns)
+    if not is_challenge:
+        return False, None
+
+    if not conversation_context:
+        return True, None
+
+    # Search backwards for the most recent substantive user turn before this one
+    target_q = None
+    for turn in reversed(conversation_context):
+        role = turn.get("role", "").lower()
+        content = turn.get("content", "").strip()
+        if role == "user" and content:
+            # Must not be another challenge pattern and not a short meta phrase
+            if not any(bool(re.search(pat, content.lower(), re.I)) for pat in challenge_patterns) and len(content) >= 4:
+                target_q = content
+                break
+
+    return True, target_q
+
+
+# ---------------------------------------------------------------------------
+# Answer Facet Extraction (Bounded Completeness, Comparison & Multi-Hop)
+# ---------------------------------------------------------------------------
+
+def extract_answer_facets(
+    query: str,
+    plan: Optional[QueryPlan] = None
+) -> AnswerFacetSet:
+    """
+    Extracts independently verifiable answer facets from the user query.
+    Decomposes compound questions and comparisons into discrete required facets.
+    """
+    clean_q = (query or "").strip().rstrip("?.!")
+
+    # 1. COMPARISON: "How did A differ from B?", "Compare A and B", "difference between A and B", "A vs B"
+    m_comp = re.search(
+        r'\b(?:how\s+(?:did|does|do)\s+([a-zA-Z0-9_\s.\'-]+?)\s+(?:differ\s+from|compare\s+(?:to|with)?)\s+([a-zA-Z0-9_\s.\'-]+))\b',
+        clean_q,
+        re.IGNORECASE
+    )
+    if not m_comp:
+        m_comp = re.search(
+            r'\b(?:compare\s+([a-zA-Z0-9_\s.\'-]+?)\s+(?:and|with|to)\s+([a-zA-Z0-9_\s.\'-]+))\b',
+            clean_q,
+            re.IGNORECASE
+        )
+    if not m_comp:
+        m_comp = re.search(
+            r'\b(?:difference\s+between\s+([a-zA-Z0-9_\s.\'-]+?)\s+and\s+([a-zA-Z0-9_\s.\'-]+))\b',
+            clean_q,
+            re.IGNORECASE
+        )
+    if not m_comp:
+        m_comp = re.search(
+            r'\b(?:what\s+separates\s+([a-zA-Z0-9_\s.\'-]+?)\s+from\s+([a-zA-Z0-9_\s.\'-]+))\b',
+            clean_q,
+            re.IGNORECASE
+        )
+    if not m_comp:
+        m_comp = re.search(
+            r'\b(?:where\s+do\s+([a-zA-Z0-9_\s.\'-]+?)\s+and\s+([a-zA-Z0-9_\s.\'-]+?)\s+disagree)\b',
+            clean_q,
+            re.IGNORECASE
+        )
+    if not m_comp:
+        m_comp = re.search(
+            r'\b([a-zA-Z0-9_\s.\'-]+?)\s+(?:vs\.?|versus)\s+([a-zA-Z0-9_\s.\'-]+)\b',
+            clean_q,
+            re.IGNORECASE
+        )
+
+    if m_comp:
+        target_a = m_comp.group(1).strip()
+        target_b = m_comp.group(2).strip()
+        kw_a = [w.lower() for w in re.findall(r'\b[A-Za-z0-9_-]+\b', target_a) if (w.lower() not in _STOPWORDS_SET or (w.isupper() and len(w) == 1)) and (len(w) >= 2 or w.isalnum())]
+        kw_b = [w.lower() for w in re.findall(r'\b[A-Za-z0-9_-]+\b', target_b) if (w.lower() not in _STOPWORDS_SET or (w.isupper() and len(w) == 1)) and (len(w) >= 2 or w.isalnum())]
+        facets = [
+            AnswerFacet(
+                facetId="facet_0",
+                facetType="option_a",
+                description=f"Evidence establishing {target_a}",
+                informationNeed=InformationNeed.DEFINITION,
+                targetEntity=target_a,
+                requiredKeywords=kw_a,
+                searchQuery=f"{target_a}",
+            ),
+            AnswerFacet(
+                facetId="facet_1",
+                facetType="option_b",
+                description=f"Evidence establishing {target_b}",
+                informationNeed=InformationNeed.DEFINITION,
+                targetEntity=target_b,
+                requiredKeywords=kw_b,
+                searchQuery=f"{target_b}",
+            ),
+        ]
+        return AnswerFacetSet(
+            facets=facets,
+            isComparison=True,
+            bridgeEntities=[target_a, target_b]
+        )
+
+    # 2. COMPOUND: Coordinating questions separated by 'and'
+    m_compound = re.search(
+        r'^(?:what|where|when|who|how|which|why)\b.*?\s+and\s+(?:what|where|when|who|how|which|why)\b.*$',
+        clean_q,
+        re.IGNORECASE
+    )
+    if not m_compound:
+        m_compound = re.search(
+            r'\b(?:what\s+(?:are|is|did)\s+(.+?)\s+and\s+(?:what|where|when|who|how|which|why|rated|operating|maximum|minimum|test|testing|evidence|verification)?\s*(.+))\b',
+            clean_q,
+            re.IGNORECASE
+        )
+
+    if m_compound:
+        parts = re.split(r'\s+and\s+', clean_q, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) == 2:
+            part1 = parts[0].strip()
+            part2 = parts[1].strip()
+            kw_part1 = [w.lower() for w in re.findall(r'\b[A-Za-z0-9_-]+\b', part1) if (w.lower() not in _STOPWORDS_SET or (w.isupper() and len(w) == 1)) and (len(w) >= 2 or w.isalnum())]
+            kw_part2 = [w.lower() for w in re.findall(r'\b[A-Za-z0-9_-]+\b', part2) if (w.lower() not in _STOPWORDS_SET or (w.isupper() and len(w) == 1)) and (len(w) >= 2 or w.isalnum())]
+            if kw_part1 and kw_part2:
+                anchors = extract_lexical_anchors(clean_q)
+                anchor_str = " ".join(anchors) if anchors else ""
+                sq1 = f"{part1} {anchor_str}".strip() if anchor_str and not any(a.lower() in part1.lower() for a in anchors) else part1
+                sq2 = f"{part2} {anchor_str}".strip() if anchor_str and not any(a.lower() in part2.lower() for a in anchors) else part2
+                facets = [
+                    AnswerFacet(
+                        facetId="facet_0",
+                        facetType="facet_a",
+                        description=f"Evidence establishing {part1}",
+                        informationNeed=InformationNeed.DEFINITION,
+                        targetEntity=part1,
+                        requiredKeywords=kw_part1,
+                        searchQuery=sq1,
+                    ),
+                    AnswerFacet(
+                        facetId="facet_1",
+                        facetType="facet_b",
+                        description=f"Evidence establishing {part2}",
+                        informationNeed=InformationNeed.DEFINITION,
+                        targetEntity=part2,
+                        requiredKeywords=kw_part2,
+                        searchQuery=sq2,
+                    ),
+                ]
+                return AnswerFacetSet(
+                    facets=facets,
+                    isCompound=True,
+                    bridgeEntities=[part1, part2]
+                )
+
+    # 3. MULTI-HOP / CONNECTION: "How are X and Y connected", "How is X connected to Y", "What connects A to B", "connection between A and B"
+    m_connect = re.search(
+        r'\b(?:how\s+(?:are|is)\s+(?:the\s+events\s+involving\s+)?([a-zA-Z0-9_\s.\'-]+?)\s+(?:connected\s+to|related\s+to|linked\s+to)\s+([a-zA-Z0-9_\s.\'-]+))\b',
+        clean_q,
+        re.IGNORECASE
+    )
+    if not m_connect:
+        m_connect = re.search(
+            r'\b(?:what\s+(?:is\s+the\s+connection\s+between|connects)\s+([a-zA-Z0-9_\s.\'-]+?)\s+and\s+([a-zA-Z0-9_\s.\'-]+))\b',
+            clean_q,
+            re.IGNORECASE
+        )
+    if not m_connect:
+        m_connect = re.search(
+            r'\b(?:how\s+are\s+([a-zA-Z0-9_\s.\'-]+?)\s+and\s+([a-zA-Z0-9_\s.\'-]+?)\s+(?:connected|related|linked))\b',
+            clean_q,
+            re.IGNORECASE
+        )
+    if not m_connect:
+        m_connect = re.search(
+            r'\b(?:what\s+is\s+the\s+relationship\s+between\s+([a-zA-Z0-9_\s.\'-]+?)\s+and\s+([a-zA-Z0-9_\s.\'-]+))\b',
+            clean_q,
+            re.IGNORECASE
+        )
+
+    if m_connect:
+        ep1 = m_connect.group(1).strip()
+        ep2 = m_connect.group(2).strip()
+        kw_ep1 = [w.lower() for w in re.findall(r'\b[A-Za-z0-9_-]+\b', ep1) if (w.lower() not in _STOPWORDS_SET or (w.isupper() and len(w) == 1)) and (len(w) >= 2 or w.isalnum())]
+        kw_ep2 = [w.lower() for w in re.findall(r'\b[A-Za-z0-9_-]+\b', ep2) if (w.lower() not in _STOPWORDS_SET or (w.isupper() and len(w) == 1)) and (len(w) >= 2 or w.isalnum())]
+        facets = [
+            AnswerFacet(
+                facetId="facet_0",
+                facetType="endpoint_a",
+                description=f"Evidence establishing {ep1}",
+                informationNeed=InformationNeed.DEFINITION,
+                targetEntity=ep1,
+                requiredKeywords=kw_ep1,
+                searchQuery=ep1,
+            ),
+            AnswerFacet(
+                facetId="facet_1",
+                facetType="endpoint_b",
+                description=f"Evidence establishing {ep2}",
+                informationNeed=InformationNeed.DEFINITION,
+                targetEntity=ep2,
+                requiredKeywords=kw_ep2,
+                searchQuery=ep2,
+            ),
+        ]
+        return AnswerFacetSet(
+            facets=facets,
+            isMultiHop=True,
+            bridgeEntities=[ep1, ep2]
+        )
+
+    # 4. DIRECT / SINGLE FACET
+    kw_direct = [w.lower() for w in re.findall(r'\b[A-Za-z0-9_-]+\b', clean_q) if (w.lower() not in _STOPWORDS_SET or (w.isupper() and len(w) == 1)) and (len(w) >= 2 or w.isalnum())]
+    facet = AnswerFacet(
+        facetId="facet_direct",
+        description=f"Requested information: {clean_q}",
+        informationNeed=InformationNeed.DEFINITION,
+        targetEntity=clean_q,
+        requiredKeywords=kw_direct,
+        searchQuery=clean_q,
+    )
+    return AnswerFacetSet(
+        facets=[facet],
+        isCompound=False,
+        isComparison=False,
+        bridgeEntities=[]
+    )
+
+
+# ---------------------------------------------------------------------------
 # Planner fallback -- always safe
 # ---------------------------------------------------------------------------
 
@@ -420,6 +749,7 @@ def _make_fallback_plan(query: str) -> QueryPlan:
     anchors = extract_lexical_anchors(clean)
     slot, _ = detect_question_slot(clean)
     is_prop, p_subj, p_prop, p_val = detect_proposition(clean)
+    facets = extract_answer_facets(clean)
 
     search_qs = [clean] if clean else []
     if is_prop:
@@ -435,18 +765,42 @@ def _make_fallback_plan(query: str) -> QueryPlan:
     elif anchors and " ".join(anchors) not in search_qs:
         search_qs.append(" ".join(anchors))
 
+    ret_mode = "focused"
+    ret_strat = "focused"
+    task = "targeted"
+    if facets.isComparison:
+        task = "comparison"
+        ret_mode = "comparative"
+        ret_strat = "comparative"
+        for f in facets.facets:
+            if f.searchQuery and f.searchQuery not in search_qs:
+                search_qs.append(f.searchQuery)
+    elif facets.isCompound:
+        task = "multi_part"
+        ret_mode = "broad"
+        for f in facets.facets:
+            if f.searchQuery and f.searchQuery not in search_qs:
+                search_qs.append(f.searchQuery)
+    elif facets.isMultiHop:
+        task = "multi_hop"
+        ret_mode = "focused"
+        ret_strat = "focused"
+        if facets.facets and facets.facets[0].searchQuery and facets.facets[0].searchQuery not in search_qs:
+            search_qs.append(facets.facets[0].searchQuery)
+
     return QueryPlan(
-        task="targeted",
+        task=task,
         standalone_query=clean,
-        retrieval_mode="focused",
+        retrieval_mode=ret_mode,
         search_queries=search_qs,
-        comparison_targets=[],
+        comparison_targets=facets.bridgeEntities if facets.isComparison else [],
         needs_clarification=False,
         clarification_question=None,
+        facets=facets,
         source_scope="project",
         target=clean,
-        operation="lookup",
-        retrieval_strategy="focused",
+        operation="compare" if facets.isComparison else "lookup",
+        retrieval_strategy=ret_strat,
         question_slot=slot,
         lexical_anchors=anchors,
         is_proposition=is_prop,
@@ -663,7 +1017,7 @@ async def understand_query(
 
     # 3. Gemini planner path
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("LLM_API_KEY", "")
-    model = os.getenv("LLM_PLANNER_MODEL", "gemini-flash-lite-latest")
+    model = os.getenv("LLM_PLANNER_MODEL") or os.getenv("LLM_MODEL") or "gemini-3.6-flash"
 
     user_prompt = _build_planner_prompt(
         query=raw_query,
@@ -894,10 +1248,35 @@ async def understand_query(
     elif not plan.search_queries and plan.task not in ("social", "product_help"):
         plan.search_queries = [plan.standalone_query]
 
+    # Multi-facet and comparison decomposition
+    if plan.task not in ("social", "product_help"):
+        plan.facets = extract_answer_facets(plan.standalone_query or raw_query, plan)
+        if plan.facets.isComparison:
+            plan.task = "comparison"
+            plan.retrieval_mode = "comparative"
+            plan.retrieval_strategy = "comparative"
+            plan.comparison_targets = plan.facets.bridgeEntities
+            for f in plan.facets.facets:
+                if f.searchQuery and f.searchQuery not in plan.search_queries:
+                    plan.search_queries.append(f.searchQuery)
+        elif plan.facets.isCompound:
+            plan.task = "multi_part"
+            plan.retrieval_mode = "broad"
+            for f in plan.facets.facets:
+                if f.searchQuery and f.searchQuery not in plan.search_queries:
+                    plan.search_queries.append(f.searchQuery)
+        elif plan.facets.isMultiHop:
+            plan.task = "multi_hop"
+            plan.retrieval_mode = "focused"
+            plan.retrieval_strategy = "focused"
+            if plan.facets.facets and plan.facets.facets[0].searchQuery and plan.facets.facets[0].searchQuery not in plan.search_queries:
+                plan.search_queries.append(plan.facets.facets[0].searchQuery)
+
     logger.info(
-        "[planner] task=%s mode=%s strat=%s op=%s slot=%s queries=%d doc=%s clarify=%s",
+        "[planner] task=%s mode=%s strat=%s op=%s slot=%s queries=%d doc=%s clarify=%s facets=%d",
         plan.task, plan.retrieval_mode, plan.retrieval_strategy, plan.operation,
         plan.question_slot, len(plan.search_queries), plan.resolved_document_name, plan.needs_clarification,
+        len(plan.facets.facets) if plan.facets else 0
     )
     return plan
 

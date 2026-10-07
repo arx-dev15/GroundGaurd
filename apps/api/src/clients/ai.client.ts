@@ -112,6 +112,32 @@ export class AIClient {
     return res.json();
   }
 
+  public async verifyIndex(
+    documentId: string,
+    projectId: string,
+    expectedCount?: number,
+    requestId?: string
+  ): Promise<{ consistent: boolean; documentId: string; projectId: string; qdrantCount: number; tantivyCount: number; expectedCount?: number }> {
+    const headers: Record<string, string> = {};
+    if (requestId) headers['x-request-id'] = requestId;
+
+    const url = new URL(`${this.baseUrl}/documents/${documentId}/verify-index`);
+    url.searchParams.append('projectId', projectId);
+    if (expectedCount !== undefined) {
+      url.searchParams.append('expectedCount', String(expectedCount));
+    }
+
+    const res = await this.fetchWithTimeout(url.toString(), {
+      method: 'GET',
+      headers,
+    });
+
+    if (!res.ok) {
+      throw new ServiceUnavailableError('AI Service (/verify-index)');
+    }
+    return res.json();
+  }
+
   public async retrieve(payload: RetrieveRequest, requestId?: string): Promise<RetrieveResult> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (requestId) headers['x-request-id'] = requestId;

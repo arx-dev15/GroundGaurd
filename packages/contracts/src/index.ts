@@ -304,6 +304,8 @@ export interface IndexStatus {
   tantivy: boolean;
   networkx: boolean;
   graphEdgesCount: number;
+  qdrantCount?: number;
+  tantivyCount?: number;
 }
 
 export interface DeleteDocumentResponse {

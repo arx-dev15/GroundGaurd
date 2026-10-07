@@ -92,11 +92,27 @@ export class DocumentOrchestrator {
         await chunkRepository.saveChunks(tempDoc.id, ingestRes.chunks);
       }
 
-      // 4. M3 performs the final status transition to 'ready' only after all required retrieval artifacts exist
+      // Verify 3-way parity across PostgreSQL, Qdrant, and Tantivy before marking READY (Section 2)
+      const pgChunks = await chunkRepository.getChunksByDocumentId(tempDoc.id);
+      const pgCount = pgChunks.length;
+      const expectedCount = ingestRes.chunksCreated || (ingestRes.chunks ? ingestRes.chunks.length : 0);
+
+      if (pgCount !== expectedCount || pgCount === 0) {
+        throw new Error(`Canonical chunk count mismatch: expected ${expectedCount}, got ${pgCount} in PostgreSQL`);
+      }
+
+      const verifyRes = await aiClient.verifyIndex(tempDoc.id, data.projectId, pgCount, data.requestId);
+      if (!verifyRes.consistent || verifyRes.qdrantCount !== pgCount || verifyRes.tantivyCount !== pgCount) {
+        throw new Error(
+          `Index parity mismatch: PG=${pgCount}, Qdrant=${verifyRes.qdrantCount}, Tantivy=${verifyRes.tantivyCount}`
+        );
+      }
+
+      // 4. M3 performs the final status transition to 'ready' only after all 3 stores match exactly
       const readyDoc = await documentRepository.updateStatus(
         tempDoc.id,
         'ready',
-        ingestRes.chunksCreated || (ingestRes.chunks ? ingestRes.chunks.length : 0),
+        pgCount,
         undefined
       );
       return toPublicDocument(readyDoc!);

@@ -42,6 +42,7 @@ async function runInvariantTests() {
   // Test Case 1: M2 ingest success (all indexes created + chunks > 0) -> status becomes READY
   console.log('[Test 1] Complete M2 Ingest Success -> status is READY');
   const originalIngest = aiClient.ingest;
+  const originalVerifyIndex = aiClient.verifyIndex;
   aiClient.ingest = async (): Promise<IngestResponse> => {
     return {
       documentId: 'doc_temp',
@@ -57,6 +58,16 @@ async function runInvariantTests() {
         { id: 'chk_1', text: 'First chunk', pageNumber: 1, identifiers: [] },
         { id: 'chk_2', text: 'Second chunk', pageNumber: 1, identifiers: [] },
       ],
+    };
+  };
+  aiClient.verifyIndex = async (docId, projId, expected) => {
+    return {
+      consistent: true,
+      documentId: docId,
+      projectId: projId,
+      qdrantCount: expected ?? 0,
+      tantivyCount: expected ?? 0,
+      expectedCount: expected,
     };
   };
 
@@ -151,8 +162,50 @@ async function runInvariantTests() {
   assert.strictEqual(docZeroChunks.status, 'failed', 'Document must become FAILED when zero chunks were created');
   assert.notStrictEqual(docZeroChunks.status, 'ready', 'Document must NOT become ready with zero chunks');
 
+  // Test Case 5: 3-way Index Parity Mismatch (Postgres=2, Qdrant=1, Tantivy=2) -> status MUST NOT become READY
+  console.log('[Test 5] 3-way Index Parity Mismatch -> status is FAILED');
+  aiClient.ingest = async (): Promise<IngestResponse> => {
+    return {
+      documentId: 'doc_temp',
+      status: 'completed',
+      chunksCreated: 2,
+      indexStatus: {
+        qdrant: true,
+        tantivy: true,
+        networkx: true,
+        graphEdgesCount: 1,
+      },
+      chunks: [
+        { id: 'chk_5a', text: 'Chunk 5a', pageNumber: 1, identifiers: [] },
+        { id: 'chk_5b', text: 'Chunk 5b', pageNumber: 1, identifiers: [] },
+      ],
+    };
+  };
+  aiClient.verifyIndex = async (docId, projId, expected) => {
+    return {
+      consistent: false,
+      documentId: docId,
+      projectId: projId,
+      qdrantCount: 1, // Mismatched!
+      tantivyCount: expected ?? 0,
+      expectedCount: expected,
+    };
+  };
+
+  const docMismatch = await documentOrchestrator.processDocumentUpload({
+    projectId: project.id,
+    filename: 'mismatch.pdf',
+    fileSize: validPdfBuffer.length,
+    mimeType: 'application/pdf',
+    fileBuffer: validPdfBuffer,
+  });
+
+  assert.strictEqual(docMismatch.status, 'failed', 'Document must become FAILED on index parity mismatch');
+  assert.notStrictEqual(docMismatch.status, 'ready', 'Document must NOT become ready on index parity mismatch');
+
   // Restore
   aiClient.ingest = originalIngest;
+  aiClient.verifyIndex = originalVerifyIndex;
 
   console.log('✅ ALL DOCUMENT READY INVARIANT REGRESSION TESTS PASSED!');
 }
