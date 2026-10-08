@@ -270,3 +270,78 @@ test('CASE 9: Compound sentence recovery projection preserves sibling supported 
     'The system uses IoT sensors and computer vision for monitoring.'
   );
 });
+
+test('CASE 10: Answer with file.pdf and page reference does not drop text', () => {
+  const answer = 'The middle pin connects to Digital Pin 5 [DHT11 Notes for the Students.pdf, p. 1].';
+  const claims: Claim[] = [
+    {
+      claimId: 'claim-pin',
+      text: 'The middle pin connects to Digital Pin 5.',
+      status: 'verified',
+    },
+  ];
+
+  const blocks = mapAnswerToClaims(answer, claims);
+  assert.strictEqual(blocks.length, 1);
+  const items = blocks[0].items;
+  assert.strictEqual(items.length, 1);
+  assert.strictEqual(items[0].displayText, 'The middle pin connects to Digital Pin 5 [DHT11 Notes for the Students.pdf, p. 1].');
+  assert.strictEqual(items[0].matchedClaims.length, 1);
+  assert.strictEqual(items[0].matchedClaims[0].claimId, 'claim-pin');
+});
+
+test('CASE 11: Compound answer with multiple citations preserves 100% of text and maps claims', () => {
+  const answer = 'Dr. Watson is an individual who is introduced to Sherlock Holmes by Stamford [A_Study_in_Scarlet-Arthur_Conan_Doyle.pdf, p. 8] and who has previously been in Afghanistan [A_Study_in_Scarlet-Arthur_Conan_Doyle.pdf, p. 8]. Additionally, he maintains a journal that records events related to their investigations [A_Study_in_Scarlet-Arthur_Conan_Doyle.pdf, p. 105].';
+  const claims: Claim[] = [
+    {
+      claimId: 'c1',
+      text: 'Dr. Watson is an individual who is introduced to Sherlock Holmes by Stamford.',
+      status: 'flagged',
+    },
+    {
+      claimId: 'c2',
+      text: 'Dr. Watson has previously been in Afghanistan.',
+      status: 'flagged',
+    },
+    {
+      claimId: 'c3',
+      text: 'Dr. Watson maintains a journal that records events related to their investigations.',
+      status: 'flagged',
+    },
+  ];
+
+  const blocks = mapAnswerToClaims(answer, claims);
+  assert.strictEqual(blocks.length, 1);
+  const items = blocks[0].items;
+  assert.strictEqual(items.length, 2);
+
+  // Both sentences are preserved completely without truncation
+  assert.ok(items[0].displayText.includes('introduced to Sherlock Holmes by Stamford'));
+  assert.ok(items[0].displayText.includes('previously been in Afghanistan'));
+  assert.ok(items[1].displayText.includes('maintains a journal'));
+
+  // Sentence 1 should have matched claims c1 and c2
+  assert.ok(items[0].matchedClaims.some((c) => c.claimId === 'c1'));
+  // Sentence 2 should have matched claim c3
+  assert.ok(items[1].matchedClaims.some((c) => c.claimId === 'c3'));
+});
+
+test('CASE 12: Unmapped intro prose is retained and rendered without fake claim status', () => {
+  const answer = 'Based on the provided documentation: Feedwater Pump P-101A has a maximum discharge pressure of 15.2 bar. The impeller is made of 316L stainless steel.';
+  const claims: Claim[] = [
+    {
+      claimId: 'c-press',
+      text: 'Feedwater Pump P-101A has a maximum discharge pressure of 15.2 bar.',
+      status: 'verified',
+    },
+  ];
+
+  const blocks = mapAnswerToClaims(answer, claims);
+  assert.strictEqual(blocks.length, 1);
+  const items = blocks[0].items;
+  assert.strictEqual(items.length, 2);
+
+  // Unmapped sentence 2 is preserved
+  assert.ok(items[1].displayText.includes('impeller is made of 316L stainless steel'));
+});
+

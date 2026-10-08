@@ -8,6 +8,8 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names AI,ML,API,WEB --prefix-colors cyan,magenta,yellow,green \"npm run dev:ai\" \"npm run dev:ml\" \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:core": "concurrently --kill-others-on-fail --names AI,ML,API --prefix-colors cyan,magenta,yellow \"npm run dev:ai\" \"npm run dev:ml\" \"npm run dev:api\"",
     "dev:api": "npm --prefix apps/api run dev",
     "dev:web": "npm --prefix apps/web run dev",
     "dev:3d-model": "npm --prefix 3d-model run dev",

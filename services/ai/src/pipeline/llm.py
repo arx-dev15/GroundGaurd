@@ -174,7 +174,14 @@ class RealLLMRuntime:
             raise LLMUnavailableError(f"Unsupported LLM provider: '{self.provider}'")
 
     async def _call_gemini(self, system_prompt: str, user_prompt: str, response_json: bool = False) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        models_to_try = [self.model, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3-flash-preview"]
+        seen_models = set()
+        unique_models = []
+        for m in models_to_try:
+            if m and m not in seen_models:
+                seen_models.add(m)
+                unique_models.append(m)
+
         headers = {
             "x-goog-api-key": self.api_key,
             "Content-Type": "application/json"
@@ -191,24 +198,33 @@ class RealLLMRuntime:
             "contents": [{"parts": [{"text": user_prompt}]}],
             "generationConfig": generation_config
         }
+
         def _sync_post():
-            for attempt in range(2):
-                try:
-                    res = requests.post(url, headers=headers, json=payload, timeout=40.0)
-                    if res.status_code == 429 and attempt < 1:
-                        time.sleep(3.0)
-                        continue
-                    if res.status_code != 200:
-                        raise LLMUnavailableError(f"Gemini API error (HTTP {res.status_code}): {res.text}")
-                    data = res.json()
+            last_err = None
+            for model_cand in unique_models:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_cand}:generateContent"
+                for attempt in range(2):
                     try:
-                        return data["candidates"][0]["content"]["parts"][0]["text"]
-                    except (KeyError, IndexError):
-                        raise LLMUnavailableError("Malformed Gemini API response")
-                except Exception as e:
-                    last_err = e
-                    if attempt < 1:
-                        time.sleep(1.0)
+                        res = requests.post(url, headers=headers, json=payload, timeout=40.0)
+                        if res.status_code in (429, 503) and attempt < 1:
+                            time.sleep(1.5)
+                            continue
+                        if res.status_code in (429, 503, 404):
+                            logger.warning(f"[llm-runtime] Gemini model '{model_cand}' returned HTTP {res.status_code}, falling over to next model...")
+                            last_err = LLMUnavailableError(f"Gemini API error (HTTP {res.status_code}): {res.text}")
+                            break  # Try next model candidate
+                        if res.status_code != 200:
+                            raise LLMUnavailableError(f"Gemini API error (HTTP {res.status_code}): {res.text}")
+                        data = res.json()
+                        try:
+                            self.model = model_cand  # Lock onto working model
+                            return data["candidates"][0]["content"]["parts"][0]["text"]
+                        except (KeyError, IndexError):
+                            raise LLMUnavailableError("Malformed Gemini API response")
+                    except Exception as e:
+                        last_err = e
+                        if attempt < 1:
+                            time.sleep(1.0)
             raise LLMUnavailableError(f"Gemini API connection error: {last_err}")
 
         return await asyncio.to_thread(_sync_post)
@@ -294,7 +310,15 @@ class RealLLMRuntime:
     async def _stream_gemini(self, system_prompt: str, user_prompt: str):
         import json
         import re
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:streamGenerateContent?alt=sse"
+
+        models_to_try = [self.model, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3-flash-preview"]
+        seen_models = set()
+        unique_models = []
+        for m in models_to_try:
+            if m and m not in seen_models:
+                seen_models.add(m)
+                unique_models.append(m)
+
         headers = {
             "x-goog-api-key": self.api_key,
             "Content-Type": "application/json"
@@ -308,34 +332,57 @@ class RealLLMRuntime:
             "contents": [{"parts": [{"text": user_prompt}]}],
             "generationConfig": generation_config
         }
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            async with client.stream("POST", url, headers=headers, json=payload) as response:
-                if response.status_code != 200:
-                    err_body = await response.aread()
-                    raise LLMUnavailableError(f"Gemini streaming error (HTTP {response.status_code}): {err_body.decode('utf-8', errors='ignore')}")
 
-                buffer = ""
-                async for chunk in response.aiter_text():
-                    buffer += chunk
-                    while True:
-                        match = re.search(r'\r?\n\r?\n', buffer)
-                        if not match:
-                            break
-                        block = buffer[:match.start()]
-                        buffer = buffer[match.end():]
-                        for line in block.splitlines():
-                            line = line.strip()
-                            if line.startswith("data:"):
-                                raw_data = line[5:].strip()
-                                try:
-                                    data = json.loads(raw_data)
-                                    parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                                    # Extract ONLY user-visible answer text; do NOT expose thought or private reasoning
-                                    delta = "".join(p.get("text", "") for p in parts if "text" in p and not p.get("thought"))
-                                    if delta:
-                                        yield delta
-                                except Exception:
-                                    pass
+        stream_succeeded = False
+        last_stream_err = None
+
+        for model_cand in unique_models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_cand}:streamGenerateContent?alt=sse"
+            try:
+                async with httpx.AsyncClient(timeout=45.0) as client:
+                    async with client.stream("POST", url, headers=headers, json=payload) as response:
+                        if response.status_code in (429, 503, 404):
+                            err_body = await response.aread()
+                            logger.warning(f"[llm-runtime] Gemini stream model '{model_cand}' returned HTTP {response.status_code}, falling over to next model...")
+                            last_stream_err = LLMUnavailableError(f"Gemini stream error ({response.status_code}): {err_body.decode('utf-8', errors='ignore')}")
+                            continue
+                        if response.status_code != 200:
+                            err_body = await response.aread()
+                            raise LLMUnavailableError(f"Gemini streaming error (HTTP {response.status_code}): {err_body.decode('utf-8', errors='ignore')}")
+
+                        self.model = model_cand
+                        stream_succeeded = True
+                        buffer = ""
+                        async for chunk in response.aiter_text():
+                            buffer += chunk
+                            while True:
+                                match = re.search(r'\r?\n\r?\n', buffer)
+                                if not match:
+                                    break
+                                block = buffer[:match.start()]
+                                buffer = buffer[match.end():]
+                                for line in block.splitlines():
+                                    line = line.strip()
+                                    if line.startswith("data:"):
+                                        raw_data = line[5:].strip()
+                                        try:
+                                            data = json.loads(raw_data)
+                                            parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                                            # Extract ONLY user-visible answer text; do NOT expose thought or private reasoning
+                                            delta = "".join(p.get("text", "") for p in parts if "text" in p and not p.get("thought"))
+                                            if delta:
+                                                yield delta
+                                        except Exception:
+                                            pass
+                        break
+            except LLMUnavailableError:
+                raise
+            except Exception as stream_ex:
+                last_stream_err = stream_ex
+                continue
+
+        if not stream_succeeded and last_stream_err:
+            raise LLMUnavailableError(f"Gemini streaming unavailable: {last_stream_err}")
 
     async def _stream_groq(self, system_prompt: str, user_prompt: str):
         import json

@@ -256,13 +256,29 @@ class DebertaGroundingPredictor:
                 0.10
             )
 
-        # Stage 2: Cross-Encoder Inference with Joint Evidence Fusion
-        chunk_results = [self._infer_pair(ev_text, cleaned_claim) for ev_text, _ in cleaned_chunks]
+        # Stage 2: Cross-Encoder Inference with Joint Evidence Fusion & Sentence Alignment
+        chunk_results = []
+        for ev_text, _ in cleaned_chunks:
+            whole_res = self._infer_pair(ev_text, cleaned_claim)
+            # Split on sentence boundaries, list bullets, or item numbers
+            sentences = [
+                s.strip()
+                for s in re.split(r'(?<=[.!?;\n])\s+|(?<=\s)[-–—•*]\s+|\b(?:\d+\.|\([a-z0-9]+\))\s+', ev_text)
+                if len(s.strip()) > 5
+            ]
+            if len(sentences) > 1:
+                sent_results = [self._infer_pair(s, cleaned_claim) for s in sentences]
+                best_sent = max(sent_results, key=lambda r: r["entailment"])
+                if best_sent["entailment"] > 0.65 and best_sent["entailment"] > whole_res["entailment"]:
+                    chunk_results.append(best_sent)
+                    continue
+            chunk_results.append(whole_res)
 
         if len(cleaned_chunks) > 1:
             joint_result = self._infer_pair(full_ev_text, cleaned_claim)
         else:
             joint_result = chunk_results[0]
+
 
         max_entail = max(max(c["entailment"] for c in chunk_results), joint_result["entailment"])
 

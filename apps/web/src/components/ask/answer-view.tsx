@@ -345,9 +345,25 @@ export function AnswerView({
     return mapAnswerToClaims(answerText, claims);
   }, [answerText, claims]);
 
+  // Section 3 Preservation Invariant:
+  // If raw answer text is non-empty and substantive, UI must NEVER render an empty answer
+  // merely because sentence-to-claim mapping failed or dropped prose.
+  const isProjectionSubstantiallyEmpty = React.useMemo(() => {
+    const rawLen = (answerText || '').trim().length;
+    if (rawLen === 0) return false;
+    let projLen = 0;
+    for (const block of contentBlocks) {
+      for (const item of block.items) {
+        projLen += (item.displayText || '').trim().length;
+      }
+    }
+    // If projected text lost more than 50% of the substantive raw answer text, fallback to raw answer
+    return projLen < rawLen * 0.5;
+  }, [contentBlocks, answerText]);
+
   // Projected truthful answer for clipboard copy
   const projectedFullAnswer = React.useMemo(() => {
-    if (!contentBlocks.length) return answerText;
+    if (!contentBlocks.length || isProjectionSubstantiallyEmpty) return answerText;
     return contentBlocks
       .map((block) =>
         block.type === 'list'
@@ -355,7 +371,7 @@ export function AnswerView({
           : block.items.map((it) => it.displayText).join(' ')
       )
       .join('\n\n');
-  }, [contentBlocks, answerText]);
+  }, [contentBlocks, answerText, isProjectionSubstantiallyEmpty]);
 
   const handleCopy = React.useCallback(() => {
     navigator.clipboard.writeText(projectedFullAnswer);
@@ -538,8 +554,13 @@ export function AnswerView({
 
         {/* Natural Readable Document Answer with subtle claim mapping */}
         <div className="flex-1 min-w-0 text-sm sm:text-[15px] text-foreground leading-relaxed sm:leading-7 font-sans">
-          {contentBlocks.map((block, bIdx) => {
-            if (block.type === 'list') {
+          {isProjectionSubstantiallyEmpty ? (
+            <div className="space-y-3 leading-relaxed sm:leading-7 whitespace-pre-wrap">
+              {renderFormattedText(answerText)}
+            </div>
+          ) : (
+            contentBlocks.map((block, bIdx) => {
+              if (block.type === 'list') {
               return (
                 <ul key={bIdx} className="list-disc pl-5 space-y-1.5 mb-3">
                   {block.items.map((item, itemIdx) => {
@@ -741,7 +762,8 @@ export function AnswerView({
                 })}
               </p>
             );
-          })}
+          })
+        )}
         </div>
       </div>
 

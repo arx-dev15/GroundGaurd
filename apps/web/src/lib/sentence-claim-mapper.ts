@@ -124,6 +124,51 @@ function projectRecovery(cleanText: string, matchedClaims: Claim[]): { displayTe
   return { displayText: cleanText, isProjectedRecovery: false };
 }
 
+/**
+ * Safe sentence splitter that preserves non-terminal dots:
+ * Protects citations ([... .pdf, p. 1 ...]), file extensions (.pdf, .txt, etc.),
+ * titles/abbreviations (Dr., Mr., p., pp., e.g., i.e.), and numbers/decimals (3.14).
+ * Splits strictly on genuine sentence boundaries, never dropping unmapped or non-terminal prose.
+ */
+export function splitSentencesSafely(block: string): string[] {
+  if (!block || !block.trim()) return [];
+
+  // 1. Protect bracketed citations: [document.pdf, p. 1]
+  let protectedText = block.replace(/\[([^\]]+)\]/g, (_m, inner) => `[${inner.replace(/\./g, '___DOT___')}]`);
+
+  // 2. Protect titles, abbreviations and page references
+  protectedText = protectedText.replace(
+    /\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr|vs|etc|e\.g|i\.e|p|pp|vol|no|ch|sec|fig|eq|approx|dept|inc|corp|ltd)\./gi,
+    '$1___DOT___'
+  );
+
+  // 3. Protect technical decimals and versions (e.g., 3.14, v1.2, 802.11ax)
+  protectedText = protectedText.replace(/(\d+)\.(\d+)/g, '$1___DECIMAL___$2');
+
+  // 4. Protect file extensions (e.g., .pdf, .txt, .docx, .md, .csv, .json)
+  protectedText = protectedText.replace(/\.(pdf|txt|md|docx|csv|json|png|jpg|py|ts|js|cpp|c|h)\b/gi, '___EXT___$1');
+
+  // 5. Split on real terminal sentence boundaries: terminal punctuation followed by space and an uppercase letter / quote / number / list marker / bracket
+  const rawSplits = protectedText.split(/(?<=[.!?])\s+(?=[A-Z0-9"“'‘\(\[\*•\-])/g);
+
+  const sentences = rawSplits
+    .map((s) =>
+      s
+        .replaceAll('___DOT___', '.')
+        .replaceAll('___DECIMAL___', '.')
+        .replaceAll('___EXT___', '.')
+        .trim()
+    )
+    .filter(Boolean);
+
+  // Fallback invariant: if splitting somehow produced an empty array, return [block.trim()]
+  if (sentences.length === 0) {
+    return [block.trim()];
+  }
+
+  return sentences;
+}
+
 export function mapAnswerToClaims(answerText: string, claims: Claim[] = []): MappedContentBlock[] {
   if (!answerText) return [];
 
@@ -162,14 +207,7 @@ export function mapAnswerToClaims(answerText: string, claims: Claim[] = []): Map
       });
       blockStructures.push({ type: 'list', items });
     } else {
-      // Protect decimals/technical numbers (e.g. 802.11ax, 3.14, v1.2) from splitting
-      const placeholder = '___DECIMAL_DOT___';
-      const protectedBlock = block.replace(/(\d+)\.(\d+)/g, `$1${placeholder}$2`);
-      const sentenceRegex = /[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g;
-      const rawSentences = protectedBlock.match(sentenceRegex) || [protectedBlock];
-      const sentences = rawSentences
-        .map((s) => s.replaceAll(placeholder, '.').trim())
-        .filter(Boolean);
+      const sentences = splitSentencesSafely(block);
       blockStructures.push({ type: 'paragraph', items: sentences });
 
       sentences.forEach((sent, iIdx) => {
