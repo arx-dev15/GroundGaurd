@@ -426,12 +426,12 @@ export default function AskPage() {
   };
 
   // Select a claim to inspect (synchronizes claim ↔ evidence ↔ PDF)
-  const handleSelectClaim = (claim: Claim, tab = 'claim') => {
+  const handleSelectClaim = (claim: Claim, tab?: string) => {
     setSelectedClaim(claim);
-    if (claim.evidence && claim.evidence.length > 0) {
-      setSelectedEvidence(claim.evidence[0]);
-    }
-    setInspectorInitialTab(tab);
+    const firstEvidence = claim.evidence && claim.evidence.length > 0 ? claim.evidence[0] : null;
+    setSelectedEvidence(firstEvidence);
+    // A claim click opens its supporting passage in the PDF when the evidence comes from a stored document.
+    setInspectorInitialTab(tab ?? (firstEvidence?.documentId ? 'source' : 'claim'));
     setInspectorOpen(true);
   };
 

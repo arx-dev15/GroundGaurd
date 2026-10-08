@@ -12,13 +12,22 @@ import {
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  Maximize2,
-  Search,
+  Highlighter,
+  EyeOff,
+  Info,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { API_BASE_URL, getAuthToken } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import {
+  buildPageTextIndex,
+  findExcerpt,
+  segmentItem,
+  textLayerStyleVars,
+  type ExcerptMatch,
+  type HighlightKind,
+  type PageTextIndex,
+} from '@/lib/pdf-text-match';
 import type * as PDFJS from 'pdfjs-dist';
 
 export interface CitationItem {
@@ -42,16 +51,50 @@ export interface PDFSourceViewerProps {
   showExcerpt?: boolean;
 }
 
-// Normalize text for resilient matching across PDF line breaks and encoding variances
-function normalizeText(str: string): string {
-  return str
-    .replace(/\r?\n|\r/g, ' ')
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/[\u2013\u2014]/g, '-')
-    .replace(/\s+/g, ' ')
-    .toLowerCase()
-    .trim();
+// ---------------------------------------------------------------------------------------------------------------
+// Small in-memory cache of fetched PDF bytes (per auth token + document) so switching between citations of the
+// same few documents does not re-download them. PDF.js transfers its input buffer, so each load gets a copy.
+// ---------------------------------------------------------------------------------------------------------------
+const PDF_CACHE_LIMIT = 4;
+const pdfBytesCache = new Map<string, Promise<ArrayBuffer>>();
+
+function fetchPdfBytes(documentId: string): Promise<ArrayBuffer> {
+  const token = getAuthToken();
+  const key = `${token ?? 'anon'}|${documentId}`;
+  const cached = pdfBytesCache.get(key);
+  if (cached) {
+    pdfBytesCache.delete(key);
+    pdfBytesCache.set(key, cached); // LRU touch
+    return cached;
+  }
+  const url = `${API_BASE_URL.replace(/\/$/, '')}/v1/documents/${documentId}/content`;
+  const p = fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }).then(async (res) => {
+    if (!res.ok) {
+      if (res.status === 404) throw new Error('PDF file was not found on the server.');
+      if (res.status === 401 || res.status === 403) throw new Error('You do not have permission to view this document.');
+      throw new Error(`Failed to load PDF (${res.status})`);
+    }
+    return res.arrayBuffer();
+  });
+  p.catch(() => pdfBytesCache.delete(key)); // never cache failures
+  pdfBytesCache.set(key, p);
+  while (pdfBytesCache.size > PDF_CACHE_LIMIT) {
+    const oldest = pdfBytesCache.keys().next().value;
+    if (oldest === undefined) break;
+    pdfBytesCache.delete(oldest);
+  }
+  return p;
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+interface RenderedLayer {
+  version: number;
+  divs: HTMLElement[];
+  items: string[];
+  index: PageTextIndex;
 }
 
 export function PDFSourceViewer({
@@ -69,6 +112,9 @@ export function PDFSourceViewer({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const textLayerRef = React.useRef<HTMLDivElement>(null);
+  const layerRef = React.useRef<RenderedLayer | null>(null);
+  const modifiedDivsRef = React.useRef<Set<number>>(new Set());
+  const pdfjsRef = React.useRef<typeof PDFJS | null>(null);
 
   const [pdfDoc, setPdfDoc] = React.useState<PDFJS.PDFDocumentProxy | null>(null);
   const [totalPages, setTotalPages] = React.useState<number>(1);
@@ -77,521 +123,549 @@ export function PDFSourceViewer({
   const [isRenderingPage, setIsRenderingPage] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [zoomScale, setZoomScale] = React.useState<number>(1.2);
-  const [isHighlighted, setIsHighlighted] = React.useState<boolean>(false);
   const [rawBlobUrl, setRawBlobUrl] = React.useState<string | null>(null);
+  const [containerWidth, setContainerWidth] = React.useState<number>(0);
+  const [layerVersion, setLayerVersion] = React.useState<number>(0);
+  const [match, setMatch] = React.useState<ExcerptMatch | null>(null);
+  const [highlightCleared, setHighlightCleared] = React.useState(false);
+  const lastScrollKeyRef = React.useRef<string>('');
 
-  const pdfjsRef = React.useRef<typeof PDFJS | null>(null);
+  // Parents rebuild the citations array on every render (e.g. during SSE updates); key highlight work on content.
+  const citationsRef = React.useRef(citations);
+  citationsRef.current = citations;
+  const citationsKey = React.useMemo(
+    () => citations.map((c) => `${c.documentId ?? ''}|${c.pageNumber ?? ''}|${c.chunkId ?? ''}|${(c.text ?? '').length}`).join('§'),
+    [citations]
+  );
 
-  // Sync currentPage with incoming pageNumber prop
+  // Navigate to the cited page whenever the selected evidence changes — even if the page number is the same as the
+  // previous citation's (the user may have paged away manually in between).
   React.useEffect(() => {
-    if (pageNumber && pageNumber !== currentPage) {
-      setCurrentPage(pageNumber);
-    }
-  }, [pageNumber]);
+    if (pageNumber) setCurrentPage((p) => (pdfDoc ? Math.min(Math.max(1, pageNumber), pdfDoc.numPages) : pageNumber) || p);
+    setHighlightCleared(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageNumber, highlightedExcerpt, activeCitationIndex, documentId]);
 
-  // Load PDF.js library dynamically in browser
+  // Track the available width so the page re-fits (and highlights re-align) on resize. Bucketed to avoid loops
+  // caused by a scrollbar appearing/disappearing.
   React.useEffect(() => {
-    let active = true;
-    async function initPdfJs() {
-      if (!pdfjsRef.current) {
-        try {
-          const pdfjs = await import('pdfjs-dist');
-          if (active) {
-            pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
-            pdfjsRef.current = pdfjs;
-          }
-        } catch (err) {
-          console.error('Failed to load PDF.js engine:', err);
-        }
-      }
-    }
-    initPdfJs();
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0]?.contentRect.width ?? 0);
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        setContainerWidth((prev) => (Math.abs(prev - w) >= 24 ? w : prev));
+      }, 120);
+    });
+    ro.observe(el);
     return () => {
-      active = false;
+      clearTimeout(timer);
+      ro.disconnect();
     };
   }, []);
 
-  // Fetch document bytes securely via M3 Authorization header
+  // Fetch document bytes via the authenticated M3 content endpoint.
   React.useEffect(() => {
     if (!documentId) {
       setPdfDoc(null);
       return;
     }
-
     let active = true;
     let createdBlobUrl: string | null = null;
+    let loadingTask: PDFJS.PDFDocumentLoadingTask | null = null;
 
-    async function fetchPdf() {
+    (async () => {
       setIsLoading(true);
       setError(null);
-      setIsHighlighted(false);
-
+      setMatch(null);
       try {
-        const token = getAuthToken();
-        const url = `${API_BASE_URL.replace(/\/$/, '')}/v1/documents/${documentId}/content`;
-        const res = await fetch(url, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        const bytes = await fetchPdfBytes(documentId);
+        if (!active) return;
+        createdBlobUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        setRawBlobUrl(createdBlobUrl);
 
-        if (!res.ok) {
-          if (res.status === 404) {
-            throw new Error('PDF file was not found on the server.');
-          }
-          if (res.status === 401 || res.status === 403) {
-            throw new Error('You do not have permission to view this document.');
-          }
-          throw new Error(`Failed to load PDF (${res.status})`);
-        }
-
-        const arrayBuffer = await res.arrayBuffer();
-
-        // Also create object URL for external tab opening
-        const blob = new Blob([arrayBuffer], { type: 'application/pdf' });
-        createdBlobUrl = URL.createObjectURL(blob);
-        if (active) {
-          setRawBlobUrl(createdBlobUrl);
-        }
-
-        // Initialize PDF.js document proxy
         const pdfjs = pdfjsRef.current || (await import('pdfjs-dist'));
         pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
         pdfjsRef.current = pdfjs;
-
-        const loadingTask = pdfjs.getDocument({
-          data: new Uint8Array(arrayBuffer),
+        loadingTask = pdfjs.getDocument({
+          data: new Uint8Array(bytes.slice(0)),
           cMapUrl: 'https://unpkg.com/pdfjs-dist@6.4.299/cmaps/',
           cMapPacked: true,
         });
-
         const doc = await loadingTask.promise;
-        if (active) {
-          setPdfDoc(doc);
-          setTotalPages(doc.numPages);
-          setCurrentPage(pageNumber ? Math.min(Math.max(1, pageNumber), doc.numPages) : 1);
-        }
+        if (!active) return;
+        setPdfDoc(doc);
+        setTotalPages(doc.numPages);
+        setCurrentPage(pageNumber ? Math.min(Math.max(1, pageNumber), doc.numPages) : 1);
       } catch (err: any) {
-        if (active) {
-          setError(err.message || 'Unable to load PDF document.');
-        }
+        if (active) setError(err?.message || 'Unable to load PDF document.');
       } finally {
-        if (active) {
-          setIsLoading(false);
-        }
+        if (active) setIsLoading(false);
       }
-    }
-
-    fetchPdf();
+    })();
 
     return () => {
       active = false;
-      if (createdBlobUrl) {
-        URL.revokeObjectURL(createdBlobUrl);
-      }
+      if (createdBlobUrl) URL.revokeObjectURL(createdBlobUrl);
+      loadingTask?.destroy().catch(() => {});
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId]);
 
-  // Render canvas & text layer for selected page
+  // Render the canvas + text layer of the current page. Highlighting is applied separately (below) so switching
+  // claims never re-renders the page, and every re-render (zoom/resize/page) re-applies highlights from text.
   React.useEffect(() => {
     if (!pdfDoc || !canvasRef.current || !textLayerRef.current) return;
-
     let active = true;
-    let currentRenderTask: any = null;
+    let renderTask: any = null;
+    let textLayer: any = null;
 
-    async function renderPage() {
+    (async () => {
       setIsRenderingPage(true);
-      setIsHighlighted(false);
-
+      layerRef.current = null;
+      modifiedDivsRef.current.clear();
+      setLayerVersion(0);
       try {
-        const targetPageNumber = Math.min(Math.max(1, currentPage), pdfDoc!.numPages);
-        const page = await pdfDoc!.getPage(targetPageNumber);
-
+        const page = await pdfDoc.getPage(Math.min(Math.max(1, currentPage), pdfDoc.numPages));
         if (!active) return;
 
-        const containerWidth = containerRef.current?.clientWidth || 700;
-        const unscaledViewport = page.getViewport({ scale: 1 });
-        const autoFitScale = Math.max(0.8, (containerWidth - 48) / unscaledViewport.width);
-        const effectiveScale = autoFitScale * zoomScale;
-        const viewport = page.getViewport({ scale: effectiveScale });
+        const width = containerWidth || containerRef.current?.clientWidth || 700;
+        const unscaled = page.getViewport({ scale: 1 });
+        const fitScale = Math.max(0.5, (width - 32) / unscaled.width);
+        const scale = fitScale * zoomScale;
+        const viewport = page.getViewport({ scale });
 
-        // 1. Render Canvas
         const canvas = canvasRef.current!;
         const ctx = canvas.getContext('2d', { alpha: false });
         if (!ctx) return;
-
         const dpr = window.devicePixelRatio || 1;
         canvas.width = Math.floor(viewport.width * dpr);
         canvas.height = Math.floor(viewport.height * dpr);
         canvas.style.width = `${Math.floor(viewport.width)}px`;
         canvas.style.height = `${Math.floor(viewport.height)}px`;
-
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-        currentRenderTask = page.render({
-          canvasContext: ctx,
-          viewport: viewport,
-          canvas: canvas,
-        });
-
-        await currentRenderTask.promise;
-
+        renderTask = page.render({ canvasContext: ctx, viewport, canvas });
+        await renderTask.promise;
         if (!active) return;
 
-        // 2. Render Text Layer
         const textLayerDiv = textLayerRef.current!;
-        textLayerDiv.innerHTML = '';
+        textLayerDiv.replaceChildren();
         textLayerDiv.style.width = `${Math.floor(viewport.width)}px`;
         textLayerDiv.style.height = `${Math.floor(viewport.height)}px`;
-        textLayerDiv.style.setProperty('--scale-factor', `${effectiveScale}`);
+        for (const [k, v] of Object.entries(textLayerStyleVars(scale))) textLayerDiv.style.setProperty(k, v);
 
         const textContent = await page.getTextContent();
         if (!active) return;
-
         const pdfjs = pdfjsRef.current || (await import('pdfjs-dist'));
-        const textLayer = new pdfjs.TextLayer({
-          textContentSource: textContent,
-          container: textLayerDiv,
-          viewport: viewport,
-        });
-
+        textLayer = new pdfjs.TextLayer({ textContentSource: textContent, container: textLayerDiv, viewport });
         await textLayer.render();
-
         if (!active) return;
 
-        // 3. Programmatic Evidence Text Matching & Highlighting
-        if (highlightedExcerpt) {
-          const spans = Array.from(textLayerDiv.querySelectorAll('span'));
-          if (spans.length > 0) {
-            // Build full normalized page text with index mapping
-            let concatenated = '';
-            const spanMap: Array<{ span: HTMLElement; start: number; end: number; text: string }> = [];
-
-            for (const span of spans) {
-              const str = span.textContent || '';
-              const start = concatenated.length;
-              concatenated += str + ' ';
-              const end = concatenated.length;
-              spanMap.push({ span, start, end, text: str });
-            }
-
-            const normPage = normalizeText(concatenated);
-            const normExcerpt = normalizeText(highlightedExcerpt);
-
-            // Strategy A: Exact normalized passage match
-            let matchStart = normPage.indexOf(normExcerpt);
-
-            // Strategy B: If exact match fails (e.g. slight OCR/hyphenation), match leading sentence / key phrase (>= 6 words)
-            if (matchStart === -1) {
-              const words = normExcerpt.split(' ').filter(Boolean);
-              if (words.length >= 6) {
-                // Try first 6-10 words
-                for (let len = Math.min(10, words.length); len >= 6; len--) {
-                  const subPhrase = words.slice(0, len).join(' ');
-                  const idx = normPage.indexOf(subPhrase);
-                  if (idx !== -1) {
-                    matchStart = idx;
-                    break;
-                  }
-                }
-              }
-            }
-
-            if (matchStart !== -1) {
-              // Locate matching character range in original concatenated text
-              // Map approximate character position back to span objects
-              const ratio = concatenated.length / (normPage.length || 1);
-              const approxStart = Math.max(0, Math.floor(matchStart * ratio) - 5);
-              const approxEnd = Math.min(concatenated.length, Math.floor((matchStart + normExcerpt.length) * ratio) + 10);
-
-              const matchingSpans: HTMLElement[] = [];
-              for (const entry of spanMap) {
-                if (entry.end >= approxStart && entry.start <= approxEnd) {
-                  // Check that the span actually shares words with target
-                  const spanNorm = normalizeText(entry.text);
-                  if (spanNorm.length > 1 && normExcerpt.includes(spanNorm)) {
-                    entry.span.classList.add('gg-pdf-highlight');
-                    matchingSpans.push(entry.span);
-                  }
-                }
-              }
-
-              if (matchingSpans.length > 0) {
-                setIsHighlighted(true);
-                // Scroll first matching span smoothly into view
-                setTimeout(() => {
-                  matchingSpans[0]?.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'center',
-                  });
-                }, 100);
-              }
-            }
-          }
-        }
+        const divs = (textLayer.textDivs as HTMLElement[]) || [];
+        const items = divs.map((d) => d.textContent || '');
+        layerRef.current = { version: Date.now(), divs, items, index: buildPageTextIndex(items) };
+        setLayerVersion(layerRef.current.version);
       } catch (err: any) {
-        if (err.name !== 'RenderingCancelledException') {
+        if (err?.name !== 'RenderingCancelledException' && err?.name !== 'AbortException') {
           console.error('PDF page render error:', err);
         }
       } finally {
-        if (active) {
-          setIsRenderingPage(false);
-        }
+        if (active) setIsRenderingPage(false);
       }
-    }
-
-    renderPage();
+    })();
 
     return () => {
       active = false;
-      if (currentRenderTask) {
-        try {
-          currentRenderTask.cancel();
-        } catch {}
+      try {
+        renderTask?.cancel();
+      } catch {}
+      try {
+        textLayer?.cancel();
+      } catch {}
+    };
+  }, [pdfDoc, currentPage, zoomScale, containerWidth]);
+
+  // Apply exact highlights to the rendered text layer.
+  React.useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer || layer.version !== layerVersion) {
+      setMatch(null);
+      return;
+    }
+
+    // 1. Clear stale highlights from a previous claim/citation.
+    for (const i of modifiedDivsRef.current) {
+      const div = layer.divs[i];
+      if (div) div.textContent = layer.items[i];
+    }
+    modifiedDivsRef.current.clear();
+
+    if (!highlightedExcerpt) {
+      setMatch(null);
+      return;
+    }
+
+    // 2. Locate the active passage (exact text only) and other citations on this page (muted).
+    const active = findExcerpt(layer.index, highlightedExcerpt, layer.items);
+    setMatch(active);
+    if (highlightCleared) return;
+
+    const perDiv = new Map<number, Array<{ start: number; end: number; kind: HighlightKind }>>();
+    const add = (m: ExcerptMatch, kind: HighlightKind) => {
+      if (m.kind === 'none') return;
+      for (const r of m.ranges) {
+        const list = perDiv.get(r.item) ?? [];
+        list.push({ start: r.start, end: r.end, kind });
+        perDiv.set(r.item, list);
       }
     };
-  }, [pdfDoc, currentPage, zoomScale, highlightedExcerpt]);
+    citationsRef.current.forEach((c, i) => {
+      const isActive = i === (activeCitationIndex ?? 0);
+      if (isActive || !c.text || c.text === highlightedExcerpt) return;
+      if (c.documentId && documentId && c.documentId !== documentId) return;
+      if (c.pageNumber && c.pageNumber !== currentPage) return;
+      add(findExcerpt(layer.index, c.text, layer.items), 'muted');
+    });
+    add(active, 'active');
+
+    // 3. Render marks inside the real text-layer spans (inherit their font size / scaleX → exact glyph alignment).
+    let firstActive: HTMLElement | null = null;
+    for (const [i, ranges] of perDiv) {
+      const div = layer.divs[i];
+      if (!div) continue;
+      const frag = document.createDocumentFragment();
+      for (const seg of segmentItem(layer.items[i], ranges)) {
+        if (!seg.kind) {
+          frag.appendChild(document.createTextNode(seg.text));
+          continue;
+        }
+        const mark = document.createElement('mark');
+        mark.className = `gg-hl gg-hl--${seg.kind}`;
+        mark.textContent = seg.text;
+        frag.appendChild(mark);
+        if (seg.kind === 'active' && !firstActive) firstActive = mark;
+      }
+      div.replaceChildren(frag);
+      modifiedDivsRef.current.add(i);
+    }
+
+    // 4. Bring the passage into view inside the viewer's own scroll container.
+    const container = containerRef.current;
+    const scrollKey = `${layerVersion}|${highlightedExcerpt}`;
+    if (firstActive && container && scrollKey !== lastScrollKeyRef.current) {
+      lastScrollKeyRef.current = scrollKey;
+      const target = firstActive;
+      requestAnimationFrame(() => {
+        const c = container.getBoundingClientRect();
+        const t = target.getBoundingClientRect();
+        container.scrollTo({
+          top: container.scrollTop + (t.top - c.top) - c.height / 3,
+          left: Math.max(0, container.scrollLeft + (t.left - c.left) - 24),
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        });
+      });
+    }
+  }, [layerVersion, highlightedExcerpt, highlightCleared, citationsKey, activeCitationIndex, currentPage, documentId]);
+
+  const onViewerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') setCurrentPage((p) => Math.max(1, p - 1));
+    else if (e.key === 'ArrowRight' || e.key === 'PageDown') setCurrentPage((p) => Math.min(totalPages, p + 1));
+    else if (e.key === '+' || e.key === '=') setZoomScale((z) => Math.min(2.4, z + 0.15));
+    else if (e.key === '-') setZoomScale((z) => Math.max(0.6, z - 0.15));
+    else return;
+    e.preventDefault();
+  };
 
   if (!documentId) {
     return (
       <div className={cn('h-full flex flex-col items-center justify-center p-8 text-center bg-card/40 border border-border/60 rounded-xl', className)}>
-        <FileText className="h-10 w-10 text-muted-foreground/60 mb-3" />
-        <h4 className="text-sm font-semibold text-foreground mb-1">No source document selected</h4>
-        <p className="text-xs text-muted-foreground max-w-xs">
-          Click any citation [1] or evidence passage to inspect the original PDF page.
-        </p>
+        <FileText className="h-9 w-9 text-muted-foreground/50 mb-3" />
+        <h4 className="text-sm font-medium text-foreground mb-1">No source document selected</h4>
+        <p className="text-xs text-muted-foreground max-w-xs">Select a citation or claim to open the original PDF page.</p>
       </div>
     );
   }
 
+  const showingHighlight = !!match && match.kind !== 'none' && !highlightCleared;
+  const pct = match ? Math.round(match.coverage * 100) : 0;
+
   return (
-    <div className={cn('h-full flex flex-col bg-card/90 border border-border/80 rounded-xl shadow-md overflow-hidden min-h-[480px]', className)}>
-      {/* Scoped CSS for Text Layer and EvideX AI Evidence Highlighting */}
+    <div className={cn('h-full flex flex-col bg-card/90 border border-border/80 rounded-xl overflow-hidden min-h-[480px]', className)}>
       <style jsx global>{`
-        .textLayer {
+        /* PDF.js v6 text-layer geometry (mirrors pdfjs-dist/web/pdf_viewer.css) — required so span boxes, and therefore
+           highlights, match the rendered glyphs at every zoom level. */
+        .gg-pdf-page .textLayer {
           position: absolute;
           text-align: initial;
-          left: 0;
-          top: 0;
-          right: 0;
-          bottom: 0;
-          overflow: hidden;
+          inset: 0;
+          overflow: clip;
           opacity: 1;
           line-height: 1;
+          letter-spacing: normal;
+          word-spacing: normal;
           text-size-adjust: none;
           forced-color-adjust: none;
           transform-origin: 0 0;
           z-index: 2;
-          pointer-events: auto;
+          --min-font-size: 1;
+          --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+          --min-font-size-inv: calc(1 / var(--min-font-size));
         }
-        .textLayer span,
-        .textLayer br {
-          color: transparent !important;
+        .gg-pdf-page .textLayer :is(span, br) {
+          color: transparent;
           position: absolute;
           white-space: pre;
           cursor: text;
           transform-origin: 0% 0%;
         }
-        .textLayer span::selection {
-          background: rgba(59, 130, 246, 0.3);
+        .gg-pdf-page .textLayer > :not(.markedContent),
+        .gg-pdf-page .textLayer .markedContent span:not(.markedContent) {
+          z-index: 1;
+          --font-height: 0;
+          font-size: calc(var(--text-scale-factor) * var(--font-height));
+          --scale-x: 1;
+          --rotate: 0deg;
+          transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
         }
-        .textLayer .gg-pdf-highlight {
-          background-color: rgba(251, 191, 36, 0.42) !important;
-          border-bottom: 2px solid rgba(217, 119, 6, 0.9) !important;
-          border-radius: 2px !important;
-          box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4) !important;
+        .gg-pdf-page .textLayer .markedContent {
+          display: contents;
+        }
+        .gg-pdf-page .textLayer span::selection,
+        .gg-pdf-page .textLayer mark::selection {
+          background: rgb(59 130 246 / 0.3);
+        }
+        .gg-pdf-page .textLayer mark.gg-hl {
+          color: transparent;
+          position: relative;
+          margin: 0;
+          padding: 0;
+          border-radius: 2px;
+        }
+        .gg-pdf-page .textLayer mark.gg-hl--active {
+          background-color: rgb(250 204 21 / 0.42);
+          box-shadow: 0 1px 0 0 rgb(202 138 4 / 0.85);
+          animation: gg-hl-in 420ms ease-out;
+        }
+        .gg-pdf-page .textLayer mark.gg-hl--muted {
+          background-color: rgb(148 163 184 / 0.26);
+        }
+        @keyframes gg-hl-in {
+          from {
+            background-color: rgb(250 204 21 / 0.75);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .gg-pdf-page .textLayer mark.gg-hl--active {
+            animation: none;
+          }
         }
       `}</style>
 
-      {/* 1. Header Bar: Document, Page Navigation, Zoom, and Citation Selector */}
-      <div className="p-2.5 sm:p-3 border-b border-border/70 bg-muted/30 flex flex-wrap items-center justify-between gap-2 shrink-0">
+      {/* Header: document, page navigation, zoom */}
+      <div className="px-3 py-2 border-b border-border/60 bg-muted/20 flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <FileText className="h-4 w-4 text-primary shrink-0" />
-          <span className="text-xs font-semibold text-foreground truncate max-w-[200px] sm:max-w-xs" title={documentFilename}>
+          <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className="text-xs font-medium text-foreground truncate max-w-[180px] sm:max-w-xs" title={documentFilename}>
             {documentFilename}
           </span>
-          <Badge variant="outline" className="text-[10px] font-mono shrink-0 bg-primary/10 text-primary border-primary/30">
-            Page {currentPage} of {totalPages}
-          </Badge>
-          {isHighlighted && (
-            <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-mono font-medium">
-              Highlighted
+          {match && highlightedExcerpt && (
+            <span
+              className={cn(
+                'hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0',
+                match.kind === 'exact' && 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30',
+                match.kind === 'partial' && 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30',
+                match.kind === 'none' && 'bg-muted text-muted-foreground border-border'
+              )}
+            >
+              {match.kind === 'exact' ? 'Exact match' : match.kind === 'partial' ? `Partial match · ${pct}%` : 'No exact match'}
             </span>
           )}
         </div>
 
-        {/* Page & Zoom Controls */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
             disabled={currentPage <= 1 || isRenderingPage}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            title="Previous page"
+            aria-label="Previous page"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </Button>
-
-          <span className="text-[11px] font-mono text-muted-foreground px-1">
-            {currentPage}/{totalPages}
+          <span className="text-[11px] font-mono tabular-nums text-muted-foreground px-1" aria-live="polite">
+            {currentPage} / {totalPages}
           </span>
-
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
             disabled={currentPage >= totalPages || isRenderingPage}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            title="Next page"
+            aria-label="Next page"
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </Button>
-
           <div className="h-4 w-px bg-border/60 mx-1" />
-
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setZoomScale((z) => Math.max(0.7, z - 0.15))}
+            onClick={() => setZoomScale((z) => Math.max(0.6, z - 0.15))}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            title="Zoom out"
+            aria-label="Zoom out"
           >
             <ZoomOut className="h-3.5 w-3.5" />
           </Button>
-
+          <span className="hidden sm:inline text-[11px] font-mono tabular-nums text-muted-foreground w-9 text-center">
+            {Math.round(zoomScale * 100)}%
+          </span>
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setZoomScale((z) => Math.min(2.0, z + 0.15))}
+            onClick={() => setZoomScale((z) => Math.min(2.4, z + 0.15))}
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            title="Zoom in"
+            aria-label="Zoom in"
           >
             <ZoomIn className="h-3.5 w-3.5" />
           </Button>
-
           {rawBlobUrl && (
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground ml-1"
-              title="Open full PDF in new tab"
-            >
-              <a href={rawBlobUrl} target="_blank" rel="noopener noreferrer">
+            <Button asChild variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground ml-0.5">
+              <a href={rawBlobUrl} target="_blank" rel="noopener noreferrer" aria-label="Open PDF in new tab" title="Open PDF in new tab">
                 <ExternalLink className="h-3.5 w-3.5" />
-                <span className="sr-only">Open PDF in new tab</span>
               </a>
             </Button>
           )}
-
           {onClose && (
             <Button
               variant="ghost"
               size="sm"
               onClick={onClose}
-              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground ml-1"
-              title="Close viewer"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground ml-0.5"
+              aria-label="Close viewer"
             >
               <X className="h-3.5 w-3.5" />
-              <span className="sr-only">Close</span>
             </Button>
           )}
         </div>
       </div>
 
-      {/* Multiple Citations Switcher Bar (Section 22) */}
+      {/* Citation switcher */}
       {citations.length > 1 && (
-        <div className="px-3 py-1.5 bg-muted/40 border-b border-border/50 flex items-center gap-2 overflow-x-auto scrollbar-none text-[11px] shrink-0">
-          <span className="text-muted-foreground font-mono uppercase text-[10px] shrink-0">
-            Citations:
-          </span>
-          <div className="flex items-center gap-1.5">
-            {citations.map((c, i) => {
-              const isSelected = activeCitationIndex === i || (!activeCitationIndex && i === 0);
-              return (
-                <button
-                  key={c.chunkId || i}
-                  type="button"
-                  onClick={() => onSelectCitation?.(i)}
-                  className={cn(
-                    'px-2 py-0.5 rounded text-[11px] font-mono transition-colors border flex items-center gap-1 shrink-0',
-                    isSelected
-                      ? 'bg-primary text-primary-foreground border-primary font-semibold'
-                      : 'bg-background/80 hover:bg-background border-border/60 text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  <span>[{c.index || i + 1}]</span>
-                  {c.pageNumber && <span>p. {c.pageNumber}</span>}
-                </button>
-              );
-            })}
-          </div>
+        <div className="px-3 py-1.5 bg-muted/10 border-b border-border/50 flex items-center gap-2 overflow-x-auto scrollbar-none shrink-0" role="tablist" aria-label="Citations">
+          <span className="text-muted-foreground text-[10px] uppercase tracking-wider shrink-0">Sources</span>
+          {citations.map((c, i) => {
+            const isSelected = i === (activeCitationIndex ?? 0);
+            return (
+              <button
+                key={c.chunkId || i}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
+                onClick={() => onSelectCitation?.(i)}
+                className={cn(
+                  'px-2 py-0.5 rounded-md text-[11px] font-mono transition-colors border flex items-center gap-1 shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  isSelected
+                    ? 'bg-foreground text-background border-foreground'
+                    : 'bg-background/60 hover:bg-background border-border/60 text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <span>[{c.index || i + 1}]</span>
+                {c.pageNumber ? <span className="opacity-80">p. {c.pageNumber}</span> : null}
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {/* 2. Cited Evidence Excerpt Banner (Fall back target if OCR/PDF text layer differs) */}
+      {/* Cited excerpt + honest highlight status */}
       {showExcerpt && highlightedExcerpt && (
-        <div className="p-3 bg-primary/5 border-b border-primary/20 shrink-0 space-y-1">
-          <div className="flex items-center justify-between text-[10px] font-mono font-semibold uppercase tracking-wider text-primary">
-            <span className="flex items-center gap-1.5">
+        <div className="px-3 py-2.5 border-b border-border/50 bg-background/40 shrink-0 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               <Bookmark className="h-3 w-3" />
-              <span>Cited Evidence Excerpt {currentPage ? `(p. ${currentPage})` : ''}</span>
+              Cited excerpt{pageNumber ? ` · p. ${pageNumber}` : ''}
             </span>
-            {isHighlighted ? (
-              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-sans font-normal lowercase">
-                ✓ highlighted on page below
-              </span>
-            ) : (
-              <span className="text-[10px] text-muted-foreground font-sans font-normal lowercase">
-                passage displayed for inspection
-              </span>
+            {match && match.kind !== 'none' && (
+              <button
+                type="button"
+                onClick={() => setHighlightCleared((v) => !v)}
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground rounded px-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {highlightCleared ? <Highlighter className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                {highlightCleared ? 'Show highlight' : 'Clear highlight'}
+              </button>
             )}
           </div>
-          <p className="text-xs text-foreground/90 italic leading-relaxed pl-2 border-l-2 border-primary/40 line-clamp-3 select-text">
-            &ldquo;{highlightedExcerpt}&rdquo;
+          <p className="text-xs text-foreground/90 leading-relaxed pl-2 border-l-2 border-amber-500/50 line-clamp-3 select-text">
+            {highlightedExcerpt}
           </p>
+          {match && (
+            <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground leading-snug">
+              <Info className="h-3 w-3 mt-0.5 shrink-0" />
+              <span>
+                {match.kind === 'exact' &&
+                  (showingHighlight
+                    ? match.occurrences > 1
+                      ? `Exact passage highlighted. It appears ${match.occurrences} times on this page; the first occurrence is shown.`
+                      : 'Exact passage highlighted on the page below.'
+                    : 'Highlight hidden.')}
+                {match.kind === 'partial' &&
+                  (match.anchor === 'start'
+                    ? `The first ${pct}% of the passage is highlighted; the rest continues beyond this page.`
+                    : `The last ${pct}% of the passage is highlighted; it begins on an earlier page.`)}
+                {match.kind === 'none' &&
+                  (currentPage !== pageNumber && pageNumber
+                    ? `This passage is not on page ${currentPage}. It is cited from page ${pageNumber}.`
+                    : 'Precise highlighting is unavailable: the text layer of this page does not contain the cited passage verbatim (for example a scanned page or a passage on another page). The exact cited text is shown above.')}
+              </span>
+            </p>
+          )}
         </div>
       )}
 
-      {/* 3. PDF Canvas & Text Layer Display Container */}
+      {/* Page */}
       <div
         ref={containerRef}
-        className="flex-1 relative bg-muted/15 min-h-[360px] overflow-auto flex flex-col items-center p-4 scrollbar-thin select-text"
+        tabIndex={0}
+        onKeyDown={onViewerKeyDown}
+        aria-label={`PDF page ${currentPage} of ${totalPages}. Use arrow keys to change page and plus or minus to zoom.`}
+        className="flex-1 relative bg-muted/15 min-h-[360px] overflow-auto flex flex-col items-center p-4 scrollbar-thin select-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
       >
         {isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 backdrop-blur-2xs z-20">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            <span className="text-xs font-mono text-muted-foreground">Streaming authoritative source…</span>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 z-20">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Loading document…</span>
           </div>
         )}
-
         {isRenderingPage && !isLoading && (
-          <div className="absolute top-4 right-4 flex items-center gap-1.5 px-2 py-1 rounded bg-background/80 border border-border/60 text-[10px] font-mono text-muted-foreground z-20 shadow-xs">
-            <Loader2 className="h-3 w-3 animate-spin text-primary" />
+          <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-md bg-background/90 border border-border/60 text-[10px] text-muted-foreground z-20">
+            <Loader2 className="h-3 w-3 animate-spin" />
             <span>Rendering page…</span>
           </div>
         )}
-
         {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center gap-3 bg-background/90 z-20">
-            <AlertCircle className="h-8 w-8 text-destructive" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center gap-3 bg-background/95 z-20">
+            <AlertCircle className="h-7 w-7 text-destructive" />
             <div className="space-y-1">
-              <h5 className="text-sm font-semibold text-foreground">Could not load document</h5>
+              <h5 className="text-sm font-medium text-foreground">Could not load document</h5>
               <p className="text-xs text-muted-foreground max-w-sm">{error}</p>
             </div>
             {rawBlobUrl && (
-              <Button asChild variant="outline" size="sm" className="text-xs gap-1.5 mt-2">
+              <Button asChild variant="outline" size="sm" className="text-xs gap-1.5 mt-1">
                 <a href={rawBlobUrl} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="h-3 w-3" />
-                  <span>Try opening in browser tab</span>
+                  Open in a browser tab
                 </a>
               </Button>
             )}
           </div>
         )}
 
-        {/* PDF Page Container with Canvas and Overlay Text Layer */}
-        <div className="relative shadow-md rounded border border-border/80 bg-white">
-          <canvas ref={canvasRef} className="block rounded" />
+        <div className="gg-pdf-page relative shadow-sm rounded-sm border border-border/70 bg-white">
+          <canvas ref={canvasRef} className="block rounded-sm" />
           <div ref={textLayerRef} className="textLayer" />
         </div>
       </div>

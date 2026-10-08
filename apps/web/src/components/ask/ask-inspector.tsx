@@ -72,12 +72,13 @@ export function AskInspector({
   const { data: recoveryAttempts = [], refetch: refetchRecoveryAttempts } = useClaimRecoveryAttempts(claim?.claimId);
   const activeAttempt = recoveryAttempts[selectedAttemptIndex] || recoveryAttempts[recoveryAttempts.length - 1] || null;
 
-  // Synchronize initialTab when provided
+  // Synchronize initialTab when provided — also on every new selection, so re-opening a citation after switching
+  // tabs lands on the requested tab again.
   React.useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
     }
-  }, [initialTab]);
+  }, [initialTab, claim?.claimId, selectedEvidence]);
 
   // Default to latest attempt when attempts update
   React.useEffect(() => {
@@ -86,13 +87,19 @@ export function AskInspector({
     }
   }, [recoveryAttempts.length]);
 
-  // Reset selected evidence index when claim changes
+  // Align the selected evidence with the citation/evidence the user actually clicked (previously always index 0,
+  // so clicking citation [2] opened evidence [1] and highlighted the wrong passage).
   React.useEffect(() => {
-    setSelectedEvidenceIndex(0);
+    const list = claim?.evidence || [];
+    const key = (e: EvidenceItem | null | undefined) => (e ? e.chunkId || e.evidenceId || e.text : undefined);
+    const wanted = key(selectedEvidence);
+    const idx = wanted ? list.findIndex((e) => key(e) === wanted) : -1;
+    setSelectedEvidenceIndex(idx >= 0 ? idx : 0);
     if (claim && !initialTab) {
       setActiveTab('claim');
     }
-  }, [claim?.claimId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claim?.claimId, selectedEvidence]);
 
   // Retry claim mutation
   const retryMutation = useRetryClaim();
