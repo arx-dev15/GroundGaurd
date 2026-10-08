@@ -27,7 +27,8 @@ import { AskComposer } from '@/components/ask/ask-composer';
 import { ZeroKnowledgeState } from '@/components/ask/zero-knowledge-state';
 import { AnswerView } from '@/components/ask/answer-view';
 import { AskInspector } from '@/components/ask/ask-inspector';
-import { GroundGuardAnalysis } from '@/components/ask/groundguard-analysis';
+import { mergeClaimUpdate } from '@/lib/claim-events';
+import { EvidenceAnalysisPanel, applyAskEvent, initialAskProgress, type AskProgress } from '@/components/ask/evidence-analysis-panel';
 import { ConversationSidebar } from '@/components/ask/conversation-sidebar';
 import { useProjectDocuments } from '@/lib/documents-query';
 import {
@@ -135,6 +136,7 @@ export default function AskPage() {
 
   // Claims cache for loaded generations in active conversation
   const [generationClaimsMap, setGenerationClaimsMap] = React.useState<Record<string, Claim[]>>({});
+  const [generationDispositionMap, setGenerationDispositionMap] = React.useState<Record<string, string | undefined>>({});
 
   // Mutation to create conversation
   const createConversationMutation = useCreateConversation(projectId);
@@ -154,8 +156,11 @@ export default function AskPage() {
     persistedMessages.forEach((msg) => {
       if (msg.role === 'assistant' && msg.generationId && !generationClaimsMap[msg.generationId]) {
         apiClient
-          .get<{ claims: Claim[] }>(`/v1/generations/${msg.generationId}/claims`)
+          .get<{ claims: Claim[]; disposition?: string }>(`/v1/generations/${msg.generationId}/claims`)
           .then((res) => {
+            if (res?.disposition) {
+              setGenerationDispositionMap((prev) => ({ ...prev, [msg.generationId!]: res.disposition }));
+            }
             if (res?.claims) {
               setGenerationClaimsMap((prev) => ({
                 ...prev,
@@ -176,6 +181,8 @@ export default function AskPage() {
   const [activeGenerationId, setActiveGenerationId] = React.useState<string | null>(null);
   const [statusLabel, setStatusLabel] = React.useState<string>('Searching project evidence...');
   const [streamingText, setStreamingText] = React.useState<string>('');
+  // Real-event progress for the in-flight Ask (reset per request; never advanced by timers)
+  const [askProgress, setAskProgress] = React.useState<AskProgress>(initialAskProgress);
   const [isStreamActive, setIsStreamActive] = React.useState<boolean>(true);
   const pendingCompleteActionRef = React.useRef<(() => Promise<void>) | null>(null);
   const abortControllerRef = React.useRef<AbortController | null>(null);
@@ -195,13 +202,16 @@ export default function AskPage() {
     onAnswerDelta: ({ delta }) => {
       setStreamingText((prev) => prev + delta);
     },
-    onEvent: (event) => {
+    onEvent: (event, data) => {
+      setAskProgress((prev) => applyAskEvent(prev, event, data));
       if (event === 'generation.started') {
         setStatusLabel('Searching project evidence...');
       } else if (event === 'retrieval.completed') {
         setStatusLabel('Synthesizing project evidence...');
       } else if (event === 'answer.started') {
         setStatusLabel('Generating answer...');
+      } else if (event === 'answer.completed') {
+        setStatusLabel('Checking claims against project evidence...');
       } else if (event === 'sentence.verified' || event === 'sentence.flagged') {
         setStatusLabel('Verifying claims against project knowledge...');
       } else if (event === 'recovery.started') {
@@ -210,18 +220,13 @@ export default function AskPage() {
         setStatusLabel('Finalizing answer...');
       }
     },
-    onClaimUpdate: (claim) => {
+    onClaimUpdate: (update) => {
+      // Stale streams are dropped in the hook; updates merge by stable claimId into the CURRENT generation only.
       if (activeGenerationId) {
-        setGenerationClaimsMap((prev) => {
-          const list = prev[activeGenerationId] || [];
-          const idx = list.findIndex((c) => c.claimId === claim.claimId);
-          if (idx >= 0) {
-            const nextList = [...list];
-            nextList[idx] = claim;
-            return { ...prev, [activeGenerationId]: nextList };
-          }
-          return { ...prev, [activeGenerationId]: [...list, claim] };
-        });
+        setGenerationClaimsMap((prev) => ({
+          ...prev,
+          [activeGenerationId]: mergeClaimUpdate(prev[activeGenerationId] || [], update),
+        }));
       }
     },
     onCompleted: async () => {
@@ -238,8 +243,13 @@ export default function AskPage() {
           ]);
           if (activeGenerationId) {
             apiClient
-              .get<{ claims: Claim[] }>(`/v1/generations/${activeGenerationId}/claims`)
+              .get<{ claims: Claim[]; disposition?: string }>(`/v1/generations/${activeGenerationId}/claims`)
               .then((res) => {
+                // Final trust disposition (e.g. INSUFFICIENT / UNVERIFIED) for the just-completed answer;
+                // without it the live answer showed no trust state until a page reload.
+                if (res?.disposition) {
+                  setGenerationDispositionMap((prev) => ({ ...prev, [activeGenerationId]: res.disposition }));
+                }
                 if (res?.claims) {
                   setGenerationClaimsMap((prev) => ({
                     ...prev,
@@ -349,6 +359,7 @@ export default function AskPage() {
       textarea?.focus();
     }, 20);
     setIsSubmitting(true);
+    setAskProgress(initialAskProgress());
     setStatusLabel('Searching project evidence...');
 
     const controller = new AbortController();
@@ -703,6 +714,7 @@ export default function AskPage() {
                       <AnswerView
                         answerText={msg.content}
                         claims={assistantClaims}
+                        disposition={msg.generationId ? generationDispositionMap[msg.generationId] : undefined}
                         generationStatus={msg.content.includes('cancelled') ? 'cancelled' : 'completed'}
                         projectId={projectId}
                         selectedClaimId={selectedClaim?.claimId}
@@ -743,10 +755,17 @@ export default function AskPage() {
 
                     {streamingText ? (
                       <div className="space-y-2 pb-2 p-4 rounded-xl border border-primary/20 bg-card/40 backdrop-blur-sm shadow-sm">
-                        <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground flex flex-wrap items-center gap-1.5">
                           <Shield className="h-3.5 w-3.5 text-primary" />
                           <span>EvideX AI</span>
+                          <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400 normal-case tracking-normal font-medium">
+                            Draft · not yet verified
+                          </span>
                         </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          Citations are provisional until every claim has been checked against the source documents.
+                        </p>
+                        <EvidenceAnalysisPanel progress={askProgress} compact />
                         <AnswerView
                           answerText={streamingText}
                           claims={[]}
@@ -762,10 +781,7 @@ export default function AskPage() {
                         />
                       </div>
                     ) : (
-                      <GroundGuardAnalysis
-                        mode="live"
-                        currentStage={statusLabel}
-                      />
+                      <EvidenceAnalysisPanel progress={askProgress} />
                     )}
                   </div>
                 )}

@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from typing import List, Tuple, Optional
 import torch
@@ -9,11 +10,16 @@ from src.contracts.requests import EvidenceChunk, VerifyItem
 from src.contracts.responses import Scores, VerifyResultItem
 from src.preprocessing.pairer import text_pairer
 from src.inference.calibrator import calibrator
-from src.config import MODEL_VERSION, MODEL_NAME
+from src.config import MODEL_VERSION, MODEL_NAME, M1_TORCH_THREADS
 
 logger = logging.getLogger("groundguard-predictor")
 
 DEFAULT_MODEL_NAME = MODEL_NAME
+
+# Opt-in padded micro-batch inference (M1_BATCH_INFERENCE=1). Off by default: identical labels, but measured
+# ~2x slower on CPU for multi-chunk claims (padding to the long joint premise outweighs fewer forward passes).
+M1_BATCH_INFERENCE = os.getenv("M1_BATCH_INFERENCE", "0").strip().lower() not in ("0", "false", "no")
+M1_BATCH_SIZE = max(1, int(os.getenv("M1_BATCH_SIZE", "8")))
 
 class DebertaGroundingPredictor:
     """
@@ -34,6 +40,9 @@ class DebertaGroundingPredictor:
             return
 
         logger.info(f"Loading transformer model '{self.model_name}' on device '{self.device}'...")
+        if self.device.type == "cpu":
+            torch.set_num_threads(M1_TORCH_THREADS)
+            logger.info(f"M1 CPU inference threads: {torch.get_num_threads()} (M1_TORCH_THREADS)")
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
@@ -71,6 +80,30 @@ class DebertaGroundingPredictor:
             prob_dict = calibrator.calibrate_logits(logits, self.id2label)
 
         return prob_dict
+
+    def _infer_pairs(self, pairs: List[Tuple[str, str]]) -> List[dict]:
+        """
+        Runs several [Evidence, Claim] pairs through the Cross-Encoder in padded micro-batches
+        (attention-masked, same tokenizer settings as _infer_pair). Falls back to per-pair inference
+        when batching is disabled (M1_BATCH_INFERENCE=0) or only one pair is given.
+        """
+        if not M1_BATCH_INFERENCE or len(pairs) <= 1:
+            return [self._infer_pair(ev, cl) for ev, cl in pairs]
+        results: List[dict] = []
+        for start in range(0, len(pairs), M1_BATCH_SIZE):
+            group = pairs[start:start + M1_BATCH_SIZE]
+            inputs = self.tokenizer(
+                [ev for ev, _ in group],
+                [cl for _, cl in group],
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt"
+            ).to(self.device)
+            with torch.no_grad():
+                logits = self.model(**inputs).logits  # Shape: [n, 3]
+            results.extend(calibrator.calibrate_logits(logits[i:i + 1], self.id2label) for i in range(len(group)))
+        return results
 
     @staticmethod
     def evaluate_symbolic_rules(claim: str, ev_text: str) -> Optional[Tuple[str, Scores, float]]:
@@ -257,12 +290,26 @@ class DebertaGroundingPredictor:
             )
 
         # Stage 2: Cross-Encoder Inference with Joint Evidence Fusion
-        chunk_results = [self._infer_pair(ev_text, cleaned_claim) for ev_text, _ in cleaned_chunks]
+        # Subject-less chunks ("Its operating voltage is 3.5 V to 5.5 V") are paired with their legitimate
+        # source context (document title / heading / preceding sentence) so the NLI model can resolve the
+        # subject. Symbolic rules and the tag gate above use the raw chunk text only, so contradiction
+        # detection is never weakened by context.
+        contexts = {
+            chunk.chunkId: text_pairer.clean_text(chunk.context)
+            for chunk in (evidence or []) if getattr(chunk, "context", None)
+        }
 
+        def _premise(ev_text: str, chunk_id: str) -> str:
+            ctx = contexts.get(chunk_id)
+            return f"{ctx} {ev_text}" if ctx else ev_text
+
+        pairs = [(_premise(ev_text, cid), cleaned_claim) for ev_text, cid in cleaned_chunks]
         if len(cleaned_chunks) > 1:
-            joint_result = self._infer_pair(full_ev_text, cleaned_claim)
-        else:
-            joint_result = chunk_results[0]
+            ctx_prefix = " ".join(dict.fromkeys(c for c in contexts.values() if c))
+            pairs.append((f"{ctx_prefix} {full_ev_text}".strip(), cleaned_claim))
+        pair_results = self._infer_pairs(pairs)
+        chunk_results = pair_results[:len(cleaned_chunks)]
+        joint_result = pair_results[-1] if len(cleaned_chunks) > 1 else chunk_results[0]
 
         max_entail = max(max(c["entailment"] for c in chunk_results), joint_result["entailment"])
 

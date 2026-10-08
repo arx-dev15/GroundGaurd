@@ -10,7 +10,7 @@ import {
   RecoverResponse,
   DeleteDocumentResponse,
 } from '@groundguard/contracts';
-import { ServiceUnavailableError } from '../utils/errors';
+import { BadRequestError, ServiceUnavailableError } from '../utils/errors';
 
 export class AIClient {
   private baseUrl: string;
@@ -67,12 +67,23 @@ export class AIClient {
     }
   }
 
-  public async checkHealth(): Promise<{ ok: boolean; status?: string; error?: string }> {
+  public async checkHealth(): Promise<{
+    ok: boolean;
+    status?: string;
+    retrievalMode?: string;
+    degradationReason?: string;
+    error?: string;
+  }> {
     try {
       const res = await this.fetchWithTimeout(`${this.baseUrl}/health`);
       if (res.ok) {
         const data = await res.json();
-        return { ok: true, status: data.status };
+        return {
+          ok: true,
+          status: data.status,
+          retrievalMode: data.retrievalMode,
+          degradationReason: data.degradationReason ?? undefined,
+        };
       }
       return { ok: false, error: `HTTP ${res.status}` };
     } catch (err: any) {
@@ -106,6 +117,17 @@ export class AIClient {
       60000 // 60s timeout for real PDF parsing and embedding
     );
 
+    if (res.status === 400 || res.status === 422) {
+      // Invalid/unreadable upload: the AI service returns a sanitized validation message.
+      let detail = 'Uploaded PDF could not be processed';
+      try {
+        const body: any = await res.json();
+        if (typeof body?.detail === 'string') detail = body.detail;
+      } catch {
+        /* keep default */
+      }
+      throw new BadRequestError(detail);
+    }
     if (!res.ok) {
       throw new ServiceUnavailableError('AI Service (/ingest)');
     }

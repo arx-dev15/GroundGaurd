@@ -126,6 +126,11 @@ export class DocumentOrchestrator {
         }
       }
 
+      // Invalid/unreadable PDF: record the sanitized validation reason and return 400 to the client.
+      if (err instanceof BadRequestError) {
+        await documentRepository.updateStatus(tempDoc.id, 'failed', 0, err.message);
+        throw err;
+      }
       // On exception/timeout, M3 marks the document status 'failed' with sanitized message
       const sanitizedMsg = 'Document processing service unavailable or persistence failed';
       const failedDoc = await documentRepository.updateStatus(tempDoc.id, 'failed', 0, sanitizedMsg);

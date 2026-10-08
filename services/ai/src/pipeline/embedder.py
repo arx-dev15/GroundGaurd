@@ -1,5 +1,6 @@
 import os
 import logging
+import threading
 from typing import List
 
 logger = logging.getLogger("m2-embedder")
@@ -11,6 +12,9 @@ EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
 # Never activated silently. Fails in production regardless of this flag.
 _ALLOW_MOCK = os.getenv("ALLOW_MOCK_EMBEDDER", "false").lower() == "true"
 _model = None
+_model_lock = threading.Lock()  # prevents duplicate concurrent loads (startup warm-up vs first request)
+# One-time model initialization cost (ms), exposed for retrieval stage timings.
+MODEL_INIT_MS: float = 0.0
 
 
 def get_model():
@@ -23,9 +27,18 @@ def get_model():
     - If model load fails: raise RuntimeError (always — regardless of environment).
     - Mock mode: ONLY when ALLOW_MOCK_EMBEDDER=true AND ENVIRONMENT != production.
     """
-    global _model
+    global _model, MODEL_INIT_MS
     if _model is not None:
         return _model
+    with _model_lock:
+        if _model is not None:
+            return _model
+        return _load_model()
+
+
+def _load_model():
+    global _model, MODEL_INIT_MS
+    _init_started = __import__("time").perf_counter()
 
     env = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
 
@@ -53,6 +66,7 @@ def get_model():
 
         logger.info(f"Model '{MODEL_NAME}' loaded and validated (dim={actual_dim}).")
         _model = loaded
+        MODEL_INIT_MS = round((__import__("time").perf_counter() - _init_started) * 1000.0, 1)
         return _model
 
     except RuntimeError:

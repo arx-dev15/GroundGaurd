@@ -15,11 +15,11 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path
 # Ensure services/ai directory is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from typing import List, Optional, Dict, Any, AsyncIterator
+from typing import List, Optional, Dict, Any, AsyncIterator, Tuple
 import json
 from fastapi import FastAPI, Header, Request, Response, File, UploadFile, Form, Query, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.pipeline.parser import parse_pdf
 from src.pipeline.chunker import chunk_pages
@@ -34,7 +34,7 @@ from src.pipeline.intent_classifier import (
 from src.pipeline.conversational import (
     generate_social_response,
     generate_product_help_response as generate_product_help_llm,
-    generate_abstention_response as generate_abstention_llm,
+    FALLBACK_ABSTENTION,
     generate_clarification_response as generate_clarification_llm,
 )
 from src.pipeline.query_understanding import (
@@ -69,6 +69,38 @@ logger = logging.getLogger("m2-ai-service")
 
 app = FastAPI(title="GroundGuard M2 AI Service", version="0.3.0")
 
+# Retrieval models (sentence-transformer embedder + FlashRank cross-encoder) are loaded once per worker
+# in the background at startup. Previously they loaded lazily inside the first user request (~23 s
+# embedder init measured on Windows/CPU). Requests arriving mid-warm-up wait on the same single load.
+_model_warmup: Dict[str, Any] = {"state": "not_started", "error": None, "ms": None}
+
+
+def _warm_retrieval_models() -> None:
+    import time as _t
+    started = _t.perf_counter()
+    _model_warmup["state"] = "loading"
+    try:
+        from src.pipeline.embedder import get_model
+        from src.pipeline.reranker import get_ranker
+        get_model()
+        get_ranker()
+        _model_warmup["state"] = "ready"
+    except Exception as e:  # readiness reports the failure; requests still fail closed on use
+        _model_warmup["state"] = "failed"
+        _model_warmup["error"] = str(e)
+        logger.error(f"[startup] Retrieval model warm-up failed: {e}")
+    _model_warmup["ms"] = int((_t.perf_counter() - started) * 1000)
+    logger.info(f"[startup] Retrieval model warm-up {_model_warmup['state']} in {_model_warmup['ms']} ms")
+
+
+@app.on_event("startup")
+async def _start_model_warmup() -> None:
+    if os.getenv("MODEL_WARMUP", "true").lower() != "true":
+        _model_warmup["state"] = "disabled"
+        return
+    import threading as _threading
+    _threading.Thread(target=_warm_retrieval_models, name="model-warmup", daemon=True).start()
+
 # Models for contracts
 class IndexStatus(BaseModel):
     qdrant: bool = False
@@ -84,10 +116,18 @@ class IngestResponse(BaseModel):
     indexStatus: Optional[IndexStatus] = None
     chunks: Optional[List[Dict[str, Any]]] = None
 
+def _require_non_blank(v: str) -> str:
+    if not isinstance(v, str) or not v.strip():
+        raise ValueError("query must be a non-empty string")
+    return v
+
+
 class RetrieveRequest(BaseModel):
     projectId: str
     query: str
-    topK: Optional[int] = 5
+    topK: Optional[int] = Field(5, ge=1, le=50)
+
+    _query_non_blank = field_validator("query")(classmethod(lambda cls, v: _require_non_blank(v)))
 
 class DeleteDocumentResult(BaseModel):
     success: bool
@@ -103,6 +143,8 @@ class GenerateRequest(BaseModel):
     conversationId: Optional[str] = None
     options: Optional[Dict[str, Any]] = None
     conversationContext: Optional[List[Dict[str, Any]]] = None
+
+    _query_non_blank = field_validator("query")(classmethod(lambda cls, v: _require_non_blank(v)))
 
 class ClaimItem(BaseModel):
     claimId: str
@@ -134,6 +176,8 @@ class RecoverRequest(BaseModel):
     existingEvidence: List[Dict[str, Any]] = []
     attempt: int = 1
     useLangGraph: Optional[bool] = True
+    # Remaining M3 recovery budget (ms). Bounds this request's provider HTTP wait; unset = default timeouts.
+    deadlineMs: Optional[int] = Field(None, ge=1, le=120000)
 
 class RecoverResponse(BaseModel):
     requestId: str
@@ -143,6 +187,8 @@ class RecoverResponse(BaseModel):
     recoveryEvidence: List[EvidenceItem] = []
     modelVersion: str
     reason: Optional[str] = None
+    # Additive: terminal failure category so callers do not retry a provider outage as missing evidence.
+    failureType: Optional[str] = None
 
 def classify_premise_outcome(answer: str, is_proposition: bool, is_abstained: bool) -> str:
     """
@@ -337,11 +383,19 @@ def sanitize_user_facing_answer(
     # Format user-facing citations into clean display labels (Section 6)
     def _clean_citation(m):
         content = m.group(1).strip()
-        p_match = re.search(r',\s*(p(?:p)?\.?\s*\d+(?:\s*-\s*\d+)?)', content, re.I)
-        page_suffix = f", {p_match.group(1)}" if p_match else ""
-        raw_doc_part = content[:p_match.start()].strip() if p_match else content
-        clean_title = format_display_title(raw_doc_part)
-        return f"[{clean_title}{page_suffix}]"
+        p_match = re.search(r',\s*pp?\.?\s*(\d+)(?:\s*([-–—])\s*(\d+))?\s*$', content, re.I)
+        if p_match:
+            start, dash, end = p_match.group(1), p_match.group(2), p_match.group(3)
+            if end and end != start:
+                page_suffix = f", pp. {start}{'–' if dash in ('–', '—') else '-'}{end}"
+            else:
+                page_suffix = f", p. {start}"  # single page is always 'p.'
+            raw_doc_part = content[:p_match.start()].strip()
+        else:
+            page_suffix, raw_doc_part = "", content
+        # Keep the document name exactly as cited (it is the evidence filename/title); only internal ids
+        # were rewritten above. Non-source brackets (e.g. [1]) are left untouched.
+        return f"[{raw_doc_part}{page_suffix}]"
 
     text = re.sub(r'\[([^\]]+)\]', _clean_citation, text)
 
@@ -458,7 +512,8 @@ def _apply_bounded_context_expansion_and_ordering(retrieval_res: Any, project_id
     # Section heading sufficiency confirmation
     if retrieval_res.results and target_norm and (plan.retrieval_strategy == "section" or plan.target):
         heading_matched = any(target_norm in (ev.heading or "").lower() or (len(target_norm) >= 4 and target_norm in ev.text.lower()) for ev in retrieval_res.results)
-        if heading_matched and retrieval_res.sufficiency and not retrieval_res.sufficiency.sufficient:
+        if (heading_matched and retrieval_res.sufficiency and not retrieval_res.sufficiency.sufficient
+                and not _answerability_rejected(retrieval_res.sufficiency)):
             retrieval_res.sufficiency.sufficient = True
             retrieval_res.sufficiency.reason = f"Section topic '{plan.target}' matched in document evidence"
             retrieval_res.sufficiency.score = max(retrieval_res.sufficiency.score or 0.0, 0.85)
@@ -474,6 +529,399 @@ def _apply_bounded_context_expansion_and_ordering(retrieval_res: Any, project_id
         )
 
 
+# ---------------------------------------------------------------------------
+# Shared retrieval / outcome helpers (used identically by /generate and /generate/stream so both
+# endpoints always reach the same trust state for the same question).
+# ---------------------------------------------------------------------------
+
+COVERAGE_MAX_CHUNKS = int(os.getenv("COVERAGE_MAX_CHUNKS", "10"))
+COVERAGE_SCROLL_LIMIT = int(os.getenv("COVERAGE_SCROLL_LIMIT", "5000"))
+_ANAPHORIC_START = re.compile(r"^\s*(?:it|its|this|these|those|they|their|he|she|his|her|such|the\s+latter|the\s+former|the\s+(?:unit|device|sensor|pump|system|controller|meter|module|valve|equipment|component|machine|motor))\b", re.I)
+
+
+SOURCE_PREVIEW_MAX = 5
+SOURCE_PREVIEW_CHARS = 220
+
+
+def _source_previews(items: List[Any], project_id: str) -> List[Dict[str, Any]]:
+    """
+    Bounded early preview of the passages ALREADY retrieved for this request (no extra retrieval/LLM call).
+    Re-validated against PostgreSQL: only READY documents of THIS project are exposed. These are retrieval
+    candidates, not verified citations (status="retrieved_candidate").
+    """
+    items = [i for i in (items or []) if getattr(i, "chunkId", None) and getattr(i, "documentId", None)]
+    if not items:
+        return []
+    try:
+        ready_ids, names = get_ready_documents_meta(project_id, list({i.documentId for i in items}))
+    except Exception as e:
+        logger.warning(f"[source preview] skipped (lifecycle check failed): {e}")
+        return []
+    out: List[Dict[str, Any]] = []
+    for i in items:
+        if i.documentId not in ready_ids:
+            continue
+        fn = names.get(i.documentId) or (i.metadata or {}).get("filename")
+        if not fn:
+            continue
+        text = " ".join((i.text or "").split())
+        out.append({
+            "chunkId": i.chunkId,
+            "documentId": i.documentId,
+            "documentName": format_display_title(fn),
+            "filename": fn,
+            "pageNumber": i.pageNumber,
+            "excerpt": text[:SOURCE_PREVIEW_CHARS] + ("…" if len(text) > SOURCE_PREVIEW_CHARS else ""),
+            "status": "retrieved_candidate",
+        })
+        if len(out) >= SOURCE_PREVIEW_MAX:
+            break
+    return out
+
+
+def _explicit_document_scope(plan: Any) -> Optional[List[str]]:
+    """Hard document filter only when the user explicitly named the document (never on fuzzy matches)."""
+    if getattr(plan, "document_scope_explicit", False) and getattr(plan, "resolved_document_id", None):
+        return [plan.resolved_document_id]
+    return None
+
+
+def _build_document_coverage(project_id: str, doc_id: str) -> Optional[Tuple[List[EvidenceItem], EvidenceSufficiency, Dict[str, Any]]]:
+    """
+    Representative, reading-ordered evidence for a whole-document overview.
+    Small documents are passed in full. Large documents (e.g. 562 chunks) are represented by structural
+    chunks (table of contents / headings near the start) plus an evenly stratified sample across the whole
+    document -- and are explicitly reported as a SAMPLE (coverageComplete=False, disposition PARTIAL),
+    never as complete evidence. Payload-only scroll (no vectors); bounded LLM context.
+    """
+    from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+    from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals
+    from src.pipeline.chunker import is_distractor_content
+
+    scroll_filter = Filter(must=[
+        FieldCondition(key="projectId", match=MatchValue(value=project_id)),
+        FieldCondition(key="documentId", match=MatchValue(value=doc_id)),
+    ])
+    points, offset = [], None
+    while len(points) < COVERAGE_SCROLL_LIMIT:
+        batch, offset = qdrant_store.client.scroll(
+            collection_name="groundguard_chunks", scroll_filter=scroll_filter,
+            limit=500, offset=offset, with_payload=True, with_vectors=False,
+        )
+        points.extend(batch)
+        if offset is None:
+            break
+    if not points:
+        return None
+    points.sort(key=lambda p: ((p.payload or {}).get("chunkIndex", 0), (p.payload or {}).get("pageNumber", 1)))
+    total = len(points)
+
+    if total <= COVERAGE_MAX_CHUNKS:
+        selected = list(range(total))
+        method = "complete"
+    else:
+        head_zone = max(3, total // 10)
+        structural = [i for i in range(head_zone) if is_distractor_content((points[i].payload or {}).get("text", ""))][:2]
+        remaining = COVERAGE_MAX_CHUNKS - len(structural)
+        stride = (total - 1) / max(1, remaining - 1)
+        stratified = [int(round(k * stride)) for k in range(remaining)]
+        selected = sorted(set(structural + stratified))
+        method = "structural+stratified_sample"
+
+    items: List[EvidenceItem] = []
+    for i in selected:
+        pd = points[i].payload or {}
+        items.append(EvidenceItem(
+            evidenceId=f"ev_{uuid.uuid4().hex[:8]}",
+            chunkId=pd.get("chunkId", ""),
+            documentId=pd.get("documentId"),
+            text=pd.get("text", ""),
+            pageNumber=pd.get("pageNumber", 1),
+            section=pd.get("section"),
+            heading=pd.get("heading"),
+            identifiers=pd.get("identifierKeys", []),
+            sources=["document_coverage"],
+            rrfScore=None,
+            rerankScore=None,
+            score=None,
+            metadata={"chunkIndex": pd.get("chunkIndex", 0), **(pd.get("metadata") or {})},
+        ))
+    complete = len(selected) >= total
+    coverage_meta = {
+        "documentId": doc_id,
+        "documentChunkCount": total,
+        "sampledChunkCount": len(selected),
+        "coverageComplete": complete,
+        "coverageMethod": method,
+    }
+    disposition = EvidenceDisposition.SUPPORTED.value if complete else EvidenceDisposition.PARTIAL.value
+    reason = (
+        "Document coverage: all chunks of the document included"
+        if complete else
+        f"Document coverage: representative sample of {len(selected)} of {total} chunks (not exhaustive)"
+    )
+    suff = EvidenceSufficiency(
+        sufficient=True,
+        reason=reason,
+        score=1.0 if complete else round(len(selected) / total, 4),
+        disposition=disposition,
+        failureStage=FailureStage.NONE.value,
+        signals=EvidenceSufficiencySignals(
+            resultCount=len(items), topRerankScore=0.0, identifierMatched=False,
+            sourceCoverage=[doc_id], disposition=disposition, eligibleEvidenceCount=len(items),
+        ),
+    )
+    return items, suff, coverage_meta
+
+
+def _coverage_scope_note(coverage_meta: Optional[Dict[str, Any]], filename: Optional[str]) -> Optional[str]:
+    if not coverage_meta or coverage_meta.get("coverageComplete"):
+        return None
+    return (
+        f"The evidence below is a representative sample of {coverage_meta['sampledChunkCount']} of "
+        f"{coverage_meta['documentChunkCount']} sections of {filename or 'the document'} (table of contents / "
+        f"structural sections plus sections spread evenly across the document). Describe the document's topics "
+        f"from these excerpts, say that the overview is based on sampled sections, and do not claim it is exhaustive."
+    )
+
+
+def _execute_plan_retrieval(
+    payload: Any, plan: Any, proj_context: Any, effective_query: str, top_k: int,
+    req_id: str, is_challenge_retry: bool,
+) -> Tuple[Any, Optional[Dict[str, Any]]]:
+    """Strategies A (coverage), B (broad multi-query), C (focused) and F (parameter grounding)."""
+    search_queries = plan.search_queries if plan.search_queries else [plan.standalone_query or payload.query]
+    retrieval_mode = plan.retrieval_mode
+    doc_scope = _explicit_document_scope(plan)
+    retrieval_res = None
+    coverage_meta = None
+
+    # Strategy A: Document Coverage (overview / contents / summary)
+    if plan.retrieval_strategy == "coverage":
+        target_doc_id = plan.resolved_document_id
+        if not target_doc_id and proj_context:
+            ready_docs_list = proj_context.get("readyDocs") or []
+            if len(ready_docs_list) == 1:
+                target_doc_id = ready_docs_list[0].get("id")
+            elif plan.resolved_document_name:
+                for d in ready_docs_list:
+                    if d.get("filename", "").lower() == plan.resolved_document_name.lower():
+                        target_doc_id = d.get("id")
+                        break
+        if target_doc_id:
+            try:
+                # The coverage document must be READY in THIS project (fail-closed isolation check).
+                ready_ids, _ = get_ready_documents_meta(payload.projectId, [target_doc_id])
+                if target_doc_id in ready_ids:
+                    cov = _build_document_coverage(payload.projectId, target_doc_id)
+                    if cov:
+                        items, cov_suff, coverage_meta = cov
+                        retrieval_res = type("_CoverageResult", (), {"results": items, "sufficiency": cov_suff})()
+                        logger.info("[/generate coverage] doc=%s %s", target_doc_id, coverage_meta)
+            except Exception as cov_err:
+                logger.warning("[/generate coverage error] %s -- falling back to standard retrieval", cov_err)
+
+    # Strategy B: Broad / Comparative / Cross-Document Multi-Query
+    if retrieval_res is None and retrieval_mode in ("broad", "comparative", "cross_document") and len(search_queries) > 1:
+        all_results = []
+        last_sufficiency = None
+        for sq in search_queries:
+            try:
+                sq_res = retrieve_evidence(
+                    project_id=payload.projectId, query=sq, top_k=top_k,
+                    search_queries=plan.search_queries, lexical_anchors=plan.lexical_anchors,
+                    question_slot=plan.question_slot, request_id=req_id, document_ids=doc_scope,
+                    answerability_query=effective_query,
+                )
+                all_results.append(sq_res.results)
+                last_sufficiency = sq_res.sufficiency
+            except Exception as sq_err:
+                logger.warning("[/generate broad sq error] sq='%s': %s", sq[:60], sq_err)
+
+        seen, merged_items = set(), []
+        for items in all_results:
+            for ev in items:
+                if ev.chunkId not in seen:
+                    seen.add(ev.chunkId)
+                    merged_items.append(ev)
+        from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals, SUFFICIENCY_THRESHOLD
+        if merged_items:
+            top_score = max((ev.rerankScore or ev.score or 0.0) for ev in merged_items)
+            broad_sufficient = top_score >= SUFFICIENCY_THRESHOLD
+            broad_suf = EvidenceSufficiency(
+                sufficient=broad_sufficient,
+                reason="Broad multi-query evidence sufficient" if broad_sufficient else "Broad multi-query evidence insufficient",
+                score=top_score,
+                signals=EvidenceSufficiencySignals(
+                    resultCount=len(merged_items), topRerankScore=top_score, identifierMatched=False,
+                    sourceCoverage=list({ev.documentId for ev in merged_items if ev.documentId}),
+                ),
+            )
+            retrieval_res = type("_BroadResult", (), {"results": merged_items, "sufficiency": broad_suf})()
+        elif last_sufficiency:
+            retrieval_res = type("_BroadResult", (), {"results": [], "sufficiency": last_sufficiency})()
+        else:
+            retrieval_res = type("_BroadResult", (), {"results": [], "sufficiency": EvidenceSufficiency(
+                sufficient=False, reason="No evidence retrieved", score=0.0,
+                signals=EvidenceSufficiencySignals(resultCount=0, topRerankScore=0.0, identifierMatched=False, sourceCoverage=[]),
+            )})()
+
+    # Strategy C: Focused / Section Retrieval
+    if retrieval_res is None:
+        focused_q = plan.standalone_query or effective_query or (plan.search_queries[0] if plan.search_queries else "")
+        retrieval_res = retrieve_evidence(
+            project_id=payload.projectId, query=focused_q, top_k=top_k, request_id=req_id,
+            search_queries=plan.search_queries, lexical_anchors=plan.lexical_anchors,
+            question_slot=plan.question_slot, facet_set=getattr(plan, "facets", None),
+            is_challenge_retry=is_challenge_retry, document_ids=doc_scope,
+            answerability_query=effective_query,
+        )
+
+    # Bounded Local Context Expansion & Procedural Order Preservation (not for sampled coverage)
+    if coverage_meta is None:
+        _apply_bounded_context_expansion_and_ordering(retrieval_res, payload.projectId, plan)
+
+    # Strategy F: Technical Parameter Grounding (Section 29, 30) -- may rescue a relevance rejection,
+    # but NEVER overrides an answerability rejection (requested attribute absent from the evidence).
+    if retrieval_res and retrieval_res.results and plan.operation in ("lookup", "extract") and coverage_meta is None:
+        top_ev = retrieval_res.results[0]
+        suff = retrieval_res.sufficiency
+        if suff and not suff.sufficient and not _answerability_rejected(suff):
+            target_norm = (plan.target or "").strip().lower()
+            if target_norm and len(target_norm) >= 3 and target_norm in top_ev.text.lower():
+                if top_ev.rerankScore and top_ev.rerankScore >= 0.15:
+                    suff.sufficient = True
+                    suff.reason = f"Technical parameter '{plan.target}' matched in eligible document evidence"
+                    suff.score = max(suff.score or 0.0, 0.75)
+                    suff.disposition = EvidenceDisposition.SUPPORTED.value
+                    suff.failureStage = FailureStage.NONE.value
+                    logger.info("[/generate lookup] Technical parameter match validated (score=0.75)")
+
+    return retrieval_res, coverage_meta
+
+
+def _answerability_rejected(suff: Any) -> bool:
+    if not suff:
+        return False
+    if getattr(suff, "failureStage", None) == FailureStage.ANSWERABILITY_GATE_REJECTION.value:
+        return True
+    sig = getattr(suff, "signals", None)
+    return bool(sig is not None and getattr(sig, "attributeCovered", None) is False)
+
+
+def _attach_source_context(items: List[EvidenceItem], project_id: str) -> None:
+    """
+    Legitimate source context for NLI verification of subject-less chunks: the document title and
+    heading are always available as metadata; when a chunk OPENS with an anaphoric subject ("It operates
+    at...", "The sensor's range..."), the immediately preceding sentence of the SAME document is attached
+    as `precedingText`. Nothing is invented: only stored document text/metadata is used.
+    """
+    lookups = 0
+    for item in items:
+        meta = item.metadata if item.metadata is not None else {}
+        item.metadata = meta
+        if item.heading and not meta.get("heading"):
+            meta["heading"] = item.heading
+        if lookups >= 8 or not _ANAPHORIC_START.search(item.text or ""):
+            continue
+        c_idx = meta.get("chunkIndex")
+        if not item.documentId or c_idx is None or int(c_idx) <= 0:
+            continue
+        lookups += 1
+        prev = _fetch_successor_chunk(project_id, item.documentId, int(c_idx) - 1)
+        if prev and prev.get("text"):
+            sents = [s for s in re.split(r"(?<=[.!?])\s+", " ".join(prev["text"].split())) if s.strip()]
+            if sents:
+                meta["precedingText"] = sents[-1][:400]
+
+
+async def _finalize_grounded_answer(
+    raw_answer: str,
+    included_items: List[EvidenceItem],
+    retrieval_res: Any,
+    plan: Any,
+    is_conflict: bool,
+    coverage_meta: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Maps the generator's STRUCTURED outcome (+ claim extraction result) to the final trust state.
+      INSUFFICIENT -> abstention: INSUFFICIENT, no citations, no evidence, no claims.
+      claim extraction failed / no verifiable claims -> UNVERIFIED (never SUPPORTED with zero claims).
+      PARTIAL outcome or sampled document coverage -> PARTIAL.
+    """
+    from src.pipeline.answerability import parse_generation_outcome, strip_citations, OUTCOME_INSUFFICIENT, OUTCOME_PARTIAL
+
+    answer_text, outcome, outcome_source = parse_generation_outcome(raw_answer)
+    premise_classification = classify_premise_outcome(answer_text, plan.is_proposition, outcome == OUTCOME_INSUFFICIENT)
+
+    if outcome == OUTCOME_INSUFFICIENT:
+        cleaned = sanitize_user_facing_answer(strip_citations(answer_text), [])
+        return {
+            "answer": cleaned,
+            "claims": [],
+            "evidence": [],
+            "abstention": True,
+            "disposition": EvidenceDisposition.INSUFFICIENT.value,
+            "failureStage": FailureStage.GENERATION_ABSTENTION.value,
+            "generationOutcome": outcome,
+            "generationOutcomeSource": outcome_source,
+            "verificationStatus": "abstained",
+            "claimExtraction": {"status": "skipped", "reason": "generation_abstained"},
+            "premiseClassification": premise_classification,
+            "extractionLatencyMs": 0,
+        }
+
+    claims: List[ClaimItem] = []
+    extraction_started = time.perf_counter()
+    try:
+        extraction_stats: Dict[str, Any] = {}
+        raw_claims = await extract_and_validate_claims(answer=answer_text, evidence=included_items, stats=extraction_stats)
+        claims = [ClaimItem(**c) for c in raw_claims]
+        claim_meta: Dict[str, Any] = {"status": "completed", "claimCount": len(claims),
+                                      "method": extraction_stats.get("method", "llm")}
+    except Exception as claim_err:
+        logger.error(f"[claim extraction error] {claim_err}")
+        claim_meta = {"status": "failed", "error": str(claim_err)}
+
+    cleaned = sanitize_user_facing_answer(answer_text, included_items)
+    supporting = filter_relevant_evidence(included_items, claims, is_abstention=False)
+
+    if claim_meta["status"] == "failed":
+        disposition, verification_status = EvidenceDisposition.UNVERIFIED.value, "claim_extraction_failed"
+    elif not claims:
+        disposition, verification_status = EvidenceDisposition.UNVERIFIED.value, "no_verifiable_claims"
+    else:
+        verification_status = "claims_pending_verification"
+        suff = retrieval_res.sufficiency
+        if is_conflict:
+            disposition = EvidenceDisposition.CONFLICT.value
+        elif plan.is_proposition and premise_classification in (
+            EvidenceDisposition.CONTRADICTED.value, EvidenceDisposition.PARTIALLY_SUPPORTED.value
+        ):
+            disposition = premise_classification
+        elif outcome == OUTCOME_PARTIAL or (coverage_meta and not coverage_meta.get("coverageComplete")):
+            disposition = EvidenceDisposition.PARTIAL.value
+        elif suff and getattr(suff, "disposition", None) in (EvidenceDisposition.SUPPORTED.value, EvidenceDisposition.PARTIAL.value):
+            disposition = suff.disposition
+        else:
+            disposition = EvidenceDisposition.SUPPORTED.value
+
+    return {
+        "answer": cleaned,
+        "claims": claims,
+        "evidence": supporting,
+        "abstention": False,
+        "disposition": disposition,
+        "failureStage": FailureStage.NONE.value,
+        "generationOutcome": outcome,
+        "generationOutcomeSource": outcome_source,
+        "verificationStatus": verification_status,
+        "claimExtraction": claim_meta,
+        "premiseClassification": premise_classification,
+        "extractionLatencyMs": int((time.perf_counter() - extraction_started) * 1000),
+    }
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("x-request-id", f"req_{uuid.uuid4().hex[:12]}")
@@ -482,9 +930,89 @@ async def request_id_middleware(request: Request, call_next):
     response.headers["x-request-id"] = request_id
     return response
 
+def _retrieval_health() -> Dict[str, Any]:
+    dense = qdrant_store.status()
+    lexical = {"backend": "tantivy", "path": tantivy_store.base_path, "available": True}
+    dense_ok = bool(dense.get("available")) and bool(dense.get("authoritative"))
+    if dense_ok:
+        mode, reason = "hybrid", None
+    elif dense.get("available"):
+        mode, reason = "hybrid_fallback_store", f"Dense backend '{dense.get('backend')}' is a non-authoritative fallback store"
+    else:
+        mode, reason = "lexical_only", f"Dense backend unavailable: {dense.get('error')}"
+    return {"dense": dense, "lexical": lexical, "retrievalMode": mode, "degradationReason": reason, "denseOk": dense_ok}
+
+
 @app.get("/health")
 async def health():
-    return {"service": "ai", "status": "ok"}
+    """
+    Liveness + retrieval capability. Always HTTP 200 while the process is up;
+    status is "degraded" (not "ok") whenever dense retrieval is unavailable or on a fallback store.
+    """
+    rh = _retrieval_health()
+    return {
+        "service": "ai",
+        "status": "ok" if rh["denseOk"] else "degraded",
+        "retrievalMode": rh["retrievalMode"],
+        "degradationReason": rh["degradationReason"],
+        "dense": rh["dense"],
+        "lexical": rh["lexical"],
+    }
+
+
+@app.get("/ready")
+async def ready(response: Response):
+    """
+    Readiness: HTTP 503 unless dense retrieval is available on the authoritative store AND it holds
+    vectors for every canonical READY chunk in PostgreSQL (detects an empty/wrong vector store).
+    """
+    rh = _retrieval_health()
+    coverage: Dict[str, Any] = {}
+    try:
+        from qdrant_client.http.models import Filter, FieldCondition, MatchAny
+        from src.pipeline.db import get_connection
+        conn = get_connection()
+        if conn is None:
+            raise RuntimeError("PostgreSQL unavailable")
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT d.id, COUNT(c.id) FROM documents d LEFT JOIN chunks c ON c.document_id = d.id "
+                "WHERE d.status = 'ready' GROUP BY d.id"
+            )
+            rows = cur.fetchall()
+        conn.close()
+        ready_ids = [r[0] for r in rows]
+        pg_chunks = sum(int(r[1]) for r in rows)
+        coverage = {"readyDocuments": len(ready_ids), "readyChunksPostgres": pg_chunks}
+        if rh["dense"].get("available") and ready_ids:
+            res = qdrant_store.client.count(
+                collection_name="groundguard_chunks",
+                count_filter=Filter(must=[FieldCondition(key="documentId", match=MatchAny(any=ready_ids))]),
+                exact=True,
+            )
+            coverage["readyChunksQdrant"] = res.count
+            coverage["denseCoverage"] = round(res.count / pg_chunks, 4) if pg_chunks else 1.0
+    except Exception as e:
+        coverage["error"] = str(e)
+
+    models_ready = _model_warmup["state"] in ("ready", "disabled")
+    is_ready = (
+        rh["denseOk"]
+        and models_ready
+        and "error" not in coverage
+        and coverage.get("readyChunksQdrant", 0) >= coverage.get("readyChunksPostgres", 0)
+    )
+    response.status_code = 200 if is_ready else 503
+    return {
+        "retrievalModels": dict(_model_warmup),
+        "service": "ai",
+        "status": "ready" if is_ready else "degraded",
+        "retrievalMode": rh["retrievalMode"],
+        "degradationReason": rh["degradationReason"] or (None if is_ready else "Dense vectors missing for READY chunks"),
+        "dense": rh["dense"],
+        "lexical": rh["lexical"],
+        "indexCoverage": coverage,
+    }
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(
@@ -499,16 +1027,19 @@ async def ingest(
     logger.info(f"[/ingest] doc_id={doc_id} project_id={proj_id} req_id={req_id}")
 
     if not file:
-        return IngestResponse(
-            documentId=doc_id,
-            status="failed",
-            chunksCreated=0,
-            errorMessage="Missing PDF file attachment"
-        )
+        raise HTTPException(status_code=422, detail="Missing PDF file attachment")
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=422, detail="Uploaded file is empty")
+    if not file_bytes[:1024].lstrip().startswith(b"%PDF"):
+        raise HTTPException(status_code=422, detail="Uploaded file is not a valid PDF document")
+    try:
+        pages_data = parse_pdf(file_bytes)
+    except Exception as parse_err:
+        logger.warning(f"[/ingest] unreadable PDF doc_id={doc_id}: {parse_err}")
+        raise HTTPException(status_code=422, detail="Uploaded PDF could not be read (corrupt or unsupported)")
 
     try:
-        file_bytes = await file.read()
-        pages_data = parse_pdf(file_bytes)
 
         if not pages_data:
             return IngestResponse(
@@ -671,10 +1202,12 @@ async def retrieve(payload: RetrieveRequest, x_request_id: Optional[str] = Heade
         )
 
 @app.get("/sanity/search")
-async def sanity_search(projectId: str, query: str, topK: int = 5):
+async def sanity_search(projectId: str, query: str = Query(..., min_length=1), topK: int = Query(5, ge=1, le=50)):
     """
     Sanity check endpoint for test verification of Qdrant, Tantivy, and NetworkX.
     """
+    if not query.strip():
+        raise HTTPException(status_code=422, detail="query must be a non-empty string")
     query_vector = generate_embeddings([query])[0] if query else []
     qdrant_res = qdrant_store.search_dense(projectId, query_vector, topK)
     tantivy_res = tantivy_store.search_project(projectId, query, topK)
@@ -741,6 +1274,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
     req_id = payload.requestId or x_request_id or f"req_{uuid.uuid4().hex[:12]}"
     gen_id = payload.generationId or f"gen_{uuid.uuid4().hex[:12]}"
     top_k = (payload.options or {}).get("topK", 5)
+    request_started = time.perf_counter()
 
     logger.info(
         "[/generate start] project_id=%s req_id=%s gen_id=%s query='%s'",
@@ -834,15 +1368,19 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         )
 
     # Step 0b: Semantic Query Understanding (1 Gemini call; safe fallback on any failure)
+    planning_started = time.perf_counter()
     try:
         plan = await understand_query(
             query=effective_query,
             conversation_context=clean_conv_ctx,
             project_context=proj_context,
+            deterministic_intent=intent,
         )
+        planning_latency_ms = int((time.perf_counter() - planning_started) * 1000)
     except Exception as plan_err:
         logger.warning("[/generate planner error] %s — using fallback plan", plan_err)
         plan = _make_fallback_plan(effective_query)
+        planning_latency_ms = int((time.perf_counter() - planning_started) * 1000)
 
     logger.info(
         "[/generate plan] task=%s mode=%s queries=%d standalone='%s'",
@@ -913,195 +1451,12 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
     # 3. procedural: source-ordered evidence (pageNumber, chunkIndex)
     # 4. comparative / cross_document / broad: multi-query retrieval with document diversity
     # 5. focused: high-precision single-query retrieval with preserved technical tokens
-    search_queries = plan.search_queries if plan.search_queries else [plan.standalone_query or payload.query]
-    retrieval_mode = plan.retrieval_mode
-    retrieval_res = None
-
-    def _merge_evidence(results_list):
-        seen = set()
-        merged = []
-        for items in results_list:
-            for ev in items:
-                cid = ev.chunkId
-                if cid not in seen:
-                    seen.add(cid)
-                    merged.append(ev)
-        return merged
-
-    def _fetch_successor_chunk(project_id: str, document_id: str, chunk_index: int) -> Optional[Dict[str, Any]]:
-        try:
-            from qdrant_client.http.models import Filter, FieldCondition, MatchValue
-            res = qdrant_store.client.scroll(
-                collection_name="groundguard_chunks",
-                scroll_filter=Filter(
-                    must=[
-                        FieldCondition(key="projectId", match=MatchValue(value=project_id)),
-                        FieldCondition(key="documentId", match=MatchValue(value=document_id)),
-                        FieldCondition(key="chunkIndex", match=MatchValue(value=chunk_index)),
-                    ]
-                ),
-                limit=1
-            )
-            if res and res[0]:
-                return res[0][0].payload
-        except Exception as e:
-            logger.warning("[/generate successor error] %s", e)
-        return None
-
+    retrieval_started = time.perf_counter()
     try:
-        # Strategy A: Document Coverage (overview / contents / summary)
-        if plan.retrieval_strategy == "coverage":
-            target_doc_id = plan.resolved_document_id
-            if not target_doc_id and proj_context:
-                ready_docs_list = proj_context.get("readyDocs") or []
-                if len(ready_docs_list) == 1:
-                    target_doc_id = ready_docs_list[0].get("id")
-                elif plan.resolved_document_name:
-                    for d in ready_docs_list:
-                        if d.get("filename", "").lower() == plan.resolved_document_name.lower():
-                            target_doc_id = d.get("id")
-                            break
-
-            if target_doc_id:
-                try:
-                    from qdrant_client.http.models import Filter, FieldCondition, MatchValue
-                    scroll_filter = Filter(must=[
-                        FieldCondition(key="projectId", match=MatchValue(value=payload.projectId)),
-                        FieldCondition(key="documentId", match=MatchValue(value=target_doc_id))
-                    ])
-                    scroll_res = qdrant_store.client.scroll(
-                        collection_name="groundguard_chunks",
-                        scroll_filter=scroll_filter,
-                        limit=100
-                    )
-                    points = scroll_res[0] if scroll_res else []
-                    if points:
-                        points.sort(key=lambda p: (p.payload.get("pageNumber", 1), p.payload.get("chunkIndex", 0)))
-                        if len(points) <= 8:
-                            selected_points = points
-                        else:
-                            stride = (len(points) - 1) / 7.0
-                            selected_indices = sorted(list({int(round(i * stride)) for i in range(8)}))
-                            selected_points = [points[idx] for idx in selected_indices if idx < len(points)]
-
-                        coverage_items = []
-                        for p in selected_points:
-                            payload_d = p.payload or {}
-                            coverage_items.append(EvidenceItem(
-                                evidenceId=f"ev_{uuid.uuid4().hex[:8]}",
-                                chunkId=payload_d.get("chunkId", ""),
-                                documentId=payload_d.get("documentId"),
-                                text=payload_d.get("text", ""),
-                                pageNumber=payload_d.get("pageNumber", 1),
-                                section=payload_d.get("section"),
-                                heading=payload_d.get("heading"),
-                                identifiers=payload_d.get("identifierKeys", []),
-                                sources=["qdrant_dense", "document_coverage"],
-                                rrfScore=1.0,
-                                rerankScore=1.0,
-                                score=1.0,
-                                metadata={
-                                    "chunkIndex": payload_d.get("chunkIndex", 0),
-                                    **(payload_d.get("metadata") or {})
-                                }
-                            ))
-                        from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals
-                        coverage_suf = EvidenceSufficiency(
-                            sufficient=True,
-                            reason="Document coverage evidence sufficient",
-                            score=1.0,
-                            signals=EvidenceSufficiencySignals(
-                                resultCount=len(coverage_items),
-                                topRerankScore=1.0,
-                                identifierMatched=False,
-                                sourceCoverage=[target_doc_id]
-                            )
-                        )
-                        retrieval_res = type("_CoverageResult", (), {"results": coverage_items, "sufficiency": coverage_suf})()
-                        logger.info("[/generate coverage] Retrieved %d representative chunks for doc=%s", len(coverage_items), target_doc_id)
-                except Exception as cov_err:
-                    logger.warning("[/generate coverage error] %s â€” falling back to standard retrieval", cov_err)
-
-        # Strategy B: Broad / Comparative / Cross-Document Multi-Query
-        if retrieval_res is None and retrieval_mode in ("broad", "comparative", "cross_document") and len(search_queries) > 1:
-            all_results = []
-            last_sufficiency = None
-            for sq in search_queries:
-                try:
-                    sq_res = retrieve_evidence(
-                        project_id=payload.projectId,
-                        query=sq,
-                        top_k=top_k,
-                        search_queries=plan.search_queries,
-                        lexical_anchors=plan.lexical_anchors,
-                        question_slot=plan.question_slot,
-                        request_id=req_id
-                    )
-                    all_results.append(sq_res.results)
-                    last_sufficiency = sq_res.sufficiency
-                except Exception as sq_err:
-                    logger.warning("[/generate broad sq error] sq='%s': %s", sq[:60], sq_err)
-
-            merged_items = _merge_evidence(all_results)
-            if merged_items:
-                top_score = max((ev.rerankScore or ev.score or 0.0) for ev in merged_items)
-                from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals, SUFFICIENCY_THRESHOLD
-                broad_sufficient = top_score >= SUFFICIENCY_THRESHOLD
-                broad_suf = EvidenceSufficiency(
-                    sufficient=broad_sufficient,
-                    reason="Broad multi-query evidence sufficient" if broad_sufficient else "Broad multi-query evidence insufficient",
-                    score=top_score,
-                    signals=EvidenceSufficiencySignals(
-                        resultCount=len(merged_items),
-                        topRerankScore=top_score,
-                        identifierMatched=False,
-                        sourceCoverage=list({ev.documentId for ev in merged_items if ev.documentId}),
-                    )
-                )
-                retrieval_res = type("_BroadResult", (), {"results": merged_items, "sufficiency": broad_suf})()
-            elif last_sufficiency:
-                retrieval_res = type("_BroadResult", (), {"results": [], "sufficiency": last_sufficiency})()
-            else:
-                from src.pipeline.retrieval import EvidenceSufficiency, EvidenceSufficiencySignals
-                retrieval_res = type("_BroadResult", (), {"results": [], "sufficiency": EvidenceSufficiency(
-                    sufficient=False, reason="No evidence retrieved", score=0.0,
-                    signals=EvidenceSufficiencySignals(resultCount=0, topRerankScore=0.0, identifierMatched=False, sourceCoverage=[])
-                )})()
-
-        # Strategy C: Focused / Section Retrieval
-        if retrieval_res is None:
-            focused_q = plan.standalone_query or effective_query or (plan.search_queries[0] if plan.search_queries else "")
-            retrieval_res = retrieve_evidence(
-                project_id=payload.projectId,
-                query=focused_q,
-                top_k=top_k,
-                request_id=req_id,
-                search_queries=plan.search_queries,
-                lexical_anchors=plan.lexical_anchors,
-                question_slot=plan.question_slot,
-                facet_set=getattr(plan, "facets", None),
-                is_challenge_retry=is_challenge_retry,
-            )
-
-        # Bounded Local Context Expansion & Procedural Order Preservation
-        _apply_bounded_context_expansion_and_ordering(retrieval_res, payload.projectId, plan)
-
-        # Strategy F: Technical Parameter Grounding (Section 29, 30)
-        if retrieval_res and retrieval_res.results and plan.operation in ("lookup", "extract"):
-            top_ev = retrieval_res.results[0]
-            if retrieval_res.sufficiency and not retrieval_res.sufficiency.sufficient:
-                target_norm = (plan.target or "").strip().lower()
-                if target_norm and len(target_norm) >= 3 and target_norm in top_ev.text.lower():
-                    # Require candidate to satisfy Stage 1 relevance eligibility floor (>= 0.15)
-                    # to prevent weak distractor passages from manufacturing sufficiency
-                    if top_ev.rerankScore and top_ev.rerankScore >= 0.15:
-                        retrieval_res.sufficiency.sufficient = True
-                        retrieval_res.sufficiency.reason = f"Technical parameter '{plan.target}' matched in eligible document evidence"
-                        retrieval_res.sufficiency.score = max(retrieval_res.sufficiency.score or 0.0, 0.75)
-                        retrieval_res.sufficiency.disposition = EvidenceDisposition.SUPPORTED.value
-                        retrieval_res.sufficiency.failureStage = FailureStage.NONE.value
-                        logger.info("[/generate lookup] Technical parameter match validated (score=0.75)")
-
+        retrieval_res, coverage_meta = _execute_plan_retrieval(
+            payload, plan, proj_context, effective_query, top_k, req_id, is_challenge_retry
+        )
+        retrieval_latency_ms = int((time.perf_counter() - retrieval_started) * 1000)
     except Exception as ret_err:
         logger.error(
             "[/generate retrieval error] project_id=%s req_id=%s: %s",
@@ -1127,7 +1482,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
     fallback_used = False
 
     # Step 3: ONE bounded semantic fallback if insufficient and query is plausibly project-related
-    if not first_pass_sufficient and intent != "unsupported_query":
+    if not first_pass_sufficient and intent != "unsupported_query" and not _answerability_rejected(retrieval_res.sufficiency):
         first_q = (plan.search_queries[0] if plan.search_queries else None) or plan.standalone_query or payload.query
         candidate_fallbacks = [sq for sq in plan.search_queries[1:] if sq and sq != first_q]
         if plan.standalone_query and plan.standalone_query != first_q and plan.standalone_query not in candidate_fallbacks:
@@ -1146,7 +1501,9 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                     project_id=payload.projectId,
                     query=fallback_q,
                     top_k=top_k,
-                    request_id=req_id
+                    request_id=req_id,
+                    document_ids=_explicit_document_scope(plan),
+                    answerability_query=effective_query,
                 )
                 fb_is_conflict = bool(
                     fallback_res.sufficiency
@@ -1166,6 +1523,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             except Exception as fb_err:
                 logger.warning("[/generate fallback error] %s", fb_err)
 
+    retrieval_latency_ms = int((time.perf_counter() - retrieval_started) * 1000)
     if not is_conflict and (not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results):
         reason = retrieval_res.sufficiency.reason if retrieval_res.sufficiency else "No evidence retrieved"
         logger.info(
@@ -1173,15 +1531,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             payload.projectId, req_id, reason
         )
         logger.info("[/generate responseMode] grounded_abstention")
-        doc_summary = get_project_knowledge_summary(payload.projectId)
-        doc_titles = doc_summary.get("filenames", []) if isinstance(doc_summary, dict) else []
-        unsupported_msg = await generate_abstention_llm(
-            query=payload.query,
-            insufficiency_reason=reason,
-            project_name=project_name,
-            target_doc=plan.resolved_document_name,
-            llm_runtime=llm_runtime,
-        )
+        unsupported_msg = FALLBACK_ABSTENTION
         fail_stage = (
             retrieval_res.sufficiency.failureStage
             if (retrieval_res.sufficiency and getattr(retrieval_res.sufficiency, "failureStage", None))
@@ -1214,6 +1564,14 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "task": plan.task,
                 "queryStrategy": plan.retrieval_strategy,
                 "fallbackUsed": fallback_used,
+                "stageTimingsMs": {
+                    "planning": planning_latency_ms,
+                    "retrieval": retrieval_latency_ms,
+                    "firstToken": None,
+                    "generation": 0,
+                    "extraction": 0,
+                    "total": int((time.perf_counter() - request_started) * 1000),
+                },
                 "conflict": False,
                 "premiseClassification": classify_premise_outcome(unsupported_msg, plan.is_proposition, True),
             },
@@ -1243,6 +1601,7 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
             clean_conv_ctx = None
 
     context_text, included_items, omitted_items = context_builder.build_context(retrieval_res.results)
+    _attach_source_context(included_items, payload.projectId)
     conflict_summary = (
         retrieval_res.sufficiency.signals.conflictSummary
         if (is_conflict and retrieval_res.sufficiency and retrieval_res.sufficiency.signals)
@@ -1256,61 +1615,41 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
         operation=plan.operation,
         is_proposition=plan.is_proposition,
         conflict_summary=conflict_summary,
+        scope_note=_coverage_scope_note(coverage_meta, plan.resolved_document_name),
     )
 
     # Step 4: Real LLM Inference
     try:
         logger.info("[/generate responseMode] grounded_generation")
+        generation_started = time.perf_counter()
         llm_res = await llm_runtime.generate_answer(user_prompt)
+        generation_latency_ms = int((time.perf_counter() - generation_started) * 1000)
         logger.info(
             f"[/generate completed] project_id={payload.projectId} req_id={req_id} "
             f"model={llm_res.modelVersion} latency={llm_res.latencyMs}ms"
         )
-        # Step 5: Phase 6 Claim Extraction & Evidence Provenance Association
-        claims = []
-        claim_extraction_meta = {"status": "skipped"}
-        try:
-            raw_claims = await extract_and_validate_claims(
-                answer=llm_res.answer,
-                evidence=included_items
-            )
-            claims = [ClaimItem(**c) for c in raw_claims]
-            claim_extraction_meta = {
-                "status": "completed",
-                "claimCount": len(claims)
-            }
-        except Exception as claim_err:
-            logger.error(f"[/generate claim extraction error] project_id={payload.projectId} req_id={req_id}: {claim_err}")
-            claim_extraction_meta = {
-                "status": "failed",
-                "error": str(claim_err)
-            }
-
-        premise_classification = classify_premise_outcome(llm_res.answer, plan.is_proposition, False)
-        cleaned_answer = sanitize_user_facing_answer(llm_res.answer, included_items)
-        supporting_evidence = filter_relevant_evidence(included_items, claims, is_abstention=False)
-
-        final_disp = determine_evidence_disposition(
-            answer=cleaned_answer,
-            is_abstention=False,
-            is_conflict=is_conflict,
-            sufficiency=retrieval_res.sufficiency,
-            is_proposition=plan.is_proposition,
+        # Step 5: structured outcome -> claims -> trust state (shared with /generate/stream)
+        fin = await _finalize_grounded_answer(
+            llm_res.answer, included_items, retrieval_res, plan, is_conflict, coverage_meta
         )
+        final_disp = fin["disposition"]
 
         return GenerateResult(
             requestId=req_id,
             generationId=gen_id,
             status="completed",
-            answer=cleaned_answer,
-            evidence=supporting_evidence,
+            answer=fin["answer"],
+            evidence=fin["evidence"],
             sufficiency=retrieval_res.sufficiency,
             modelVersion=llm_res.modelVersion,
             metadata={
-                "abstention": False,
+                "abstention": fin["abstention"],
                 "disposition": final_disp,
                 "supportDisposition": final_disp,
-                "failureStage": FailureStage.NONE.value,
+                "failureStage": fin["failureStage"],
+                "generationOutcome": fin["generationOutcome"],
+                "generationOutcomeSource": fin["generationOutcomeSource"],
+                "verificationStatus": fin["verificationStatus"],
                 "sufficiencyScore": retrieval_res.sufficiency.score if retrieval_res.sufficiency else 1.0,
                 "topRerankScore": (retrieval_res.sufficiency.signals.topRerankScore if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else 1.0),
                 "candidateCount": len(retrieval_res.results),
@@ -1318,12 +1657,14 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "conflict": is_conflict,
                 "conflictType": (retrieval_res.sufficiency.signals.conflictType if (retrieval_res.sufficiency and retrieval_res.sufficiency.signals) else None) if is_conflict else None,
                 "conflictSummary": conflict_summary,
-                "premiseClassification": premise_classification,
-                "evidenceCount": len(included_items),
+                "premiseClassification": fin["premiseClassification"],
+                "evidenceCount": 0 if fin["abstention"] else len(included_items),
                 "omittedCount": len(omitted_items),
                 "llmLatencyMs": llm_res.latencyMs,
                 "provider": llm_res.provider,
-                "claimExtraction": claim_extraction_meta,
+                "claimExtraction": fin["claimExtraction"],
+                "documentCoverage": coverage_meta,
+                "documentScope": _explicit_document_scope(plan),
                 "task": plan.task,
                 "queryStrategy": plan.retrieval_strategy,
                 "retrievalMode": plan.retrieval_mode,
@@ -1334,8 +1675,16 @@ async def generate(payload: GenerateRequest, x_request_id: Optional[str] = Heade
                 "resolvedDocumentId": plan.resolved_document_id,
                 "resolvedDocumentName": plan.resolved_document_name,
                 "fallbackUsed": fallback_used,
+                "stageTimingsMs": {
+                    "planning": planning_latency_ms,
+                    "retrieval": retrieval_latency_ms,
+                    "firstToken": None,
+                    "generation": generation_latency_ms,
+                    "extraction": fin["extractionLatencyMs"],
+                    "total": int((time.perf_counter() - request_started) * 1000),
+                },
             },
-            claims=claims
+            claims=fin["claims"]
         )
     except LLMUnavailableError as unavail_err:
         logger.error(f"[/generate LLM unavailable] project_id={payload.projectId} req_id={req_id}: {unavail_err}")
@@ -1387,6 +1736,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
 
     async def event_generator():
         seq = 1
+        request_started = time.perf_counter()
 
         def _format_sse(evt_type: str, data: dict) -> str:
             return f"event: {evt_type}\ndata: {json.dumps(data)}\n\n"
@@ -1486,15 +1836,26 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             return
 
         # Step 0b: Semantic Query Understanding
+        yield _format_sse("planning.started", {"generationId": gen_id})
+        planning_started = time.perf_counter()
         try:
             plan = await understand_query(
                 query=effective_query,
                 conversation_context=clean_conv_ctx,
                 project_context=proj_context,
+                deterministic_intent=intent,
             )
+            planning_latency_ms = int((time.perf_counter() - planning_started) * 1000)
         except Exception as plan_err:
             logger.warning("[/generate/stream planner error] %s — using fallback plan", plan_err)
             plan = _make_fallback_plan(effective_query)
+            planning_latency_ms = int((time.perf_counter() - planning_started) * 1000)
+        yield _format_sse("planning.completed", {
+            "generationId": gen_id,
+            # "llm" | "deterministic_fast_path" | "fallback" -- reported truthfully from the plan
+            "plannerSource": getattr(plan, "planner_source", "llm"),
+            "latencyMs": planning_latency_ms,
+        })
 
         if plan.needs_clarification:
             if _is_genuine_naked_referent(payload.query, clean_conv_ctx):
@@ -1568,33 +1929,24 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             yield _format_sse("generation.completed", final_res.model_dump())
             return
 
-        # Step 1: Retrieval
-        search_queries = plan.search_queries if plan.search_queries else [plan.standalone_query or payload.query]
-        retrieval_mode = plan.retrieval_mode
-        retrieval_res = None
-
+        # Step 1: Retrieval (shared strategies with /generate: coverage, broad, focused, parameter grounding)
+        focused_q = plan.standalone_query or effective_query or (plan.search_queries[0] if plan.search_queries else "")
+        retrieval_started = time.perf_counter()
         try:
-            focused_q = plan.standalone_query or effective_query or (plan.search_queries[0] if plan.search_queries else "")
-            retrieval_res = retrieve_evidence(
-                project_id=payload.projectId,
-                query=focused_q,
-                top_k=top_k,
-                request_id=req_id,
-                search_queries=plan.search_queries,
-                lexical_anchors=plan.lexical_anchors,
-                question_slot=plan.question_slot,
-                facet_set=getattr(plan, "facets", None),
-                is_challenge_retry=is_challenge_retry,
+            retrieval_res, coverage_meta = _execute_plan_retrieval(
+                payload, plan, proj_context, effective_query, top_k, req_id, is_challenge_retry
             )
+            retrieval_latency_ms = int((time.perf_counter() - retrieval_started) * 1000)
         except Exception as ret_err:
             logger.error("[/generate/stream retrieval error] %s", ret_err)
             yield _format_sse("generation.failed", {"code": "RETRIEVAL_ERROR", "message": str(ret_err)})
             return
 
-        # Bounded Local Context Expansion & Procedural Order Preservation
-        _apply_bounded_context_expansion_and_ordering(retrieval_res, payload.projectId, plan)
-
-        yield _format_sse("retrieval.completed", {"generationId": gen_id, "evidenceCount": len(retrieval_res.results)})
+        yield _format_sse("retrieval.completed", {
+            "generationId": gen_id,
+            "evidenceCount": len(retrieval_res.results),
+            "sources": _source_previews(retrieval_res.results, payload.projectId),  # optional, additive
+        })
 
         # Sufficiency check
         is_conflict = bool(
@@ -1609,7 +1961,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             and retrieval_res.results
         )
         fallback_used = False
-        if not first_pass_sufficient and intent != "unsupported_query":
+        if not first_pass_sufficient and intent != "unsupported_query" and not _answerability_rejected(retrieval_res.sufficiency):
             candidate_fallbacks = [sq for sq in plan.search_queries[1:] if sq and sq != focused_q]
             if plan.standalone_query and plan.standalone_query != focused_q and plan.standalone_query not in candidate_fallbacks:
                 candidate_fallbacks.append(plan.standalone_query)
@@ -1622,7 +1974,9 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                         project_id=payload.projectId,
                         query=fallback_q,
                         top_k=top_k,
-                        request_id=req_id
+                        request_id=req_id,
+                        document_ids=_explicit_document_scope(plan),
+                        answerability_query=effective_query,
                     )
                     fb_is_conflict = bool(
                         fallback_res.sufficiency
@@ -1641,17 +1995,10 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                 except Exception:
                     pass
 
+            retrieval_latency_ms = int((time.perf_counter() - retrieval_started) * 1000)
         if not is_conflict and (not retrieval_res.sufficiency or not retrieval_res.sufficiency.sufficient or not retrieval_res.results):
             reason = retrieval_res.sufficiency.reason if retrieval_res.sufficiency else "No evidence retrieved"
-            doc_summary = get_project_knowledge_summary(payload.projectId)
-            doc_titles = doc_summary.get("filenames", []) if isinstance(doc_summary, dict) else []
-            unsupported_msg = await generate_abstention_llm(
-                query=payload.query,
-                insufficiency_reason=reason,
-                project_name=project_name,
-                target_doc=plan.resolved_document_name,
-                llm_runtime=llm_runtime,
-            )
+            unsupported_msg = FALLBACK_ABSTENTION
             yield _format_sse("answer.started", {"generationId": gen_id})
             yield _format_sse("answer.delta", {"generationId": gen_id, "delta": unsupported_msg, "sequence": seq})
             seq += 1
@@ -1689,6 +2036,14 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                     "task": plan.task,
                     "queryStrategy": plan.retrieval_strategy,
                     "fallbackUsed": fallback_used,
+                    "stageTimingsMs": {
+                        "planning": planning_latency_ms,
+                        "retrieval": retrieval_latency_ms,
+                        "firstToken": None,
+                        "generation": 0,
+                        "extraction": 0,
+                        "total": int((time.perf_counter() - request_started) * 1000),
+                    },
                     "conflict": False,
                     "premiseClassification": classify_premise_outcome(unsupported_msg, plan.is_proposition, True),
                 },
@@ -1713,6 +2068,7 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             pass
 
         context_text, included_items, omitted_items = context_builder.build_context(retrieval_res.results)
+        _attach_source_context(included_items, payload.projectId)
         conflict_summary = (
             retrieval_res.sufficiency.signals.conflictSummary
             if (is_conflict and retrieval_res.sufficiency and retrieval_res.sufficiency.signals)
@@ -1726,19 +2082,31 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
             operation=plan.operation,
             is_proposition=plan.is_proposition,
             conflict_summary=conflict_summary,
+            scope_note=_coverage_scope_note(coverage_meta, plan.resolved_document_name),
         )
 
-        # Real LLM Streaming
+        # Real LLM Streaming (the trailing machine-read outcome tag is held back and never streamed)
+        from src.pipeline.answerability import OutcomeTagStreamFilter
+        tag_filter = OutcomeTagStreamFilter()
         full_answer_chunks: List[str] = []
         yield _format_sse("answer.started", {"generationId": gen_id})
 
         t_llm_start = time.perf_counter()
+        first_token_latency_ms = None
         try:
             async for chunk in llm_runtime.stream_answer(user_prompt):
                 if chunk:
+                    if first_token_latency_ms is None:
+                        first_token_latency_ms = int((time.perf_counter() - request_started) * 1000)
                     full_answer_chunks.append(chunk)
-                    yield _format_sse("answer.delta", {"generationId": gen_id, "delta": chunk, "sequence": seq})
-                    seq += 1
+                    visible = tag_filter.feed(chunk)
+                    if visible:
+                        yield _format_sse("answer.delta", {"generationId": gen_id, "delta": visible, "sequence": seq})
+                        seq += 1
+            tail = tag_filter.flush()
+            if tail:
+                yield _format_sse("answer.delta", {"generationId": gen_id, "delta": tail, "sequence": seq})
+                seq += 1
         except Exception as stream_err:
             logger.error("[/generate/stream LLM failure] %s", stream_err)
             yield _format_sse("generation.failed", {"code": "LLM_ERROR", "message": f"LLM stream failed: {stream_err}"})
@@ -1746,49 +2114,32 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
 
         llm_latency_ms = int((time.perf_counter() - t_llm_start) * 1000)
         full_answer = "".join(full_answer_chunks).strip()
-        yield _format_sse("answer.completed", {"generationId": gen_id, "answer": full_answer})
 
-        # Claim extraction on completed answer
-        claims: List[ClaimItem] = []
-        claim_meta = {"status": "skipped"}
-        try:
-            raw_claims = await extract_and_validate_claims(
-                answer=full_answer,
-                evidence=included_items
-            )
-            claims = [ClaimItem(**c) for c in raw_claims]
-            claim_meta = {"status": "completed", "claimCount": len(claims)}
-        except Exception as c_err:
-            logger.error("[/generate/stream claim extraction error] %s", c_err)
-            claim_meta = {"status": "failed", "error": str(c_err)}
-
-        yield _format_sse("claims.completed", {"generationId": gen_id, "claims": [c.model_dump() for c in claims]})
-
-        premise_classification = classify_premise_outcome(full_answer, plan.is_proposition, False)
-        cleaned_answer = sanitize_user_facing_answer(full_answer, included_items)
-        supporting_evidence = filter_relevant_evidence(included_items, claims, is_abstention=False)
-
-        final_disp = determine_evidence_disposition(
-            answer=cleaned_answer,
-            is_abstention=False,
-            is_conflict=is_conflict,
-            sufficiency=retrieval_res.sufficiency,
-            is_proposition=plan.is_proposition,
+        # Structured outcome -> claims -> trust state (shared with /generate)
+        fin = await _finalize_grounded_answer(
+            full_answer, included_items, retrieval_res, plan, is_conflict, coverage_meta
         )
+        claims: List[ClaimItem] = fin["claims"]
+        final_disp = fin["disposition"]
+        yield _format_sse("answer.completed", {"generationId": gen_id, "answer": fin["answer"]})
+        yield _format_sse("claims.completed", {"generationId": gen_id, "claims": [c.model_dump() for c in claims]})
 
         final_res = GenerateResult(
             requestId=req_id,
             generationId=gen_id,
             status="completed",
-            answer=cleaned_answer,
-            evidence=supporting_evidence,
+            answer=fin["answer"],
+            evidence=fin["evidence"],
             sufficiency=retrieval_res.sufficiency,
             modelVersion=llm_runtime.get_model_version(),
             metadata={
-                "abstention": False,
+                "abstention": fin["abstention"],
                 "disposition": final_disp,
                 "supportDisposition": final_disp,
-                "failureStage": FailureStage.NONE.value,
+                "failureStage": fin["failureStage"],
+                "generationOutcome": fin["generationOutcome"],
+                "generationOutcomeSource": fin["generationOutcomeSource"],
+                "verificationStatus": fin["verificationStatus"],
                 "sufficiencyScore": retrieval_res.sufficiency.score if retrieval_res.sufficiency else 1.0,
                 "topRerankScore": (retrieval_res.sufficiency.signals.topRerankScore if retrieval_res.sufficiency and retrieval_res.sufficiency.signals else 1.0),
                 "candidateCount": len(retrieval_res.results),
@@ -1796,12 +2147,14 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                 "conflict": is_conflict,
                 "conflictType": (retrieval_res.sufficiency.signals.conflictType if (retrieval_res.sufficiency and retrieval_res.sufficiency.signals) else None) if is_conflict else None,
                 "conflictSummary": conflict_summary,
-                "premiseClassification": premise_classification,
-                "evidenceCount": len(included_items),
+                "premiseClassification": fin["premiseClassification"],
+                "evidenceCount": 0 if fin["abstention"] else len(included_items),
                 "omittedCount": len(omitted_items),
                 "llmLatencyMs": llm_latency_ms,
                 "provider": llm_runtime.provider,
-                "claimExtraction": claim_meta,
+                "claimExtraction": fin["claimExtraction"],
+                "documentCoverage": coverage_meta,
+                "documentScope": _explicit_document_scope(plan),
                 "task": plan.task,
                 "queryStrategy": plan.retrieval_strategy,
                 "retrievalMode": plan.retrieval_mode,
@@ -1812,6 +2165,14 @@ async def generate_stream(payload: GenerateRequest, x_request_id: Optional[str] 
                 "resolvedDocumentId": plan.resolved_document_id,
                 "resolvedDocumentName": plan.resolved_document_name,
                 "fallbackUsed": fallback_used,
+                "stageTimingsMs": {
+                    "planning": planning_latency_ms,
+                    "retrieval": retrieval_latency_ms,
+                    "firstToken": first_token_latency_ms,
+                    "generation": llm_latency_ms,
+                    "extraction": fin["extractionLatencyMs"],
+                    "total": int((time.perf_counter() - request_started) * 1000),
+                },
             },
             claims=claims
         )
@@ -1835,15 +2196,41 @@ async def recover(payload: RecoverRequest, x_request_id: Optional[str] = Header(
         f"attempt={payload.attempt} reason={payload.failureReason} "
         f"useLangGraph={payload.useLangGraph}"
     )
+    from src.pipeline.llm import llm_request_deadline
+    deadline_token = llm_request_deadline.set(
+        time.monotonic() + payload.deadlineMs / 1000.0 if payload.deadlineMs else None
+    )
+    try:
+        result = await _run_recovery(payload, req_id)
+    finally:
+        llm_request_deadline.reset(deadline_token)
+
+    return RecoverResponse(
+        requestId=req_id,
+        claimId=payload.claimId,
+        action=result.action,
+        candidateClaim=result.candidateClaim,
+        recoveryEvidence=result.recoveryEvidence,
+        modelVersion=result.modelVersion,
+        reason=result.reason,
+        failureType=getattr(result, "failureType", None),
+    )
+
+
+async def _run_recovery(payload: "RecoverRequest", req_id: str):
     if payload.useLangGraph:
         from src.pipeline.recovery_graph import run_langgraph_recovery
+        # M3 owns the attempt loop (it calls /recover once per attempt), so the graph runs exactly one
+        # attempt per request. Previously the graph also looped internally, so attempt 1 ran 2 LLM
+        # revisions and each failed claim cost 3 provider calls instead of the configured 2.
         result = await run_langgraph_recovery(
             project_id=payload.projectId,
             claim_id=payload.claimId,
             claim=payload.claim,
             failure_reason=payload.failureReason,
             attempt=payload.attempt,
-            request_id=req_id
+            request_id=req_id,
+            single_attempt=True,
         )
     else:
         from src.pipeline.recovery import execute_recovery
@@ -1855,16 +2242,7 @@ async def recover(payload: RecoverRequest, x_request_id: Optional[str] = Header(
             attempt=payload.attempt,
             request_id=req_id
         )
-
-    return RecoverResponse(
-        requestId=req_id,
-        claimId=payload.claimId,
-        action=result.action,
-        candidateClaim=result.candidateClaim,
-        recoveryEvidence=result.recoveryEvidence,
-        modelVersion=result.modelVersion,
-        reason=result.reason
-    )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1878,6 +2256,7 @@ class VerifyIndexResponse(BaseModel):
     qdrantCount: int
     tantivyCount: int
     expectedCount: Optional[int] = None
+    status: Optional[str] = None  # "consistent" | "inconsistent" | "missing" | "unverifiable"
 
 class RepairIndexResponse(BaseModel):
     repaired: bool
@@ -1885,7 +2264,7 @@ class RepairIndexResponse(BaseModel):
     projectId: str
 
 class ReconcileRequest(BaseModel):
-    dryRun: Optional[bool] = False
+    dryRun: Optional[bool] = True  # safety: writes only when explicitly dryRun=false
     maxDocuments: Optional[int] = None
     targetProjectId: Optional[str] = None
 
@@ -1928,10 +2307,13 @@ async def reconcile_indexes_endpoint(payload: Optional[ReconcileRequest] = None)
     Reconciles all documents marked READY in PostgreSQL with downstream Qdrant and Tantivy indexes.
     """
     from src.pipeline.index_verifier import reconcile_legacy_indexes
-    dry_run = payload.dryRun if payload else False
+    dry_run = True if (payload is None or payload.dryRun is None) else bool(payload.dryRun)
     max_docs = payload.maxDocuments if payload else None
     target_proj = payload.targetProjectId if payload else None
-    res = reconcile_legacy_indexes(dry_run=dry_run, max_documents=max_docs, target_project_id=target_proj)
+    try:
+        res = reconcile_legacy_indexes(dry_run=dry_run, max_documents=max_docs, target_project_id=target_proj)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     return res
 
 

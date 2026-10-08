@@ -8,12 +8,13 @@ from typing import List, Dict, Any, Optional, Set, Tuple
 from pydantic import BaseModel, Field
 
 from src.pipeline.embedder import generate_embeddings
-from src.pipeline.qdrant_store import qdrant_store
+from src.pipeline.qdrant_store import qdrant_store, QdrantUnavailableError
 from src.pipeline.tantivy_store import tantivy_store
 from src.pipeline.graph_store import graph_store
 from src.pipeline.db import validate_ready_documents, get_ready_documents_meta
 from src.pipeline.router import route_query, RouteDecision
 from src.pipeline.reranker import rerank
+from src.pipeline.answerability import assess_requested_attribute, calibrate_relevance
 
 logger = logging.getLogger("m2-retrieval")
 
@@ -34,6 +35,7 @@ RRF_K = int(os.getenv("RRF_K", "60"))
 # Rejects weak distractors and missing identifiers (scores <= 0.2164) while passing all verified evidence (scores >= 0.8480).
 # Termed 'validation-calibrated sufficiency threshold' for current development stage.
 SUFFICIENCY_THRESHOLD = float(os.getenv("SUFFICIENCY_THRESHOLD", "0.35"))
+SENTENCE_RESCUE_K = int(os.getenv("SENTENCE_RESCUE_K", "10"))
 
 
 # Internal Canonical Candidate Representation
@@ -101,6 +103,8 @@ class EvidenceDisposition(str, Enum):
     CONFLICT = "CONFLICT"
     INSUFFICIENT = "INSUFFICIENT"
     UNSUPPORTED = "UNSUPPORTED"
+    # Answer produced but its claims could not be extracted/verified -- never reported as SUPPORTED.
+    UNVERIFIED = "UNVERIFIED"
 
 
 class FailureStage(str, Enum):
@@ -114,6 +118,7 @@ class FailureStage(str, Enum):
     CONFLICT_GATE_REJECTION = "conflict_gate_rejection"
     RERANKER_REJECTION = "reranker_rejection"
     SUFFICIENCY_GATE_REJECTION = "sufficiency_gate_rejection"
+    ANSWERABILITY_GATE_REJECTION = "answerability_gate_rejection"
     GENERATION_ABSTENTION = "generation_abstention"
 
 
@@ -167,6 +172,10 @@ class EvidenceSufficiencySignals(BaseModel):
     challengeRetry: Optional[bool] = False
     bridgeEntity: Optional[str] = None
     multiHopResolved: Optional[bool] = None
+    # Answerability (separate from relevance): requested attribute and whether evidence states it.
+    requestedAttribute: Optional[str] = None
+    attributeCovered: Optional[bool] = None
+    topCrossEncoderScore: Optional[float] = None
 
 
 class EvidenceSufficiency(BaseModel):
@@ -214,6 +223,16 @@ class RetrieveMetadata(BaseModel):
     latencyMs: float
     routeDecision: RouteDecision
     rerankerBypassed: Optional[bool] = False
+    # Dense availability: False when Qdrant was unreachable and retrieval ran lexical-only.
+    denseAvailable: Optional[bool] = True
+    retrievalMode: Optional[str] = None  # "hybrid" | "lexical_only" | "dense_only" | ...
+    degradationReason: Optional[str] = None
+    # Equipment-tag match was used to boost ORDERING only (never relevance score or sufficiency).
+    tagBoostApplied: Optional[bool] = False
+    # Per-stage wall-clock timings for this retrieval call (ms); diagnostic only.
+    stageTimingsMs: Optional[Dict[str, float]] = None
+    # Explicitly named document(s) every retriever was restricted to.
+    documentScope: Optional[List[str]] = None
 
 
 class RetrieveResponse(BaseModel):
@@ -999,6 +1018,7 @@ def evaluate_sufficiency(
     challenge_retry: bool = False,
     bridge_entity: Optional[str] = None,
     multi_hop_resolved: Optional[bool] = None,
+    answerability_query: Optional[str] = None,
 ) -> EvidenceSufficiency:
     """
     Deterministic multi-signal evidence sufficiency evaluation without LLM.
@@ -1187,6 +1207,14 @@ def evaluate_sufficiency(
                 top_candidate = candidates[0]
                 top_score = top_candidate.rerankScore if top_candidate.rerankScore is not None else top_score
 
+    # 3b. Answerability gate (separate from relevance): a value-lookup question is answerable only if the
+    # retrieved evidence states the requested attribute. Entity/tag matches and high relevance scores
+    # never establish this. Compound/comparison questions are left to the generator (partial answers).
+    is_multi_facet = bool(facet_set and (getattr(facet_set, "isCompound", False) or getattr(facet_set, "isComparison", False)))
+    # Judged on the user's ORIGINAL question: planner rewrites may drop value-selecting qualifiers.
+    attr = assess_requested_attribute(answerability_query or q, candidates) if not is_multi_facet else None
+    attr_rejected = bool(attr is not None and attr.applicable and not attr.covered)
+
     # 4. Two-Stage Sufficiency Safety Contract (Sections 7, 8)
     # Generic resolution for cross-encoder length dilution and short decisive passages.
     # Preserves calibrated SUFFICIENCY_THRESHOLD (0.35) without global lowering.
@@ -1230,7 +1258,7 @@ def evaluate_sufficiency(
 
     # Premature Abstention Protection for partial facet support:
     # If completion pass was exhausted across the project and eligible evidence exists for at least one facet
-    if completion_stop_reason == "EXHAUSTED" and eligible_count > 0 and top_score >= 0.20:
+    if completion_stop_reason == "EXHAUSTED" and eligible_count > 0 and top_score >= 0.20 and not attr_rejected:
         disposition = EvidenceDisposition.PARTIAL.value
         return EvidenceSufficiency(
             sufficient=True,
@@ -1299,6 +1327,34 @@ def evaluate_sufficiency(
             )
         )
 
+    # Relevance passed; answerability is judged next (reported separately from relevance failures).
+    if attr_rejected:
+        return EvidenceSufficiency(
+            sufficient=False,
+            reason=attr.reason,
+            score=top_score,
+            scope=scope_dec_str,
+            disposition=EvidenceDisposition.INSUFFICIENT.value,
+            failureStage=FailureStage.ANSWERABILITY_GATE_REJECTION.value,
+            signals=EvidenceSufficiencySignals(
+                resultCount=len(candidates),
+                topRerankScore=top_score,
+                identifierMatched=identifier_matched,
+                sourceCoverage=all_sources,
+                conflictingEvidence=False,
+                scopeDecision=scope_dec_str,
+                scopeReason=scope_reason_str,
+                topicSimilarityScore=top_score,
+                disposition=EvidenceDisposition.INSUFFICIENT.value,
+                failureStage=FailureStage.ANSWERABILITY_GATE_REJECTION.value,
+                eligibleEvidenceCount=0,
+                requestedAttribute=attr.label,
+                attributeCovered=False,
+                topCrossEncoderScore=(top_candidate.metadata or {}).get("crossEncoderScore") if top_candidate.metadata else None,
+            )
+        )
+
+
     if facet_set and getattr(facet_set, "overallStatus", None):
         from src.pipeline.query_understanding import FacetStatus
         if facet_set.overallStatus == FacetStatus.PARTIAL:
@@ -1353,6 +1409,9 @@ def evaluate_sufficiency(
             challengeRetry=challenge_retry,
             bridgeEntity=bridge_entity,
             multiHopResolved=multi_hop_resolved,
+            requestedAttribute=attr.label if (attr is not None and attr.applicable) else None,
+            attributeCovered=attr.covered if (attr is not None and attr.applicable) else None,
+            topCrossEncoderScore=(top_candidate.metadata or {}).get("crossEncoderScore") if top_candidate.metadata else None,
         )
     )
 
@@ -1583,7 +1642,8 @@ def execute_completion_search(
     project_id: str,
     completion_queries: List[str],
     initial_candidates: List[Candidate],
-    top_k: int = FINAL_TOP_K
+    top_k: int = FINAL_TOP_K,
+    document_ids: Optional[List[str]] = None,
 ) -> List[Candidate]:
     """
     Executes bounded completion retrieval across Qdrant + Tantivy for missing facets.
@@ -1600,7 +1660,8 @@ def execute_completion_search(
             hits = qdrant_store.search_dense(
                 project_id=project_id,
                 query_vector=q_vec,
-                top_k=DENSE_CANDIDATE_K
+                top_k=DENSE_CANDIDATE_K,
+                **({"document_ids": document_ids} if document_ids else {})
             )
             for h in hits:
                 cid = h.get("chunkId")
@@ -1620,7 +1681,8 @@ def execute_completion_search(
                 lhits = tantivy_store.search_project(
                     project_id=project_id,
                     query=clean_cq,
-                    top_k=LEXICAL_CANDIDATE_K
+                    top_k=LEXICAL_CANDIDATE_K,
+                    **({"document_ids": document_ids} if document_ids else {})
                 )
                 for lh in lhits:
                     cid = lh.get("chunkId")
@@ -1731,6 +1793,7 @@ def execute_completion_search(
         logger.warning(f"[completion rerank error] {rre}")
         reranked_comp = pool_for_rerank
 
+    _calibrate_pool_relevance(reranked_comp, rerank_q, project_id=project_id)
     reranked_comp.sort(key=lambda c: c.rerankScore or 0.0, reverse=True)
     return reranked_comp[:top_k]
 
@@ -1809,6 +1872,130 @@ def merge_and_select_complete_evidence(
     return merged[:top_k]
 
 
+def _stored_passage_vectors(project_id: Optional[str], pool: List[Candidate]) -> Dict[str, List[float]]:
+    """
+    Reuses the passage vectors already stored in Qdrant for this exact chunk text (computed at ingestion by
+    the same embedding model), instead of re-embedding ~20 passages per query. A stored vector is used only if:
+    same project, same document, identical stored text, expected dimension, and unit norm (the current
+    all-MiniLM-L6-v2 output is L2-normalized; legacy mock/foreign embeddings are not). Otherwise -> re-embed.
+    """
+    if not project_id or not pool:
+        return {}
+    try:
+        from qdrant_client.http.models import Filter, FieldCondition, MatchValue, MatchAny
+        from src.pipeline.embedder import EMBEDDING_DIM
+        ids = list({c.chunkId for c in pool if c.chunkId})
+        points, _ = qdrant_store.client.scroll(
+            collection_name="groundguard_chunks",
+            scroll_filter=Filter(must=[
+                FieldCondition(key="projectId", match=MatchValue(value=project_id)),
+                FieldCondition(key="chunkId", match=MatchAny(any=ids)),
+            ]),
+            limit=len(ids) + 10, with_payload=["chunkId", "documentId", "text"], with_vectors=True,
+        )
+    except Exception as e:
+        logger.warning(f"[retrieval] Stored passage vectors unavailable, re-embedding: {e}")
+        return {}
+    by_chunk = {c.chunkId: c for c in pool}
+    out: Dict[str, List[float]] = {}
+    for p in points:
+        pl = p.payload or {}
+        cand = by_chunk.get(pl.get("chunkId"))
+        vec = p.vector if isinstance(p.vector, list) else None
+        if cand is None or vec is None or len(vec) != EMBEDDING_DIM:
+            continue
+        if pl.get("documentId") != cand.documentId or (pl.get("text") or "") != (cand.text or ""):
+            continue
+        if abs(sum(x * x for x in vec) ** 0.5 - 1.0) > 1e-3:
+            continue
+        out[cand.chunkId] = vec
+    return out
+
+
+def _fused_selection_order(pool: List[Candidate], tag_boost: bool = False, tag_match=None) -> List[Candidate]:
+    """Reciprocal-rank fusion of the calibrated-relevance order and the retrieval RRF order (k=60)."""
+    rel_rank = {id(c): i for i, c in enumerate(pool)}
+    rrf_rank = {id(c): i for i, c in enumerate(sorted(pool, key=lambda c: -(c.rrfScore or 0.0)))}
+
+    def key(c: Candidate):
+        fused = 1.0 / (RRF_K + rel_rank[id(c)]) + 1.0 / (RRF_K + rrf_rank[id(c)])
+        boosted = bool(tag_boost and tag_match and tag_match(c))
+        return (not boosted, -fused, rel_rank[id(c)])
+    return sorted(pool, key=key)
+
+
+def _calibrate_pool_relevance(pool: List[Candidate], query_text: str, timings: Optional[Dict[str, float]] = None,
+                              project_id: Optional[str] = None, query_vector: Optional[List[float]] = None) -> None:
+    """
+    Replaces each candidate's rerankScore with calibrated topical relevance (cross-encoder combined with
+    query/passage dense cosine, see answerability.calibrate_relevance). Raw scores are kept in metadata.
+    If embeddings are unavailable the cross-encoder score is kept unchanged.
+    """
+    if not pool:
+        return
+    stored = _stored_passage_vectors(project_id, pool)
+    # Embed only what is genuinely missing: the query (unless already embedded for dense search with the
+    # identical text) and passages without a valid stored vector; identical texts are embedded once.
+    missing_texts = list(dict.fromkeys((c.text or "") for c in pool if c.chunkId not in stored))
+    to_embed = ([] if query_vector is not None else [query_text]) + missing_texts
+    try:
+        new_vecs = generate_embeddings(to_embed) if to_embed else []
+    except Exception as e:
+        logger.warning(f"[retrieval] Relevance calibration skipped (embedding failure): {e}")
+        return
+    if len(new_vecs) != len(to_embed):
+        return
+    qv = query_vector if query_vector is not None else new_vecs[0]
+    text_vec = dict(zip(missing_texts, new_vecs[0 if query_vector is not None else 1:]))
+    vecs = [qv] + [stored.get(c.chunkId) or text_vec[(c.text or "")] for c in pool]
+    if timings is not None:
+        timings["passagesEmbedded"] = len(missing_texts)
+        timings["passageVectorsReused"] = len(stored)
+    q_norm = sum(x * x for x in qv) ** 0.5 or 1.0
+    for c, v in zip(pool, vecs[1:]):
+        v_norm = sum(x * x for x in v) ** 0.5 or 1.0
+        cos = sum(a * b for a, b in zip(qv, v)) / (q_norm * v_norm)
+        if c.metadata is None:
+            c.metadata = {}
+        c.metadata["crossEncoderScore"] = c.rerankScore
+        c.metadata["queryCosine"] = round(cos, 4)
+        c.rerankScore = calibrate_relevance(c.rerankScore, cos)
+
+    # Rescue pass for long / multi-topic chunks: when no chunk reaches the sufficiency threshold, score
+    # the best sentence window inside the top candidates (whole-chunk scoring dilutes a single decisive
+    # sentence, e.g. "SC-12 is attached directly to the upstream transmitter port" inside a 5-topic chunk).
+    if max((c.rerankScore or 0.0) for c in pool) >= SUFFICIENCY_THRESHOLD:
+        return
+    _rescue_started = time.perf_counter()
+    if timings is not None:
+        timings["sentenceRescueRan"] = 1
+    top = sorted(pool, key=lambda c: -(c.rerankScore or 0.0))[:SENTENCE_RESCUE_K]
+    units, owners = [], []
+    for c in top:
+        sents = [s for s in re.split(r"(?<=[.!?;])\s+", " ".join((c.text or "").split())) if len(s) > 15]
+        for u in dict.fromkeys(sents + [" ".join(sents[i:i + 2]) for i in range(len(sents) - 1)]):
+            units.append(u)
+            owners.append(c)
+    if len(units) <= len(top):
+        return
+    try:
+        ce_res = rerank(query=query_text, passages=[{"chunkId": str(i), "text": u} for i, u in enumerate(units)])
+        ce_by_unit = {int(r["chunkId"]): float(r.get("rerankScore", 0.0)) for r in ce_res}
+        uvecs = generate_embeddings(units)
+    except Exception as e:
+        logger.warning(f"[retrieval] Sentence-level relevance rescue skipped: {e}")
+        return
+    for i, (c, v) in enumerate(zip(owners, uvecs)):
+        v_norm = sum(x * x for x in v) ** 0.5 or 1.0
+        cos = sum(a * b for a, b in zip(qv, v)) / (q_norm * v_norm)
+        s_score = calibrate_relevance(ce_by_unit.get(i, 0.0), cos)
+        if s_score > (c.rerankScore or 0.0):
+            c.rerankScore = s_score
+            c.metadata["sentenceRelevance"] = round(s_score, 6)
+    if timings is not None:
+        timings["sentenceRescue"] = round((time.perf_counter() - _rescue_started) * 1000.0, 1)
+
+
 def retrieve_evidence(
     project_id: str,
     query: str,
@@ -1819,8 +2006,13 @@ def retrieve_evidence(
     question_slot: Optional[str] = None,
     facet_set: Optional[Any] = None,
     is_challenge_retry: bool = False,
+    document_ids: Optional[List[str]] = None,
+    answerability_query: Optional[str] = None,
 ) -> RetrieveResponse:
     """
+    document_ids: when the user explicitly names document(s), every retriever (dense, lexical, graph,
+    completion) is restricted to them -- in addition to (never instead of) project isolation.
+
     Canonical M2 Retrieval Pipeline:
     1. Query Analysis & Deterministic Routing
     2. Parallel / Multi-Store Query Execution (Qdrant Dense, Tantivy Lexical, NetworkX Graph)
@@ -1832,6 +2024,16 @@ def retrieve_evidence(
     8. Deterministic Evidence Sufficiency Gate
     """
     start_time = time.perf_counter()
+    stage_ms: Dict[str, float] = {}
+    _mark = [start_time]
+
+    def _lap(name: str) -> None:
+        now = time.perf_counter()
+        stage_ms[name] = round(stage_ms.get(name, 0.0) + (now - _mark[0]) * 1000.0, 1)
+        _mark[0] = now
+
+    from src.pipeline import embedder as _emb_mod, reranker as _rr_mod
+    _emb_init_before, _rr_init_before = _emb_mod.MODEL_INIT_MS, _rr_mod.RANKER_INIT_MS
     req_id = request_id or f"req_{uuid.uuid4().hex[:12]}"
     bounded_top_k = min(max(1, top_k + (2 if is_challenge_retry else 0)), RERANK_CANDIDATE_K)
 
@@ -1853,8 +2055,14 @@ def retrieve_evidence(
     raw_dense_hits: List[Dict[str, Any]] = []
     raw_lexical_hits: List[Dict[str, Any]] = []
     raw_graph_hits: List[Dict[str, Any]] = []
+    dense_query_vector = None  # (vector, text) computed for dense search; reused only for identical text
+    dense_available = True
+    degradation_reason: Optional[str] = None
 
+    _lap("routing")
     # 2a. Qdrant Dense Retrieval
+    # A dense backend outage degrades to lexical-only and is reported explicitly in metadata;
+    # it never silently reads from a different vector store.
     if route.dense:
         try:
             dense_queries = [query]
@@ -1863,13 +2071,18 @@ def retrieve_evidence(
                     if sq and sq.strip() and sq.strip() not in dense_queries:
                         dense_queries.append(sq.strip())
 
+            _lap("routing")
             query_vectors = generate_embeddings(dense_queries) if dense_queries else []
+            dense_query_vector = (query_vectors[0], dense_queries[0]) if query_vectors else None
+            _lap("queryEmbedding")
             seen_dense_chunks = set()
             for q_vec in query_vectors:
+                dense_kwargs = {"document_ids": document_ids} if document_ids else {}
                 hits = qdrant_store.search_dense(
                     project_id=project_id,
                     query_vector=q_vec,
-                    top_k=DENSE_CANDIDATE_K
+                    top_k=DENSE_CANDIDATE_K,
+                    **dense_kwargs
                 )
                 for h in hits:
                     cid = h.get("chunkId")
@@ -1881,19 +2094,29 @@ def retrieve_evidence(
                             if existing.get("chunkId") == cid and float(h.get("score", 0)) > float(existing.get("score", 0)):
                                 existing["score"] = h.get("score")
                                 break
+        except QdrantUnavailableError as e:
+            if not route.lexical:
+                raise RuntimeError(f"Qdrant retrieval infrastructure failure: {e}") from e
+            raw_dense_hits = []
+            dense_available = False
+            degradation_reason = str(e)
+            logger.error(f"[retrieval] {e} -- running LEXICAL-ONLY for project_id={project_id}")
         except Exception as e:
             logger.error(f"Dense retrieval failed on Qdrant: {e}")
             raise RuntimeError(f"Qdrant retrieval infrastructure failure: {e}") from e
 
+    _lap("qdrantSearch")
     # 2b. Tantivy Lexical Retrieval
     if route.lexical:
         try:
             # Safe query sanitization at orchestration layer: preserve technical tokens while replacing syntax-breaking delimiters
             clean_lexical_query = re.sub(r'[()\[\]{}:^~*?<>]', ' ', query).strip()
+            lex_kwargs = {"document_ids": document_ids} if document_ids else {}
             raw_lexical_hits = tantivy_store.search_project(
                 project_id=project_id,
                 query=clean_lexical_query or query,
-                top_k=LEXICAL_CANDIDATE_K
+                top_k=LEXICAL_CANDIDATE_K,
+                **lex_kwargs
             )
             # Corroborate with high-information lexical anchors (Section 5)
             if lexical_anchors:
@@ -1902,7 +2125,8 @@ def retrieve_evidence(
                     anchor_hits = tantivy_store.search_project(
                         project_id=project_id,
                         query=anchor_str,
-                        top_k=LEXICAL_CANDIDATE_K
+                        top_k=LEXICAL_CANDIDATE_K,
+                        **lex_kwargs
                     )
                     existing_cids = {h.get("chunkId") for h in raw_lexical_hits if h.get("chunkId")}
                     for ah in anchor_hits:
@@ -1913,6 +2137,7 @@ def retrieve_evidence(
             logger.error(f"Lexical retrieval failed on Tantivy: {e}")
             raise RuntimeError(f"Tantivy retrieval infrastructure failure: {e}") from e
 
+    _lap("tantivySearch")
     # 2c. NetworkX Graph Retrieval (conditionally activated for topology/relations)
     if route.graph:
         try:
@@ -1947,6 +2172,7 @@ def retrieve_evidence(
             logger.error(f"Graph retrieval failed on NetworkX: {e}")
             raise RuntimeError(f"NetworkX retrieval infrastructure failure: {e}") from e
 
+    _lap("graphSearch")
     # 3. Candidate Normalization & Multi-Source Merge
     # Invariant: If Qdrant and Tantivy both return chunkId = chk_123, exactly ONE candidate is stored with both contributions.
     candidates_map: Dict[str, Candidate] = {}
@@ -2039,6 +2265,7 @@ def retrieve_evidence(
 
     all_normalized = list(candidates_map.values())
 
+    _lap("normalization")
     # 4. PostgreSQL Canonical Lifecycle & Isolation Validation (Fail-Closed)
     # Invariant: Evidence MUST belong to projectId AND have status = 'ready' in canonical PostgreSQL.
     # Pruning invalid/unready candidates BEFORE RRF & Reranking ensures unready documents
@@ -2067,12 +2294,16 @@ def retrieve_evidence(
                 f"not in READY state in project {project_id}"
             )
             continue
+        if document_ids and c.documentId not in document_ids:
+            # Document-scoped question: graph (or any other) hits outside the named document are dropped.
+            continue
         if c.documentId in doc_filenames:
             if not c.metadata:
                 c.metadata = {}
             c.metadata["filename"] = doc_filenames[c.documentId]
         valid_candidates.append(c)
 
+    _lap("readyValidation")
     # 5. Reciprocal Rank Fusion (RRF) on Valid READY Candidates
     for cand in valid_candidates:
         cand.rrfScore = calculate_rrf_score(
@@ -2106,20 +2337,20 @@ def retrieve_evidence(
                 exact_tag_matched = True
                 break
 
-    reranked_pool: List[Candidate] = []
-    if exact_tag_matched and os.getenv("ENABLE_RERANKER_BYPASS", "true").lower() == "true":
-        logger.info(
-            f"[retrieval] Adaptive reranker bypass on exact equipment tags: {route.extractedIdentifiers}"
+    # Exact equipment-tag matches may BOOST RANKING ONLY. They never assign a relevance score and never
+    # establish sufficiency (previously a tag match forced rerankScore >= 0.50, passing the 0.35 gate even
+    # when the requested attribute was absent from the evidence).
+    tag_boost = bool(exact_tag_matched and os.getenv("ENABLE_RERANKER_BYPASS", "true").lower() == "true")
+
+    def _matches_query_tag(c: Candidate) -> bool:
+        return any(
+            t.upper() in [i.upper() for i in c.identifiers] or t.upper() in c.text.upper()
+            for t in route.extractedIdentifiers
         )
-        for c in rrf_pool:
-            # When exact tag matches top candidate, assign high-confidence score above sufficiency threshold
-            matches_tag = any(
-                t.upper() in [i.upper() for i in c.identifiers] or t.upper() in c.text.upper()
-                for t in route.extractedIdentifiers
-            )
-            c.rerankScore = max(0.50, float(c.rrfScore * 20.0)) if matches_tag else float(c.rrfScore)
-            reranked_pool.append(c)
-    elif rrf_pool and query:
+
+    _lap("rrfFusion")
+    reranked_pool: List[Candidate] = []
+    if rrf_pool and query:
         try:
             passages = [
                 {"chunkId": c.chunkId, "text": c.text, "candidate": c}
@@ -2156,6 +2387,18 @@ def retrieve_evidence(
         except Exception as e:
             logger.error(f"Reranking stage failed: {e}")
             raise RuntimeError(f"FlashRank reranking infrastructure failure: {e}") from e
+
+        _lap("crossEncoderRerank")
+        _calibrate_pool_relevance(
+            reranked_pool, rerank_q, stage_ms, project_id=project_id,
+            query_vector=dense_query_vector[0] if (dense_query_vector and dense_query_vector[1] == rerank_q) else None,
+        )
+        _lap("relevanceCalibration")
+        if tag_boost:
+            logger.info(f"[retrieval] Tag ranking boost (ordering only) on: {route.extractedIdentifiers}")
+            reranked_pool.sort(key=lambda c: (not _matches_query_tag(c), -(c.rerankScore or 0.0)))
+        else:
+            reranked_pool.sort(key=lambda c: -(c.rerankScore or 0.0))
     else:
         reranked_pool = rrf_pool
 
@@ -2186,6 +2429,7 @@ def retrieve_evidence(
         # Re-sort descending by rerankScore after slot alignment boost
         reranked_pool.sort(key=lambda c: c.rerankScore or 0.0, reverse=True)
 
+    _lap("rerankOther")
     # 8. Answer Facet Completeness Evaluation & Bounded Evidence Completion Retrieval
     from src.pipeline.query_understanding import extract_answer_facets, FacetStatus
     if facet_set is None:
@@ -2223,7 +2467,8 @@ def retrieve_evidence(
                     project_id=project_id,
                     completion_queries=completion_queries,
                     initial_candidates=reranked_pool,
-                    top_k=bounded_top_k
+                    top_k=bounded_top_k,
+                    document_ids=document_ids,
                 )
                 completion_evidence_count = len(completion_cands)
 
@@ -2246,6 +2491,7 @@ def retrieve_evidence(
     bridge_entity = getattr(facet_set, "extractedBridgeEntity", None) if facet_set else None
     multi_hop_resolved = getattr(facet_set, "multiHopResolved", None) if facet_set else None
 
+    _lap("facetsAndCompletion")
     sufficiency = evaluate_sufficiency(
         reranked_pool,
         route,
@@ -2257,6 +2503,7 @@ def retrieve_evidence(
         challenge_retry=is_challenge_retry,
         bridge_entity=bridge_entity,
         multi_hop_resolved=multi_hop_resolved,
+        answerability_query=answerability_query,
     )
 
     # Filter out superseded candidates if revision precedence established a newer revision
@@ -2270,7 +2517,11 @@ def retrieve_evidence(
     # Contract:
     # - if valid candidates exist but sufficiency is false: return ranked candidates + sufficiency.sufficient=false
     # - if no valid candidates exist: return results=[] + sufficiency.sufficient=false
-    final_candidates = reranked_pool[:bounded_top_k]
+    # Evidence SELECTION only (sufficiency was already decided on the relevance order above): fuse the
+    # calibrated-relevance rank with the hybrid-retrieval (RRF) rank, so passages corroborated by dense AND
+    # BM25 are not dropped just below the cut (labeled eval: hit-rate 0.65 -> 0.71, 0 regressions, -2% tokens).
+    # Exact-tag ordering boost (Phase 02) is preserved ahead of the fused order.
+    final_candidates = _fused_selection_order(reranked_pool, tag_boost, _matches_query_tag)[:bounded_top_k]
 
     # Map to EvidenceItem response models
     evidence_items: List[EvidenceItem] = []
@@ -2307,7 +2558,12 @@ def retrieve_evidence(
             metadata=cand_meta
         ))
 
+    _lap("sufficiencyAndResponse")
     latency_ms = (time.perf_counter() - start_time) * 1000.0
+    stage_ms["total"] = round(latency_ms, 1)
+    # Model initialization that happened during THIS call (0 when warm); included in the stages above.
+    stage_ms["embeddingModelInit"] = round(_emb_mod.MODEL_INIT_MS - _emb_init_before, 1) if _emb_mod.MODEL_INIT_MS != _emb_init_before else 0.0
+    stage_ms["crossEncoderInit"] = round(_rr_mod.RANKER_INIT_MS - _rr_init_before, 1) if _rr_mod.RANKER_INIT_MS != _rr_init_before else 0.0
 
     metadata = RetrieveMetadata(
         selectedSources=selected_sources,
@@ -2319,7 +2575,16 @@ def retrieve_evidence(
         finalCandidateCount=len(evidence_items),
         latencyMs=latency_ms,
         routeDecision=route,
-        rerankerBypassed=bool(exact_tag_matched and os.getenv("ENABLE_RERANKER_BYPASS", "true").lower() == "true")
+        rerankerBypassed=False,
+        tagBoostApplied=tag_boost,
+        stageTimingsMs=stage_ms,
+        documentScope=list(document_ids) if document_ids else None,
+        denseAvailable=dense_available,
+        retrievalMode=(
+            "lexical_only" if (route.dense and not dense_available)
+            else "+".join(s for s, on in (("dense", route.dense), ("lexical", route.lexical), ("graph", route.graph)) if on) or "none"
+        ),
+        degradationReason=degradation_reason,
     )
 
     logger.info(

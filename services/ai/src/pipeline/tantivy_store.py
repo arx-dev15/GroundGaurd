@@ -169,9 +169,10 @@ class TantivyStore:
         project_id: str,
         query: str,
         top_k: int = 5,
+        document_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Executes BM25 search scoped to project_id.
+        Executes BM25 search scoped to project_id (and optionally to document_ids).
         Project isolation is enforced inside the Tantivy query itself
         and by the per-project directory boundary.
         """
@@ -187,7 +188,14 @@ class TantivyStore:
         if not sanitized_query:
             return []
 
-        scoped_query_str = f'project_id:"{project_id}" AND ({sanitized_query})'
+        doc_scope = ""
+        if document_ids:
+            safe_ids = [d for d in document_ids if d and re.fullmatch(r'[A-Za-z0-9_\-]+', d)]
+            if not safe_ids:
+                return []
+            doc_scope = " AND (" + " OR ".join(f'document_id:"{d}"' for d in safe_ids) + ")"
+
+        scoped_query_str = f'project_id:"{project_id}"{doc_scope} AND ({sanitized_query})'
 
         try:
             parsed_query = idx.parse_query(scoped_query_str, ["text", "identifiers"])
@@ -196,7 +204,7 @@ class TantivyStore:
             logger.warning(f"Tantivy query parse failed ({e}), attempting alphanumeric fallback...")
             safe_fallback = re.sub(r'[^a-zA-Z0-9_\s-]', ' ', query).strip()
             if safe_fallback:
-                fallback_str = f'project_id:"{project_id}" AND ({safe_fallback})'
+                fallback_str = f'project_id:"{project_id}"{doc_scope} AND ({safe_fallback})'
                 try:
                     parsed_query = idx.parse_query(fallback_str, ["text", "identifiers"])
                     search_res = searcher.search(parsed_query, top_k)

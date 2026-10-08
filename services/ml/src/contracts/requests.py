@@ -4,6 +4,11 @@ from pydantic import BaseModel, Field
 class EvidenceChunk(BaseModel):
     chunkId: str = Field(..., description="Unique ID of the retrieved document chunk")
     text: str = Field(..., description="The raw evidence text retrieved from the document")
+    context: Optional[str] = Field(
+        None,
+        description="Source context for the chunk (document title, section heading, preceding sentence of the same "
+                    "document). Used to resolve subject-less chunks for NLI; never used for numeric/tag rules.",
+    )
 
 class VerifyRequest(BaseModel):
     requestId: Optional[str] = Field(None, description="Unique trace ID for the end-to-end request")

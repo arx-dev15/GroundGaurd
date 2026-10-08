@@ -666,9 +666,11 @@ class TestQdrantProductionSafety(unittest.TestCase):
 
     def test_development_allows_observable_embedded_fallback(self):
         """
-        In development, fallback to embedded disk is permitted but logs an explicit warning.
+        In development, fallback to embedded disk is permitted only with the explicit opt-in
+        QDRANT_ALLOW_EMBEDDED_FALLBACK=true, logs an explicit warning, and is reported as such.
         """
-        with patch.dict(os.environ, {"ENVIRONMENT": "development", "QDRANT_PATH": "scratch/test_qdrant_dev_fallback"}):
+        with patch.dict(os.environ, {"ENVIRONMENT": "development", "QDRANT_PATH": "scratch/test_qdrant_dev_fallback",
+                                     "QDRANT_ALLOW_EMBEDDED_FALLBACK": "true"}):
             from src.pipeline.qdrant_store import QdrantStore
             with patch("src.pipeline.qdrant_store.QdrantClient") as mock_qclient:
                 # External connection fails
@@ -679,6 +681,29 @@ class TestQdrantProductionSafety(unittest.TestCase):
                 with self.assertLogs("m2-qdrant-store", level="WARNING") as log_capture:
                     store = QdrantStore(url="http://localhost:9999", path="scratch/test_qdrant_dev_fallback")
                     self.assertTrue(any("Falling back to embedded disk Qdrant" in msg for msg in log_capture.output))
+                self.assertEqual(store.backend, "embedded_fallback")
+                self.assertFalse(store.status()["authoritative"])
+
+    def test_development_does_not_silently_switch_stores(self):
+        """
+        Without the explicit opt-in, an unreachable server must NOT be replaced by the embedded store
+        (audit 2026-10-08: silent fallback served 0/31 READY documents while /health said ok).
+        """
+        env = {"ENVIRONMENT": "development", "QDRANT_PATH": "scratch/test_qdrant_dev_fallback",
+               "QDRANT_ALLOW_EMBEDDED_FALLBACK": "false", "ALLOW_IN_MEMORY_FALLBACK": "false"}
+        with patch.dict(os.environ, env):
+            from src.pipeline.qdrant_store import QdrantStore, QdrantUnavailableError
+            with patch("src.pipeline.qdrant_store.QdrantClient") as mock_qclient:
+                mock_qclient.side_effect = ConnectionError("Qdrant server unreachable")
+                store = QdrantStore(url="http://localhost:9999", path="scratch/test_qdrant_dev_fallback")
+                # Only the server URL was ever attempted -- never a path= (embedded) client.
+                for call in mock_qclient.call_args_list:
+                    self.assertNotIn("path", call.kwargs)
+                self.assertEqual(store.backend, "server")
+                self.assertFalse(store.available)
+                self.assertFalse(store.status()["available"])
+                with self.assertRaises(QdrantUnavailableError):
+                    store.client
 
 
 class TestAllowOfflineDBSafety(unittest.TestCase):

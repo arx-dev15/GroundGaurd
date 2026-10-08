@@ -38,6 +38,7 @@ AllowedTask = Literal[
     "comparison",
     "follow_up",
     "multi_part",
+    "multi_hop",  # produced by the deterministic fallback plan for "how is X connected to Y" questions
     "transform",
     "social",
     "product_help",
@@ -161,6 +162,11 @@ class QueryPlan(BaseModel):
     retrieval_strategy: AllowedRetrievalStrategy = "focused"
     resolved_document_name: Optional[str] = None
     resolved_document_id: Optional[str] = None
+    # True only when the user named the document itself (filename, with or without extension);
+    # retrieval is then hard-filtered to that document. Fuzzy word overlap never sets this.
+    document_scope_explicit: bool = False
+    # "llm" | "deterministic_fast_path" | "fallback" (telemetry only)
+    planner_source: str = "llm"
 
     # Slot awareness & proposition hypothesis verification (Core Hardening)
     question_slot: str = "general"
@@ -246,6 +252,9 @@ def _is_product_help(query: str) -> bool:
 # ---------------------------------------------------------------------------
 # Planner prompt
 # ---------------------------------------------------------------------------
+
+# Total planner wall-clock budget (seconds). Restores the 8s bound the original direct planner call had.
+PLANNER_TIMEOUT_SEC = float(os.getenv("PLANNER_TIMEOUT_SEC", "8"))
 
 _PLANNER_SYSTEM = (
     "You are EvideX AI's internal query understanding engine.\n\n"
@@ -814,6 +823,52 @@ def _make_fallback_plan(query: str) -> QueryPlan:
 # Deterministic fast-path overrides (no Gemini needed)
 # ---------------------------------------------------------------------------
 
+_ANAPHORA = re.compile(r"\b(?:he|she|it|its|they|them|their|theirs|him|his|her|hers|this|that|these|those|"
+                       r"the\s+(?:same|former|latter|above|previous|other\s+one)|there|then|why\s+not)\b", re.I)
+_LOOKUP_START = re.compile(r"^\s*(?:what|which|who|whom|where|when|how\s+(?:many|much|long|hot|cold|fast|big|high|often))\b", re.I)
+_TAG = re.compile(r"\b[A-Z]{1,4}-?\d{1,4}[A-Z]?\b")
+_PROPER = re.compile(r"(?<!^)(?<![.?!]\s)\b[A-Z][a-z]{2,}\b")
+
+
+def is_simple_factual_lookup(query: str, conversation_context: Optional[List[Dict[str, Any]]],
+                             ready_doc_titles: List[str]) -> bool:
+    """
+    Conservative gate for skipping the LLM planner. True ONLY for a single, self-contained factual lookup:
+    no conversation history, one question, wh-lookup form, no anaphora/pronouns, no comparison,
+    multi-part or multi-hop structure, no proposition/premise, and an explicit anchor (equipment tag,
+    proper noun, named document, or a recognised technical attribute). Everything else uses the planner.
+    """
+    q = (query or "").strip()
+    if not q or conversation_context:
+        return False
+    if len(q.split()) > 18 or q.count("?") > 1 or ";" in q:
+        return False
+    if not _LOOKUP_START.search(q) or _ANAPHORA.search(q):
+        return False
+    if re.search(r"\b(?:and|or|versus|vs\.?|compare|compared|difference|between|both|each|respectively)\b", q, re.I):
+        return False
+    facets = extract_answer_facets(q)
+    if facets.isComparison or facets.isCompound or facets.isMultiHop:
+        return False
+    if detect_proposition(q)[0]:
+        return False
+    if any(p.search(q) for p in _DOC_REFERENT_PATTERNS):
+        return False
+    from src.pipeline.answerability import assess_requested_attribute
+    attribute_lookup = assess_requested_attribute(q, []).applicable
+    # Definition/identity questions ("What is Campus Monitor?", "Who was Stamford?") need synthesis and
+    # benefit from planner query expansion -> keep the planner unless a concrete attribute is requested.
+    if not attribute_lookup and re.match(r"^\s*(?:what|who)\s+(?:is|are|was|were)\s+(?:an?\s+|the\s+)?[\w\s.\-']{1,60}\??\s*$", q, re.I):
+        return False
+    anchored = bool(
+        _TAG.search(q)
+        or _PROPER.search(q)
+        or any(is_explicit_document_mention(q, t) for t in ready_doc_titles)
+        or attribute_lookup
+    )
+    return anchored
+
+
 def _try_deterministic_plan(query: str) -> Optional[QueryPlan]:
     """
     Cheap deterministic classification for obvious cases.
@@ -856,53 +911,22 @@ async def _call_planner_gemini(
     timeout: float = 8.0,
 ) -> Optional[str]:
     """
-    Single low-temperature Gemini call for query planning.
+    Compatibility wrapper for the provider-neutral planner call.
     Returns raw JSON string or None on failure.
     """
-    import requests as req_lib
+    from src.pipeline.llm import llm_runtime
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        + model
-        + ":generateContent"
-    )
-    headers = {
-        "x-goog-api-key": api_key,
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"parts": [{"text": user_prompt}]}],
-        "generationConfig": {
-            "temperature": 0.0,
-            "maxOutputTokens": 512,
-            "responseMimeType": "application/json",
-        },
-    }
-
-    def _sync():
-        for attempt in range(2):
-            try:
-                res = req_lib.post(url, headers=headers, json=payload, timeout=timeout)
-                if res.status_code == 429 and attempt == 0:
-                    time.sleep(3.0)
-                    continue
-                if res.status_code != 200:
-                    logger.warning(
-                        "[planner] Gemini HTTP %s: %s", res.status_code, res.text[:200]
-                    )
-                    return None
-                data = res.json()
-                return data["candidates"][0]["content"]["parts"][0]["text"]
-            except Exception as exc:
-                if attempt == 0:
-                    time.sleep(1.0)
-                    continue
-                logger.warning("[planner] Gemini call failed: %s", exc)
-                return None
+    # Wall-clock deadline for the whole planner call (incl. provider retries). On expiry the caller uses the
+    # deterministic fallback plan; the abandoned provider thread's late result is discarded (never applied).
+    deadline = PLANNER_TIMEOUT_SEC if PLANNER_TIMEOUT_SEC > 0 else timeout
+    try:
+        return await asyncio.wait_for(llm_runtime.generate_structured(user_prompt, system_prompt), timeout=deadline)
+    except asyncio.TimeoutError:
+        logger.warning("[planner] %s planner exceeded %.1fs deadline; using fallback plan", llm_runtime.provider, deadline)
         return None
-
-    return await asyncio.to_thread(_sync)
+    except Exception as exc:
+        logger.warning("[planner] %s planner call failed: %s", llm_runtime.provider, exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -915,6 +939,16 @@ _DOC_REFERENT_PATTERNS = [
     re.compile(r'\bwhat(?:\'?s|\s+is)\s+in\s+it\b', re.IGNORECASE),
     re.compile(r'\bwhat\s+does\s+(?:it|this|the|that)\s+(?:document|file|pdf|doc)?\s*contain\b', re.IGNORECASE),
     re.compile(r'\bsummarize\s+(?:it|this|the\s+document|the\s+file|this\s+file|this\s+document)\b', re.IGNORECASE),
+]
+
+# Whole-document overview questions (only applied when a specific document has been resolved).
+_DOCUMENT_OVERVIEW_PATTERNS = [
+    re.compile(r'\bwhat\s+(?:main\s+|key\s+)?(?:topics|subjects|themes|areas|chapters|sections|parts)\b.{0,60}\b(?:cover|covers|covered|discuss|discussed|include|included|contain|contained|address|addressed|in)\b', re.IGNORECASE),
+    re.compile(r'\b(?:main|key|major)\s+(?:topics|themes|points|ideas|sections|chapters)\b', re.IGNORECASE),
+    re.compile(r'\b(?:give\s+(?:me\s+)?|provide\s+)?an?\s+overview\s+of\b|\boverview\s+of\s+(?:the\s+)?[\w.\-]+', re.IGNORECASE),
+    re.compile(r'\bwhat\s+(?:is|\'s)\s+[\w.\-\s]{1,60}?\b(?:document|file|pdf|book|paper|\.pdf)\s+about\b|\bwhat\s+is\s+[\w.\-]+\.pdf\s+about\b', re.IGNORECASE),
+    re.compile(r'\bwhat\s+does\s+[\w.\-\s]{1,60}?\s+(?:cover|discuss)\b', re.IGNORECASE),
+    re.compile(r'\boutline\s+(?:of\s+)?(?:the\s+)?[\w.\-]+', re.IGNORECASE),
 ]
 
 _PROCEDURE_PATTERNS = [
@@ -959,6 +993,21 @@ def _find_prior_document(
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def is_explicit_document_mention(query: str, filename: str) -> bool:
+    """True if the query names the document itself, e.g. 'stud.pdf', 'stud', 'pump p101a specs'."""
+    if not query or not filename:
+        return False
+    ql = query.lower()
+    fn = filename.lower().strip()
+    if re.search(rf'(?<![\w.-]){re.escape(fn)}(?![\w-])', ql):
+        return True
+    base = os.path.splitext(fn)[0]
+    if len(base) < 3:
+        return False
+    variants = {base, re.sub(r'[_\-]+', ' ', base).strip()}
+    return any(re.search(rf'(?<![\w.-]){re.escape(v)}(?![\w-])', ql) for v in variants if len(v) >= 3)
+
+
 def strip_document_filename_references(text: str, doc_filenames: Optional[List[str]] = None) -> str:
     """
     Strips document file references (e.g. 'in Manual.pdf', 'of Notes.txt') from search queries.
@@ -984,6 +1033,7 @@ async def understand_query(
     query: str,
     conversation_context: Optional[List[Dict[str, Any]]] = None,
     project_context: Optional[Dict[str, Any]] = None,
+    deterministic_intent: Optional[str] = None,
 ) -> QueryPlan:
     """
     Interprets what information the user needs and produces a QueryPlan.
@@ -997,6 +1047,12 @@ async def understand_query(
     if fast is not None:
         logger.info("[planner] Fast path: task=%s query='%s'", fast.task, raw_query[:60])
         return fast
+
+    # The API intent classifier has already established these closed classes;
+    # preserve the safe fallback plan without spending a planner call.
+    if deterministic_intent == "unsupported_query":
+        logger.info("[planner] Deterministic unsupported-query route; using fallback plan")
+        return _make_fallback_plan(raw_query)
 
     # 2. Extract ready documents information
     project_name = None
@@ -1016,8 +1072,9 @@ async def understand_query(
         ready_doc_titles = [d.get("filename", "") for d in ready_docs if d.get("filename")]
 
     # 3. Gemini planner path
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("LLM_API_KEY", "")
-    model = os.getenv("LLM_PLANNER_MODEL") or os.getenv("LLM_MODEL") or "gemini-3.6-flash"
+    from src.pipeline.llm import llm_runtime
+    api_key = llm_runtime.api_key
+    model = llm_runtime.model
 
     user_prompt = _build_planner_prompt(
         query=raw_query,
@@ -1028,7 +1085,17 @@ async def understand_query(
 
     t0 = time.perf_counter()
     raw_json = None
-    if api_key:
+    from src.pipeline.llm import llm_runtime as _rt
+    in_cooldown = _rt._cooldown_until > time.monotonic()
+    if in_cooldown:
+        logger.warning("[planner] LLM provider cooling down after throttling; using deterministic fallback plan")
+    simple_lookup = is_simple_factual_lookup(raw_query, conversation_context, ready_doc_titles)
+    if simple_lookup:
+        # Deterministic fast path: self-contained single factual lookup -> no provider planner call.
+        # Project/document scoping, overview/section detection, slots and propositions are still
+        # applied deterministically below, exactly as for the planner-failure fallback plan.
+        logger.info("[planner] Fast path (simple factual lookup): planner LLM call skipped")
+    if _rt.is_configured() and not in_cooldown and not simple_lookup:
         try:
             raw_json = await _call_planner_gemini(
                 api_key=api_key,
@@ -1053,6 +1120,7 @@ async def understand_query(
 
     if plan is None:
         plan = _make_fallback_plan(raw_query)
+    plan.planner_source = "deterministic_fast_path" if simple_lookup else ("llm" if raw_json else "fallback")
 
     # Clean standalone_query and search_queries: strip document file references
     if plan.standalone_query:
@@ -1127,6 +1195,9 @@ async def understand_query(
     if resolved_doc:
         plan.resolved_document_name = resolved_doc.get("filename")
         plan.resolved_document_id = resolved_doc.get("id")
+        plan.document_scope_explicit = bool(resolved_doc.get("id")) and is_explicit_document_mention(
+            raw_query, resolved_doc.get("filename", "")
+        )
 
     # 5. Refine Operation & Retrieval Strategy based on information need
     clean_q = raw_query.lower()
@@ -1145,6 +1216,14 @@ async def understand_query(
             plan.source_scope = "single_document"
         if plan.resolved_document_name:
             plan.search_queries = [plan.resolved_document_name]
+
+    elif plan.resolved_document_name and any(p.search(raw_query) for p in _DOCUMENT_OVERVIEW_PATTERNS):
+        # Document-level overview of an explicitly resolved document (e.g. "What topics does stud.pdf cover?")
+        plan.operation = "outline"
+        plan.retrieval_strategy = "coverage"
+        plan.retrieval_mode = "broad"
+        plan.task = "overview"
+        plan.search_queries = [plan.resolved_document_name]
 
     elif any(k in clean_q for k in ["summarize", "summary of the document", "summarize this file", "summarize it", "summarize this"]):
         plan.operation = "summarize"

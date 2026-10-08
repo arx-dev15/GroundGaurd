@@ -152,6 +152,8 @@ class RecoveryResult(BaseModel):
     recoveryEvidence: List[EvidenceItem] = Field(default_factory=list)
     modelVersion: str = ""
     reason: str = ""
+    # Terminal failure category: None | "attempt_limit" | "provider_unavailable" | "retrieval_unavailable"
+    failureType: Optional[str] = None
 
 MAX_RECOVERY_ATTEMPTS = int(os.getenv("MAX_RECOVERY_ATTEMPTS", "2"))
 
@@ -171,8 +173,15 @@ async def execute_recovery(
     4. LLM-based constrained revision or abstention
     """
     if attempt > MAX_RECOVERY_ATTEMPTS:
-        raise ValueError(
-            f"Recovery attempt {attempt} exceeds MAX_RECOVERY_ATTEMPTS ({MAX_RECOVERY_ATTEMPTS})"
+        # Same semantics as the LangGraph circuit breaker: abstain without retrieval or LLM calls.
+        logger.warning(f"[execute_recovery] attempt {attempt} exceeds MAX_RECOVERY_ATTEMPTS ({MAX_RECOVERY_ATTEMPTS})")
+        return RecoveryResult(
+            action="abstain",
+            candidateClaim=claim,
+            recoveryEvidence=[],
+            modelVersion=llm_runtime.get_model_version(),
+            reason=f"Circuit breaker activated: recovery attempt limit reached ({failure_reason})",
+            failureType="attempt_limit",
         )
 
     logger.info(
@@ -200,7 +209,8 @@ async def execute_recovery(
             candidateClaim=claim,
             recoveryEvidence=[],
             modelVersion="recovery-retrieval-error",
-            reason=f"Retrieval infrastructure failure: {e}"
+            reason=f"Retrieval infrastructure failure: {e}",
+            failureType="retrieval_unavailable",
         )
 
     # If no evidence retrieved, stop immediately (Section 26)
@@ -239,7 +249,8 @@ async def execute_recovery(
             candidateClaim=claim,
             recoveryEvidence=recovery_evidence,
             modelVersion="llm-unavailable",
-            reason=str(err)
+            reason=f"LLM provider unavailable: {err}",
+            failureType="provider_unavailable",
         )
     except Exception as err:
         logger.error(f"[execute_recovery] LLM inference failed: {err}")

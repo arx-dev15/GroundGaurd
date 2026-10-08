@@ -153,3 +153,20 @@ test('mapSSEEventToStatus maps intermediate verification and recovery events', (
   assert.strictEqual(mapSSEEventToStatus('recovery.completed').state, 'recovering');
   assert.strictEqual(mapSSEEventToStatus('generation.completed').state, 'completed');
 });
+
+test('deriveTrustSummary shows explicit backend dispositions (Phase 04)', () => {
+  // Claim extraction/verification unavailable: never "Informational response" or "Verified"
+  const unverified = deriveTrustSummary([], 'completed', 'UNVERIFIED');
+  assert.strictEqual(unverified.headline, 'Verification unavailable');
+  assert.strictEqual(unverified.verifiedCount, 0);
+  assert.notStrictEqual(unverified.variant, 'success');
+
+  // Final abstention: insufficient evidence, no sources, never verified
+  const abstained = deriveTrustSummary([], 'completed', 'INSUFFICIENT');
+  assert.strictEqual(abstained.headline, 'Insufficient evidence');
+  assert.strictEqual(abstained.sourceCount, 0);
+  assert.notStrictEqual(abstained.variant, 'success');
+
+  // Without a disposition the claim-based behavior is unchanged
+  assert.strictEqual(deriveTrustSummary([], 'completed').headline, 'Informational response');
+});

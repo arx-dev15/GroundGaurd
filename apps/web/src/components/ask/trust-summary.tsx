@@ -19,6 +19,8 @@ import type { Claim, GenerationStatus } from '@groundguard/types';
 interface TrustSummaryProps {
   claims?: Claim[];
   generationStatus?: GenerationStatus;
+  /** Final backend trust disposition (e.g. SUPPORTED, PARTIAL, INSUFFICIENT, UNVERIFIED). */
+  disposition?: string;
   className?: string;
   onClickClaimFilter?: (status: string | null) => void;
   selectedStatusFilter?: string | null;
@@ -27,15 +29,17 @@ interface TrustSummaryProps {
 export function TrustSummary({
   claims = [],
   generationStatus = 'completed',
+  disposition,
   className,
   onClickClaimFilter,
   selectedStatusFilter,
 }: TrustSummaryProps) {
   const summary: TrustSummaryData = React.useMemo(() => {
-    return deriveTrustSummary(claims, generationStatus);
-  }, [claims, generationStatus]);
+    return deriveTrustSummary(claims, generationStatus, disposition);
+  }, [claims, generationStatus, disposition]);
 
-  if (summary.totalCount === 0 && !['cancelled', 'failed'].includes(generationStatus || '')) {
+  const explicitState = disposition === 'UNVERIFIED' || disposition === 'INSUFFICIENT';
+  if (summary.totalCount === 0 && !explicitState && !['cancelled', 'failed'].includes(generationStatus || '')) {
     return null;
   }
 

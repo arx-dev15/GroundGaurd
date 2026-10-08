@@ -158,7 +158,7 @@ AI (M2):
 M2 → Qdrant (Dense Vector)
 M2 → Tantivy (Lexical BM25)
 M2 → NetworkX (Entity Graph)
-M2 → LLM (Gemini)
+M2 → LLM (configured provider: Gemini or Groq)
 (M2 has NO dependency on M1; M3 calls M1 for verification)
 ```
 

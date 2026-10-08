@@ -80,7 +80,7 @@ export class MLClient {
       items: Array<{
         claimId: string;
         claim: string;
-        evidence: Array<{ chunkId: string; text: string }>;
+        evidence: Array<{ chunkId: string; text: string; context?: string }>;
       }>;
     },
     requestId?: string

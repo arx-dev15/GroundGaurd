@@ -2,10 +2,24 @@ import { generationRepository, DBClaim, DBEvidence } from '../repositories/gener
 import { aiClient } from '../clients/ai.client';
 import { mlClient } from '../clients/ml.client';
 import { technicalChecker } from './technical-checks';
+import { buildEvidenceContext } from './evidence-context';
 import { verificationOrchestrator } from './verification.orchestrator';
+import { generationEvents } from './generation-events';
 import { ClaimStatus, VerificationLabel, RecoveryFailureReason, Claim, Evidence } from '@groundguard/contracts';
 
 export const MAX_RECOVERY_ATTEMPTS = 2;
+// Total provider-backed recovery attempts allowed per generation (across all of its failed claims).
+// Without it, N failed claims cost up to 2N sequential LLM calls (15 attempts / 63.5 s observed).
+// Generation-wide wall-clock budget for recovery (checked before each claim/attempt; an in-flight call is
+// never interrupted). Observed: 4 unproductive attempts took 23.5 s of a 48 s Ask.
+export function recoveryTimeBudgetMs(): number {
+  const v = Number(process.env.MAX_RECOVERY_SECONDS_PER_GENERATION ?? 10);
+  return Number.isFinite(v) && v > 0 ? v * 1000 : 0;
+}
+export const MAX_RECOVERY_ATTEMPTS_PER_GENERATION = Math.max(
+  0,
+  Number(process.env.MAX_RECOVERY_ATTEMPTS_PER_GENERATION ?? 6) || 0
+);
 
 export class RecoveryOrchestrator {
   /**
@@ -55,7 +69,8 @@ export class RecoveryOrchestrator {
     requestId?: string;
     maxAttempts?: number;
     startAttempt?: number;
-  }): Promise<{ recovered: boolean; attempts: number; finalClaim: DBClaim }> {
+    deadline?: number; // epoch ms; no new attempt starts after it
+  }): Promise<{ recovered: boolean; attempts: number; finalClaim: DBClaim; timedOut?: boolean }> {
     const { projectId, generationId, claim, existingEvidence, requestId } = params;
     const maxAttempts = params.maxAttempts ?? MAX_RECOVERY_ATTEMPTS;
     const startAttempt = params.startAttempt ?? 1;
@@ -83,9 +98,19 @@ export class RecoveryOrchestrator {
 
     let currentClaim = claim;
     let attemptsRun = 0;
+    let timedOut = false;
     const endAttempt = startAttempt + maxAttempts - 1;
 
     for (let attempt = startAttempt; attempt <= endAttempt; attempt++) {
+      // Stop recovery work (and provider calls) as soon as the user cancels the generation.
+      if (params.deadline && Date.now() >= params.deadline) {
+        console.log(`[recovery] Recovery time budget reached; not starting attempt ${attempt} for claim ${claim.id}`);
+        break;
+      }
+      if (params.generationId && (await generationEvents.isCancelled(params.generationId))) {
+        console.log(`[recovery] Generation ${params.generationId} cancelled; stopping recovery for claim ${claim.id}`);
+        break;
+      }
       attemptsRun++;
       console.log(
         `[recovery] Starting attempt ${attempt} for claim ${claim.id} (req: ${requestId})`
@@ -93,6 +118,10 @@ export class RecoveryOrchestrator {
 
       // 1. Invoke M2 /recover
       let recoverRes;
+      // Bound the in-flight /recover wait by the remaining budget: on expiry the HTTP request is aborted and
+      // its late response is never applied. (M2 may still finish its provider call server-side.)
+      const remainingMs = params.deadline ? Math.max(1, params.deadline - Date.now()) : undefined;
+      const deadlineSignal = remainingMs !== undefined ? AbortSignal.timeout(remainingMs) : undefined;
       try {
         recoverRes = await aiClient.recover(
           {
@@ -108,10 +137,17 @@ export class RecoveryOrchestrator {
               text: e.text,
             })),
             attempt,
+            ...(remainingMs !== undefined ? { deadlineMs: Math.round(remainingMs) } : {}),
           },
-          requestId
+          requestId,
+          deadlineSignal
         );
       } catch (err: any) {
+        if (deadlineSignal?.aborted) {
+          console.log(`[recovery] Attempt ${attempt} for claim ${claim.id} aborted at the recovery time budget; result discarded.`);
+          timedOut = true;
+          break;
+        }
         console.error(`[recovery] M2 /recover call failed on attempt ${attempt}:`, err?.message || err);
         // Section 4: System / transport / internal service exceptions should NOT consume
         // one of the 2 recovery attempts if no recovery execution completed.
@@ -119,6 +155,14 @@ export class RecoveryOrchestrator {
       }
 
       const { action, candidateClaim, recoveryEvidence, modelVersion: recoveryModelVersion } = recoverRes;
+
+      // Provider outage (e.g. Gemini 429/503) is not missing evidence: stop without consuming an attempt
+      // and without immediately sending another request into a throttled provider.
+      const failureType = recoverRes.failureType;
+      if (failureType === 'provider_unavailable' || failureType === 'retrieval_unavailable') {
+        console.warn(`[recovery] Attempt ${attempt}: M2 reported ${failureType} (${recoverRes.reason}). Stopping recovery.`);
+        break;
+      }
 
       // 2. Stop condition: Gemini returned abstain or no useful evidence
       if (action === 'abstain' || !recoveryEvidence || recoveryEvidence.length === 0) {
@@ -157,6 +201,7 @@ export class RecoveryOrchestrator {
               evidence: recoveryEvidence.map((e) => ({
                 chunkId: e.chunkId,
                 text: e.text,
+                context: buildEvidenceContext((e as any).metadata, (e as any).heading),
               })),
             },
           ],
@@ -242,6 +287,12 @@ export class RecoveryOrchestrator {
       console.log(
         `[recovery] Attempt ${attempt} reverification result was '${decision.finalLabel}' (not entailment).`
       );
+      // 'keep' = the recovery model proposes no revision. Re-trying the same unchanged claim is wasted
+      // provider work (0/6 later successes observed); the claim keeps its honest unverified status.
+      if (action === 'keep') {
+        console.log(`[recovery] Claim ${claim.id}: unchanged claim not entailed after 'keep'; stopping recovery for this claim.`);
+        break;
+      }
     }
 
     // Exhausted recovery budget or stopped: retains original flagged / needs_review status
@@ -249,6 +300,7 @@ export class RecoveryOrchestrator {
       recovered: false,
       attempts: attemptsRun,
       finalClaim: currentClaim,
+      timedOut,
     };
   }
 
@@ -258,7 +310,7 @@ export class RecoveryOrchestrator {
   public async recoverGenerationClaims(
     generationId: string,
     requestId?: string
-  ): Promise<{ recoveredCount: number; totalAttempts: number }> {
+  ): Promise<{ recoveredCount: number; totalAttempts: number; stoppedReason?: 'time_budget' | 'attempt_budget' | 'cancelled' }> {
     const generation = await generationRepository.findGenerationById(generationId);
     if (!generation) return { recoveredCount: 0, totalAttempts: 0 };
 
@@ -283,8 +335,29 @@ export class RecoveryOrchestrator {
 
     let recoveredCount = 0;
     let totalAttempts = 0;
+    let stoppedReason: 'time_budget' | 'attempt_budget' | 'cancelled' | undefined;
+    const budgetMs = recoveryTimeBudgetMs();
+    const deadline = budgetMs > 0 ? Date.now() + budgetMs : undefined;
+    // Contradicted (flagged) claims are the most important to resolve: recover them first.
+    failedClaims.sort((a, b) => Number(b.status === 'flagged') - Number(a.status === 'flagged'));
 
     for (const c of failedClaims) {
+      const remainingBudget = MAX_RECOVERY_ATTEMPTS_PER_GENERATION - totalAttempts;
+      if (remainingBudget <= 0) {
+        console.log(`[recovery] Generation ${generationId}: recovery budget (${MAX_RECOVERY_ATTEMPTS_PER_GENERATION}) exhausted; remaining claims keep their verification status.`);
+        stoppedReason = 'attempt_budget';
+        break;
+      }
+      if (await generationEvents.isCancelled(generationId)) {
+        console.log(`[recovery] Generation ${generationId} cancelled; skipping remaining claim recovery`);
+        stoppedReason = 'cancelled';
+        break;
+      }
+      if (deadline && Date.now() >= deadline) {
+        console.log(`[recovery] Generation ${generationId}: recovery time budget (${budgetMs} ms) reached; remaining claims keep their verification status.`);
+        stoppedReason = 'time_budget';
+        break;
+      }
       const existingEv = await generationRepository.listEvidenceByClaimId(c.id);
       const res = await this.recoverClaim({
         projectId: generation.projectId,
@@ -292,12 +365,17 @@ export class RecoveryOrchestrator {
         claim: c,
         existingEvidence: existingEv,
         requestId,
-        maxAttempts,
+        maxAttempts: Math.min(maxAttempts, remainingBudget),
+        deadline,
       });
 
       totalAttempts += res.attempts;
       if (res.recovered) {
         recoveredCount++;
+      }
+      if (res.timedOut) {
+        stoppedReason = 'time_budget';
+        break;
       }
     }
 
@@ -305,7 +383,7 @@ export class RecoveryOrchestrator {
       recoveryAttempts: totalAttempts,
     }).catch(() => {});
 
-    return { recoveredCount, totalAttempts };
+    return { recoveredCount, totalAttempts, stoppedReason };
   }
 }
 

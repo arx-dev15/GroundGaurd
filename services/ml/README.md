@@ -45,6 +45,8 @@ The service will start on `http://localhost:8001`.
 * Model Info: `http://localhost:8001/model/info`
 * Evaluation Dashboard: `http://localhost:8001/evaluate`
 
+**CPU threads:** `M1_TORCH_THREADS` (default `4`, clamped to the CPU count) sets PyTorch intra-op threads for NLI inference. Verdicts and scores are identical at any setting. On 8 physical cores, 4 threads verified a 4-claim answer in ~1.4 s vs ~1.85 s on 1 thread, adding ~20 ms to concurrent M2 retrieval; 8 threads is faster (~0.9 s) but slowed concurrent retrieval by ~65 ms (+47%). Use `1` to restore single-threaded inference.
+
 ---
 
 ## 📡 API Contract

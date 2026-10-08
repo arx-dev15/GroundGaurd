@@ -1,11 +1,14 @@
 import os
 import logging
+import threading
 from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger("m2-reranker")
 
 FLASHRANK_MODEL = os.getenv("FLASHRANK_MODEL", "ms-marco-TinyBERT-L-2-v2")
 _ranker_instance = None
+_ranker_lock = threading.Lock()
+RANKER_INIT_MS: float = 0.0
 
 def get_ranker():
     """
@@ -13,12 +16,23 @@ def get_ranker():
     Cached once per process; avoids reloading model per request.
     Raises RuntimeError if FlashRank is unavailable or fails to initialize.
     """
-    global _ranker_instance
+    global _ranker_instance, RANKER_INIT_MS
+    if _ranker_instance is not None:
+        return _ranker_instance
+    with _ranker_lock:
+        return _load_ranker()
+
+
+def _load_ranker():
+    global _ranker_instance, RANKER_INIT_MS
     if _ranker_instance is None:
+        import time as _time
+        _init_started = _time.perf_counter()
         try:
             from flashrank import Ranker
             logger.info(f"Initializing FlashRank Ranker with model '{FLASHRANK_MODEL}'...")
             _ranker_instance = Ranker(model_name=FLASHRANK_MODEL)
+            RANKER_INIT_MS = round((_time.perf_counter() - _init_started) * 1000.0, 1)
             logger.info("FlashRank Ranker initialized successfully.")
         except Exception as e:
             logger.error(f"FlashRank initialization failed: {e}")

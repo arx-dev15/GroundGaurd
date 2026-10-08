@@ -42,6 +42,7 @@ interface AnswerViewProps {
   streamingChunks?: StreamingChunk[];
   claims?: Claim[];
   generationStatus?: GenerationStatus;
+  disposition?: string;
   isStreaming?: boolean;
   onStreamFlushComplete?: () => void;
   projectId: string;
@@ -292,6 +293,7 @@ export function AnswerView({
   streamingChunks = [],
   claims = [],
   generationStatus = 'completed',
+  disposition,
   isStreaming = false,
   onStreamFlushComplete,
   projectId,
@@ -749,6 +751,7 @@ export function AnswerView({
       <TrustSummary
         claims={claims}
         generationStatus={generationStatus}
+        disposition={disposition}
         selectedStatusFilter={activeStatusFilter}
         onClickClaimFilter={setActiveStatusFilter}
       />

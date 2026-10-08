@@ -161,11 +161,12 @@ print(f"Mandate 6 - Engineering terms extracted: {eng_terms}")
 print("[OK] Mandate 6 (Engineering Unit & Property Extraction): COMPLIANT")
 
 # -----------------------------------------------------------------------------
-# Mandate 7: Exact-Identifier Reranker Bypass Logic
+# Mandate 7: Exact-Identifier Match = Ranking Boost Only (Stabilization Phase 02, F2)
+# An exact equipment-tag match may boost ranking, but must NEVER bypass relevance scoring or
+# establish sufficiency on its own (the former bypass forced rerankScore >= 0.50 for any tag match).
 # -----------------------------------------------------------------------------
 from src.pipeline.retrieval import retrieve_evidence
 
-# Set reranker bypass flag
 os.environ["ENABLE_RERANKER_BYPASS"] = "true"
 ret_res = retrieve_evidence(
     project_id="tenant_alpha",
@@ -173,8 +174,15 @@ ret_res = retrieve_evidence(
     top_k=5,
     request_id="mandate7_test"
 )
-assert ret_res.metadata.rerankerBypassed is True, "Expected reranker to be bypassed for exact identifier"
-print("[OK] Mandate 7 (Exact-Identifier Reranker Bypass): COMPLIANT")
+assert ret_res.metadata.tagBoostApplied is True, "Expected exact identifier to boost candidate ranking"
+assert ret_res.metadata.rerankerBypassed is False, "Relevance scoring must not be bypassed on a tag match"
+for _ev in ret_res.results:
+    _ce = (_ev.metadata or {}).get("crossEncoderScore")
+    assert _ce is not None, "Every candidate must carry a real cross-encoder score"
+if ret_res.sufficiency.sufficient:
+    _sig = ret_res.sufficiency.signals
+    assert _sig.attributeCovered is not False, "Sufficiency must not hold when the requested attribute is absent"
+print("[OK] Mandate 7 (Exact-Identifier Ranking Boost, never sufficiency): COMPLIANT")
 
 # -----------------------------------------------------------------------------
 # Mandate 8 & 9: LangGraph 5-Branch Failure Diagnosis & Circuit Breaker Bound

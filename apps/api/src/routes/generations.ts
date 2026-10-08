@@ -172,7 +172,16 @@ export async function generationRoutes(fastify: FastifyInstance) {
       claims.map(async (c) => toPublicClaim(c, await generationRepository.listEvidenceByClaimId(c.id)))
     );
 
-    return reply.status(200).send({ claims: withEvidence });
+    // Additive: the generation's final trust disposition so clients never infer it from claims alone
+    // (e.g. UNVERIFIED = claim extraction/verification unavailable, INSUFFICIENT = abstention).
+    const meta = (typeof generation.metadata === 'string'
+      ? (() => { try { return JSON.parse(generation.metadata as unknown as string); } catch { return {}; } })()
+      : generation.metadata) as Record<string, unknown> | null;
+    return reply.status(200).send({
+      claims: withEvidence,
+      disposition: (meta?.disposition as string | undefined) ?? undefined,
+      verificationStatus: (meta?.verificationStatus as string | undefined) ?? undefined,
+    });
   });
 
   // GET /v1/claims/:claimId

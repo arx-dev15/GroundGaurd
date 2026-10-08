@@ -3,13 +3,14 @@
 import * as React from 'react';
 import { API_BASE_URL, getAuthToken, apiClient } from './api-client';
 import { mapSSEEventToStatus } from './trust-utils';
+import { normalizeClaimEvent, type ClaimUpdate } from './claim-events';
 import type { Claim, GenerationStatus } from '@groundguard/types';
 
 export interface UseGenerationEventsOptions {
   generationId?: string | null;
   onEvent?: (event: string, data: any) => void;
   onAnswerDelta?: (data: { delta: string; sequence: number }) => void;
-  onClaimUpdate?: (claim: Claim) => void;
+  onClaimUpdate?: (claim: ClaimUpdate) => void;
   onCompleted?: (data: { generationId: string; answer?: string }) => void;
   onCancelled?: () => void;
   onFailed?: (error: { code?: string; message?: string }) => void;
@@ -63,11 +64,15 @@ export function useGenerationEvents({
 
     maxSequenceRef.current = 0;
     let isClosed = false;
+    let sawTerminal = false;
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setIsStreaming(true);
 
     const handleEvent = (event: string, rawData: string) => {
+      // Ignore anything still buffered from a stream that was superseded or cancelled: callbacks are
+      // shared (ref) with the CURRENT request, so stale deltas/claims would leak into a new answer.
+      if (isClosed || controller.signal.aborted) return;
       let data: any = {};
       try {
         data = rawData ? JSON.parse(rawData) : {};
@@ -93,11 +98,16 @@ export function useGenerationEvents({
       }
 
       if (event === 'sentence.verified' || event === 'sentence.flagged' || event === 'recovery.completed') {
-        if (data?.claim) {
-          callbacksRef.current.onClaimUpdate?.(data.claim);
+        // M3 sends flat { claimId, text, status, label, groundingScore }; nested { claim } is also accepted.
+        const update = normalizeClaimEvent(data);
+        if (update) {
+          callbacksRef.current.onClaimUpdate?.(update);
         }
       }
 
+      if (event === 'generation.completed' || event === 'generation.failed') {
+        sawTerminal = true;
+      }
       if (event === 'generation.completed') {
         callbacksRef.current.onCompleted?.(data);
         if (!isClosed) {
@@ -206,6 +216,32 @@ export function useGenerationEvents({
       } finally {
         if (!isClosed && !controller.signal.aborted) {
           setIsStreaming(false);
+          if (!sawTerminal) {
+            // The live stream ended without a terminal event (network drop / proxy timeout). Resolve from
+            // the generation's persisted status instead of leaving the UI in an indefinite loading state.
+            try {
+              const g = await apiClient.get<{ status?: string; answer?: string }>(`/v1/generations/${generationId}`);
+              if (isClosed) return;
+              if (g?.status === 'completed') {
+                callbacksRef.current.onCompleted?.({ generationId: generationId as string, answer: g.answer });
+              } else if (g?.status === 'cancelled') {
+                setStatus('cancelled');
+                setStatusLabel('Generation cancelled');
+                callbacksRef.current.onCancelled?.();
+              } else {
+                callbacksRef.current.onFailed?.({
+                  code: g?.status === 'failed' ? 'GENERATION_FAILED' : 'STREAM_INTERRUPTED',
+                  message: g?.status === 'failed'
+                    ? "We couldn't generate this answer."
+                    : 'Live updates were interrupted. Refresh to load the final verified answer.',
+                });
+              }
+            } catch {
+              if (!isClosed) {
+                callbacksRef.current.onFailed?.({ code: 'STREAM_INTERRUPTED', message: 'Live updates were interrupted. Refresh to load the final verified answer.' });
+              }
+            }
+          }
         }
       }
     }

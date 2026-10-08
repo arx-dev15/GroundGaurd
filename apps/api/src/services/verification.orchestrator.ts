@@ -1,6 +1,7 @@
 import { generationRepository, DBClaim, DBEvidence } from '../repositories/generation.repository';
 import { mlClient } from '../clients/ml.client';
 import { technicalChecker, TechnicalCheckResult } from './technical-checks';
+import { buildEvidenceContext } from './evidence-context';
 import { ClaimStatus, VerificationLabel, Claim, Evidence } from '@groundguard/contracts';
 
 export class VerificationOrchestrator {
@@ -152,6 +153,7 @@ export class VerificationOrchestrator {
             evidence: item.evidence.map((ev) => ({
               chunkId: ev.chunkId,
               text: ev.text,
+              context: buildEvidenceContext(ev.metadata),
             })),
           })),
         };

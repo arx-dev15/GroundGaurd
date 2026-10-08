@@ -26,6 +26,20 @@ logger = logging.getLogger("m2-index-verifier")
 _ENV = os.getenv("ENVIRONMENT", os.getenv("NODE_ENV", "development")).lower()
 
 
+def _dense_backend_problem() -> Optional[str]:
+    """
+    Returns a reason string if the dense backend cannot be trusted for parity checks or writes:
+    unreachable, or a non-authoritative fallback store. Repairs against such a store would write
+    vectors to the wrong place, and "missing" counts would wrongly mark READY documents FAILED.
+    """
+    status = qdrant_store.status()
+    if not status.get("available"):
+        return f"Qdrant dense backend unavailable ({status.get('backend')}): {status.get('error') or qdrant_store.last_error}"
+    if not status.get("authoritative"):
+        return f"Qdrant backend '{status.get('backend')}' is a non-authoritative fallback store"
+    return None
+
+
 def verify_document_index_parity(
     project_id: str,
     document_id: str,
@@ -47,13 +61,20 @@ def verify_document_index_parity(
         t_count = -1
 
     consistent = False
-    if q_count >= 0 and t_count >= 0:
-        if q_count == t_count:
-            if expected_count is None or q_count == expected_count:
-                consistent = True
+    if q_count < 0 or t_count < 0:
+        status = "unverifiable"
+    elif q_count == 0 and t_count == 0 and not expected_count:
+        # Nothing indexed and nothing expected: the document is missing, not "consistent".
+        status = "missing"
+    elif q_count == t_count and (expected_count is None or q_count == expected_count):
+        consistent = True
+        status = "consistent"
+    else:
+        status = "inconsistent"
 
     return {
         "consistent": consistent,
+        "status": status,
         "documentId": document_id,
         "projectId": project_id,
         "qdrantCount": q_count,
@@ -67,6 +88,11 @@ def repair_document_index(project_id: str, document_id: str) -> bool:
     Reconstructs Qdrant and Tantivy derived index entries from PostgreSQL canonical chunks.
     Idempotent and atomic per document.
     """
+    problem = _dense_backend_problem()
+    if problem:
+        logger.error(f"Refusing to repair document {document_id}: {problem}")
+        return False
+
     raw_chunks = get_document_canonical_chunks(document_id)
     if not raw_chunks:
         logger.warning(f"Cannot repair document {document_id}: no canonical chunks found in PostgreSQL.")
@@ -92,8 +118,9 @@ def repair_document_index(project_id: str, document_id: str) -> bool:
         texts = [c["text"] for c in formatted_chunks]
         embeddings = generate_embeddings(texts)
 
-        # 1. Qdrant
+        # 1. Qdrant (deterministic point ids -> upsert overwrites; then drop points from older chunkings)
         qdrant_store.upsert_chunks(project_id, document_id, formatted_chunks, embeddings)
+        qdrant_store.delete_stale_document_points(project_id, document_id, [c["id"] for c in formatted_chunks])
 
         # 2. Tantivy
         tantivy_store.index_chunks(project_id, document_id, formatted_chunks)
@@ -134,6 +161,11 @@ def verify_project_index_consistency(
             "readyDocCount": 0,
             "inconsistentDocs": [],
         }
+
+    problem = _dense_backend_problem()
+    if problem:
+        auto_repair = False
+        logger.error(f"[index-verifier] Auto-repair disabled for project {project_id}: {problem}")
 
     inconsistent_docs = []
 
@@ -184,6 +216,12 @@ def reconcile_legacy_indexes(
     - Enforces Invariant: If a document cannot achieve parity (e.g. pg_chunks == 0),
       transitions to status = 'failed' with observable reason and removes orphan index points.
     """
+    # Never audit or repair against an unreachable or fallback vector store: every READY document
+    # would look "missing", be re-embedded into the wrong store, or be marked FAILED.
+    problem = _dense_backend_problem()
+    if problem:
+        raise RuntimeError(f"Cannot reconcile indexes: {problem}")
+
     conn = get_connection()
     if conn is None:
         raise RuntimeError("Cannot reconcile indexes: PostgreSQL database unavailable.")
@@ -213,11 +251,22 @@ def reconcile_legacy_indexes(
     repaired = []
     unrecoverable = []
     needs_repair = []
+    unverifiable = []
 
     for doc in ready_docs:
         doc_id, proj_id, filename, status, declared_chunks, actual_pg_chunks = doc
 
         parity = verify_document_index_parity(proj_id, doc_id, actual_pg_chunks)
+        if parity["qdrantCount"] < 0 or parity["tantivyCount"] < 0:
+            # Count could not be read (store error) -- unknown is not "missing"; leave the document untouched.
+            unverifiable.append({
+                "documentId": doc_id,
+                "projectId": proj_id,
+                "filename": filename,
+                "qdrantCount": parity["qdrantCount"],
+                "tantivyCount": parity["tantivyCount"],
+            })
+            continue
         is_parity_ok = parity["consistent"] and actual_pg_chunks > 0
 
         if is_parity_ok:
@@ -309,8 +358,12 @@ def reconcile_legacy_indexes(
         "repairedCount": len(repaired),
         "unrecoverableCount": len(unrecoverable),
         "needsRepairCount": len(needs_repair),
+        "unverifiableCount": len(unverifiable),
         "remainingReadyDocs": remaining_ready,
         "repaired": repaired,
         "unrecoverable": unrecoverable,
-        "inconsistentReadyRemaining": 0 if not dry_run else (len(needs_repair) + len(unrecoverable)),
+        "needsRepair": needs_repair,
+        "unverifiable": unverifiable,
+        "denseBackend": qdrant_store.status(),
+        "inconsistentReadyRemaining": len(unverifiable) + (0 if not dry_run else (len(needs_repair) + len(unrecoverable))),
     }

@@ -381,7 +381,7 @@ class TestPhase4PipelineInvariants(unittest.TestCase):
         self.assertFalse(res.sufficiency.sufficient)
 
 
-    @patch("src.pipeline.retrieval.validate_ready_documents")
+    @patch("src.pipeline.retrieval.get_ready_documents_meta")
     @patch("src.pipeline.retrieval.qdrant_store.search_dense")
     @patch("src.pipeline.retrieval.tantivy_store.search_project")
     def test_unready_candidate_cannot_displace_ready_candidate(self, mock_tantivy, mock_qdrant, mock_validate):
@@ -420,8 +420,8 @@ class TestPhase4PipelineInvariants(unittest.TestCase):
             }
         ]
         mock_tantivy.return_value = []
-        # PostgreSQL marks only doc_ready as READY
-        mock_validate.return_value = {"doc_ready"}
+        # PostgreSQL marks only doc_ready as READY (patch the lifecycle check retrieval actually calls)
+        mock_validate.return_value = ({"doc_ready"}, {"doc_ready": "ready.pdf"})
 
         # Request top_k = 2
         res = retrieve_evidence(project_id="p1", query="P-101A operations", top_k=2)

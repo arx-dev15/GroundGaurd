@@ -102,6 +102,10 @@ class RecoveryState(TypedDict):
     reason: str
     model_version: str
     error: Optional[str]
+    # Terminal failure category: None | "attempt_limit" | "provider_unavailable" | "retrieval_unavailable"
+    failure_type: Optional[str]
+    # True when the caller (M3) owns the attempt loop: run exactly ONE attempt, never loop internally.
+    single_attempt: bool
 
 
 # -------------------------------------------------------------------------
@@ -237,6 +241,7 @@ def node_circuit_breaker_fallback(state: RecoveryState) -> Dict[str, Any]:
         "action": "abstain",
         "candidate_claim": None,
         "reason": f"Circuit breaker activated: recovery attempt limit reached ({state['failure_reason']})",
+        "failure_type": "attempt_limit",
         "evidence_items": state.get("evidence_items", []),
         "model_version": llm_runtime.get_model_version()
     }
@@ -274,7 +279,8 @@ def node_execute_retrieval(state: RecoveryState) -> Dict[str, Any]:
             "action": "abstain",
             "candidate_claim": state["original_claim"],
             "reason": f"Retrieval infrastructure failure: {e}",
-            "error": str(e)
+            "error": str(e),
+            "failure_type": "retrieval_unavailable",
         }
 
 
@@ -315,14 +321,17 @@ async def node_llm_revision(state: RecoveryState) -> Dict[str, Any]:
             "error": None
         }
     except LLMUnavailableError as err:
-        logger.error(f"[LangGraph-Recovery] LLM unavailable: {err}")
+        # Terminal for this recovery run: never loop back into another (throttled) provider request,
+        # and report the real cause instead of "attempt limit reached". str(err) is sanitized.
+        logger.error(f"[LangGraph-Recovery] LLM unavailable (terminal for this attempt): {err}")
         return {
             "raw_llm_response": "",
             "action": "abstain",
             "candidate_claim": state["original_claim"],
             "model_version": "llm-unavailable",
-            "reason": str(err),
-            "error": str(err)
+            "reason": f"LLM provider unavailable: {err}",
+            "error": str(err),
+            "failure_type": "provider_unavailable",
         }
     except Exception as err:
         logger.error(f"[LangGraph-Recovery] LLM inference failed: {err}")
@@ -418,15 +427,25 @@ def route_after_retrieval(state: RecoveryState) -> str:
     if ev:
         return "llm_revision"
     
-    # If 0 evidence and attempts remaining, loop
+    # If 0 evidence and attempts remaining, loop (unless the caller drives attempts itself)
+    if state.get("single_attempt"):
+        return "finish"
     if state["attempt"] < state["max_attempts"]:
         return "increment_attempt"
     return "circuit_breaker_fallback"
 
 
+def route_after_llm(state: RecoveryState) -> str:
+    if state.get("failure_type") == "provider_unavailable":
+        return "finish"
+    return "validate_decision"
+
+
 def route_after_validation(state: RecoveryState) -> str:
     action = state.get("action", "abstain")
     if action in ("keep", "revise"):
+        return "finish"
+    if state.get("single_attempt"):
         return "finish"
     
     if state["attempt"] < state["max_attempts"]:
@@ -496,8 +515,12 @@ def build_enterprise_recovery_graph():
         }
     )
 
-    # LLM connects to validate
-    workflow.add_edge("llm_revision", "validate_decision")
+    # LLM connects to validate (provider unavailability is terminal)
+    workflow.add_conditional_edges(
+        "llm_revision",
+        route_after_llm,
+        {"validate_decision": "validate_decision", "finish": END},
+    )
 
     # Validate decision conditional edge
     workflow.add_conditional_edges(
@@ -530,6 +553,7 @@ class RecoveryGraphResult(BaseModel):
     modelVersion: str = ""
     reason: str = ""
     attempt: int = 1
+    failureType: Optional[str] = None
 
 
 async def run_langgraph_recovery(
@@ -539,18 +563,22 @@ async def run_langgraph_recovery(
     failure_reason: str,
     attempt: int = 1,
     max_attempts: int = MAX_RECOVERY_ATTEMPTS,
-    request_id: Optional[str] = None
+    request_id: Optional[str] = None,
+    single_attempt: bool = False,
 ) -> RecoveryGraphResult:
     """
     Executes the 5-branch LangGraph recovery workflow for a single claim.
+    The configured MAX_RECOVERY_ATTEMPTS is a hard ceiling: a caller-provided attempt number or limit can
+    never raise it (previously max(attempt, max_attempts) let attempt=N bypass the cap).
     """
+    effective_max = max(1, min(int(max_attempts), MAX_RECOVERY_ATTEMPTS))
     initial_state: RecoveryState = {
         "project_id": project_id,
         "claim_id": claim_id,
         "original_claim": claim,
         "failure_reason": failure_reason,
         "attempt": attempt,
-        "max_attempts": max(attempt, max_attempts),
+        "max_attempts": effective_max,
         "request_id": request_id,
         "diagnosis_branch": "missing",
         "recovery_query": "",
@@ -560,7 +588,9 @@ async def run_langgraph_recovery(
         "candidate_claim": claim,
         "reason": "",
         "model_version": llm_runtime.get_model_version(),
-        "error": None
+        "error": None,
+        "failure_type": None,
+        "single_attempt": bool(single_attempt),
     }
 
     final_state = await recovery_graph.ainvoke(initial_state)
@@ -574,5 +604,6 @@ async def run_langgraph_recovery(
         recoveryEvidence=final_state.get("evidence_items", []),
         modelVersion=final_state.get("model_version", llm_runtime.get_model_version()),
         reason=final_state.get("reason", "Recovery completed via LangGraph workflow"),
-        attempt=final_state.get("attempt", attempt)
+        attempt=final_state.get("attempt", attempt),
+        failureType=final_state.get("failure_type"),
     )

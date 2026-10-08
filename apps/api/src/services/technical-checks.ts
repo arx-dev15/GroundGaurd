@@ -279,24 +279,53 @@ export class TechnicalChecker {
       };
     }
 
-    // General negation polarity check: opposing truth values on shared predicate
-    const cHasNot = /\b(not|never|no longer|cannot)\b/i.test(normC);
-    const eHasNot = /\b(not|never|no longer|cannot)\b/i.test(normE);
+    // General negation polarity check: opposing truth values on the SAME predicate.
+    // Compared sentence-locally: the evidence sentence that best matches the claim (by whole content words)
+    // must carry the opposite polarity. Previously any "not" anywhere in the joined evidence plus 3 common
+    // substrings ("the", "are", ...) produced a false contradiction.
+    const NEG = /\b(not|never|no longer|cannot|can't|isn't|doesn't|don't|won't|wasn't|aren't)\b/i;
+    const cHasNot = NEG.test(normC);
+    const cContent = this.contentWords(normC);
+    if (cContent.length === 0) return null;
 
-    if (cHasNot !== eHasNot) {
-      const cAsPositive = normC.replace(/\b(is not|does not|cannot|not|never|no longer)\b/gi, ' ').replace(/\s+/g, ' ').trim();
-      const eAsPositive = normE.replace(/\b(is not|does not|cannot|not|never|no longer)\b/gi, ' ').replace(/\s+/g, ' ').trim();
-      const cWords = cAsPositive.split(' ').filter((w) => w.length > 2);
-      const matchedWords = cWords.filter((w) => eAsPositive.includes(w));
-      if (cWords.length > 0 && matchedWords.length >= Math.min(3, cWords.length)) {
-        return {
-          type: 'negation_mismatch',
-          details: `Negation polarity conflict: claim and evidence assert opposing truth values on shared predicate [${matchedWords.join(', ')}]`,
-        };
+    let best: { overlap: string[]; negated: boolean } | null = null;
+    for (const sentence of normE.split(/(?<=[.!?;])\s+|\n+/)) {
+      if (!sentence.trim()) continue;
+      const sWords = new Set(this.contentWords(sentence));
+      const overlap = cContent.filter((w) => sWords.has(w));
+      if (!best || overlap.length > best.overlap.length) {
+        best = { overlap, negated: NEG.test(sentence) };
       }
+    }
+    if (
+      best &&
+      best.negated !== cHasNot &&
+      best.overlap.length >= Math.min(3, cContent.length) &&
+      best.overlap.length / cContent.length >= 0.5
+    ) {
+      return {
+        type: 'negation_mismatch',
+        details: `Negation polarity conflict: claim and evidence assert opposing truth values on shared predicate [${best.overlap.join(', ')}]`,
+      };
     }
 
     return null;
+  }
+
+  private static readonly STOPWORDS = new Set([
+    'the', 'and', 'are', 'was', 'were', 'has', 'have', 'had', 'for', 'with', 'that', 'this', 'from', 'into', 'its',
+    'his', 'her', 'their', 'our', 'your', 'which', 'who', 'whom', 'whose', 'been', 'being', 'also', 'than', 'then',
+    'there', 'here', 'they', 'them', 'she', 'him', 'you', 'all', 'any', 'can', 'did', 'does', 'not', 'never', 'longer',
+    'cannot', 'isn', 'doesn', 'don', 'won', 'wasn', 'aren', 'will', 'would', 'should', 'could', 'may', 'might', 'shall',
+    'must', 'such', 'these', 'those', 'what', 'when', 'where', 'how', 'why', 'per', 'via', 'out', 'over', 'under',
+  ]);
+
+  /** Whole-word content tokens with light stemming (requires/required/requiring -> requir). */
+  private contentWords(text: string): string[] {
+    return (text.toLowerCase().match(/[a-z0-9][a-z0-9\-]*/g) || [])
+      .filter((w) => w.length > 2 && !TechnicalChecker.STOPWORDS.has(w))
+      .map((w) => w.replace(/(?:ing|ed|es|s)$/, '').replace(/e$/, ''))
+      .filter((w) => w.length > 2);
   }
 
   private checkModality(claim: string, evidence: string): TechnicalCheckConflict | null {

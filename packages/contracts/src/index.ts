@@ -419,6 +419,8 @@ export interface RecoverRequest {
   failureReason: RecoveryFailureReason | string;
   existingEvidence?: Evidence[];
   attempt?: number;
+  /** Remaining generation recovery budget (ms); M2 bounds its provider HTTP wait by it. */
+  deadlineMs?: number;
 }
 
 export interface RecoverResponse {
@@ -429,6 +431,8 @@ export interface RecoverResponse {
   recoveryEvidence: Evidence[];
   modelVersion: string;
   reason?: string;
+  /** Terminal failure category from M2: 'attempt_limit' | 'provider_unavailable' | 'retrieval_unavailable'. */
+  failureType?: string;
 }
 
 export interface RecoveryAttempt {
@@ -462,6 +466,8 @@ export interface VerifyRequest {
   evidence: Array<{
     chunkId: string;
     text: string;
+    /** Optional source context (document title / heading / preceding sentence) for subject-less chunks. */
+    context?: string;
   }>;
 }
 

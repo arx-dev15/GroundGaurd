@@ -74,7 +74,8 @@ export const CLAIM_STATE_CONFIG: Record<
  */
 export function deriveTrustSummary(
   claims: Claim[] = [],
-  generationStatus?: GenerationStatus
+  generationStatus?: GenerationStatus,
+  disposition?: string
 ): TrustSummaryData {
   const verifiedCount = claims.filter((c) => c.status === 'verified').length;
   const recoveredCount = claims.filter((c) => c.status === 'recovered').length;
@@ -125,6 +126,36 @@ export function deriveTrustSummary(
       totalCount,
       sourceCount,
       variant: 'danger',
+    };
+  }
+
+  // Final trust disposition from the backend outranks claim-count heuristics.
+  if (disposition === 'UNVERIFIED') {
+    return {
+      headline: 'Verification unavailable',
+      subline: 'Claims in this answer could not be extracted or verified',
+      verifiedCount: 0,
+      recoveredCount,
+      flaggedCount,
+      reviewCount,
+      pendingCount,
+      totalCount,
+      sourceCount,
+      variant: 'warning',
+    };
+  }
+  if (disposition === 'INSUFFICIENT') {
+    return {
+      headline: 'Insufficient evidence',
+      subline: 'The project documents do not contain this information',
+      verifiedCount: 0,
+      recoveredCount: 0,
+      flaggedCount: 0,
+      reviewCount: 0,
+      pendingCount: 0,
+      totalCount: 0,
+      sourceCount: 0,
+      variant: 'neutral',
     };
   }
 

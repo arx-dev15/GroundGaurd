@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional
 
 from src.pipeline.prompts import build_claim_extraction_prompt
 from src.pipeline.llm import llm_runtime
+from src.pipeline.answerability import is_absence_statement
 
 logger = logging.getLogger("m2-claim-extractor")
 
@@ -49,9 +50,121 @@ def _clean_json_text(text: str) -> str:
     return text
 
 
+# A backslash that is not a valid JSON escape (e.g. LaTeX "\(", "\alpha", "\sqrt"), or a valid-looking
+# escape that is really a LaTeX command ("\frac" -> form-feed + "rac", "\times" -> tab + "imes",
+# "\nabla", "\beta", "\right", "\underline"), must be a literal backslash.
+_LATEX_SAFE_ESCAPE_RE = re.compile(r'\\(?:(?=[bfnrt][a-z])|(?=u(?![0-9a-fA-F]{4}))|(?!["\\/bfnrtu]))')
+
+
+def _repair_json_backslashes(text: str) -> str:
+    out, i, in_str = [], 0, False
+    while i < len(text):
+        ch = text[i]
+        if ch == '"':  # escaped quotes inside strings are consumed as pairs below, so this is a delimiter
+            in_str = not in_str
+            out.append(ch)
+            i += 1
+            continue
+        if in_str and ch == "\\":
+            nxt = text[i + 1] if i + 1 < len(text) else ""
+            if nxt == "\\" or nxt == '"' or nxt == "/":
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if _LATEX_SAFE_ESCAPE_RE.match(text, i):
+                out.append("\\\\")
+                i += 1
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def parse_claims_json(raw_response: str) -> Any:
+    """
+    Parses extractor output, repairing LaTeX backslashes that break JSON (invalid escapes) or that
+    JSON would silently corrupt into control characters. Raises ValueError if still unparseable.
+    """
+    cleaned = _clean_json_text(raw_response or "")
+    repaired = _repair_json_backslashes(cleaned)
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError as err:
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            raise ValueError(f"Malformed claim extraction JSON: {err}") from err
+
+
+_CITE = re.compile(r"\s*\[([^\[\]]{1,160})\]")
+# Anything suggesting more than one proposition, a contrast/negated premise, a list, or a dependent subject
+# disqualifies the deterministic path (the LLM extractor handles those).
+_NOT_ATOMIC = re.compile(
+    r"[,;:\n•]|\s-\s|\b(?:and|or|but|while|whereas|which|who|whom|whose|that|also|as well as|both|either|neither|"
+    r"not|no|never|without|except|unless|although|however|because|if|then|instead|rather|respectively)\b", re.I)
+_PRONOUN_START = re.compile(r"^\s*(?:it|its|they|their|this|that|these|those|he|she|his|her|yes|no|partly)\b", re.I)
+
+
+def _norm_doc(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"\.[a-z0-9]{2,4}$", "", (name or "").strip().lower()))
+
+
+def deterministic_single_claim(answer: str, evidence: List[Any]) -> Optional[List[Dict[str, Any]]]:
+    """
+    Provider-free extraction for the narrowest safe case: the whole answer is ONE short declarative sentence
+    stating one fact, with citation(s) that resolve to supplied evidence. Then the atomic claim IS that
+    sentence (verbatim, citations removed -- numbers, units, tags and modality untouched), mapped to the
+    cited evidence. Returns None (=> use the LLM extractor) for anything else. M1 still verifies the claim.
+    """
+    raw = (answer or "").strip()
+    cites = _CITE.findall(raw)
+    text = _CITE.sub("", raw).strip()
+    text = re.sub(r"\s+([.!?])", r"\1", text)
+    if not cites or not text or len(text.split()) > 28 or not text.endswith("."):
+        return None
+    if re.search(r"[.!?](?=\s+\S)", text[:-1]) or text.count(".") > 1 + len(re.findall(r"\d\.\d", text)):
+        return None  # more than one sentence
+    if _NOT_ATOMIC.search(text) or _PRONOUN_START.search(text) or is_absence_statement(text):
+        return None
+    if not re.search(r"\b(?:is|are|was|were|has|have|had|uses|use|operates|runs|measures|connects|carries|"
+                     r"requires|provides|supports|contains|includes|rated|located|attached|mounted)\b", text, re.I):
+        return None  # no clear single predicate
+    mapped, seen = [], set()
+    for c in cites:
+        doc_part = re.split(r",\s*pp?\.?\s*\d", c, maxsplit=1)[0].strip()
+        page_m = re.search(r"pp?\.?\s*(\d+)", c)
+        page = int(page_m.group(1)) if page_m else None
+        hits = []
+        for ev in evidence:
+            meta = getattr(ev, "metadata", None) or {}
+            names = [meta.get("filename"), meta.get("title"), getattr(ev, "documentId", None)]
+            if any(n and _norm_doc(n) == _norm_doc(doc_part) for n in names):
+                hits.append(ev)
+        if page is not None:
+            on_page = [ev for ev in hits if getattr(ev, "pageNumber", None) == page]
+            hits = on_page or hits
+        if not hits:
+            return None  # citation does not resolve to supplied evidence -> let the LLM extractor decide
+        for ev in hits:
+            cid = getattr(ev, "chunkId", None)
+            if cid not in seen:
+                seen.add(cid)
+                mapped.append(ev)
+    return [{
+        "claimId": "claim_0",
+        "text": text,
+        "status": "pending",
+        "ordinal": 0,
+        "sourceText": raw,
+        "verification": None,
+        "evidence": mapped,
+    }]
+
+
 async def extract_and_validate_claims(
     answer: str,
-    evidence: List[Any]
+    evidence: List[Any],
+    stats: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Executes atomic claim extraction and strict candidate provenance validation on the generated answer.
@@ -73,6 +186,16 @@ async def extract_and_validate_claims(
         logger.info("[claim-extractor] Abstention answer detected; skipping claim extraction")
         return []
 
+    # Provider-free path for a single, cited, atomic factual sentence (saves one LLM call).
+    fast = deterministic_single_claim(answer, evidence)
+    if fast is not None:
+        if stats is not None:
+            stats["method"] = "deterministic_single_fact"
+        logger.info("[claim-extractor] Deterministic single-fact extraction (no LLM call)")
+        return fast
+    if stats is not None:
+        stats["method"] = "llm"
+
     # 1. Establish strict symbolic evidence mappings (EVIDENCE_1, EVIDENCE_2, ...)
     allowed_refs: Dict[str, Any] = {}
     evidence_blocks: list = []
@@ -89,13 +212,21 @@ async def extract_and_validate_claims(
     # 3. Call RealLLMRuntime with greedy temperature=0.0 and JSON response mode
     raw_response = await llm_runtime.extract_claims(user_prompt)
 
-    # 4. Parse JSON defensively
-    cleaned_json = _clean_json_text(raw_response)
+    # 4. Parse JSON defensively (LaTeX-safe); one bounded retry with an explicit escaping reminder.
     try:
-        parsed_data = json.loads(cleaned_json)
-    except json.JSONDecodeError as err:
-        logger.error(f"[claim-extractor] Malformed JSON from LLM: {err} | Raw: {raw_response[:300]}")
-        raise ValueError(f"Malformed claim extraction JSON: {err}")
+        parsed_data = parse_claims_json(raw_response)
+    except ValueError as err:
+        logger.warning(f"[claim-extractor] Malformed JSON from LLM ({err}); retrying once | Raw: {raw_response[:300]}")
+        retry_prompt = user_prompt + (
+            "\n\nYour previous output was not valid JSON. Output ONLY the JSON object. "
+            "Escape every backslash inside strings as \\\\ (e.g. \"\\\\frac{a}{b}\")."
+        )
+        raw_response = await llm_runtime.extract_claims(retry_prompt)
+        try:
+            parsed_data = parse_claims_json(raw_response)
+        except ValueError as err2:
+            logger.error(f"[claim-extractor] Malformed JSON after retry: {err2} | Raw: {raw_response[:300]}")
+            raise
 
     if isinstance(parsed_data, list):
         raw_claims = parsed_data
@@ -118,6 +249,10 @@ async def extract_and_validate_claims(
 
         claim_text = str(raw.get("claim") or raw.get("text") or "").strip()
         if not claim_text:
+            continue
+        if is_absence_statement(claim_text):
+            # "The documentation does not specify X" is not a factual claim about the subject.
+            logger.info(f"[claim-extractor] Dropping absence statement (not a factual claim): '{claim_text}'")
             continue
 
         # Normalized deduplication (preserves first occurrence, preserves answer order)
