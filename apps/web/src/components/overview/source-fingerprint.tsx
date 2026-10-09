@@ -88,24 +88,17 @@ export function SourceFingerprint({
 
   return (
     <section
-      className="relative rounded-2xl border border-border/35 bg-card/25 p-5 sm:p-7 space-y-6 select-none overflow-hidden"
+      className="relative rounded-xl border border-border/70 bg-card/40 p-4 sm:p-6 space-y-5 select-none overflow-hidden"
       role="region"
       aria-label="Source fingerprint"
     >
-      {/* Background Subtle Gradient Field */}
-      <div className="absolute top-0 right-10 w-[350px] h-[160px] bg-primary/[0.025] rounded-full blur-3xl pointer-events-none" />
 
       {/* Header: Signature Identification */}
-      <div className="relative z-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-border/30">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <h2 className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground/90 font-medium">
-              Source Fingerprint
-            </h2>
-          </div>
+      <div className="relative z-10 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 pb-3 border-b border-border/60">
+        <div className="space-y-0.5 min-w-0">
+          <h2 className="text-sm font-semibold tracking-tight text-foreground">Source fingerprint</h2>
           <p className="text-xs text-muted-foreground">
-            Where evidence and trust live inside the project’s source material
+            Where checked claims sit inside each source, by page or passage range
           </p>
         </div>
 

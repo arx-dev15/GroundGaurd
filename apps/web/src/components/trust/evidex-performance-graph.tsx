@@ -194,11 +194,11 @@ export function EvidexPerformanceGraph({
               EVIDEX performance
             </h2>
             <span className="text-[11px] font-sans font-medium text-muted-foreground/80 px-2 py-0.5 rounded-full bg-muted/50 border border-border/50">
-              Preliminary · {totalCases} cases
+              Static reference · not measured on this project
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
-            How the verified EVIDEX pipeline compares with the configured RAG baseline.
+            Reference comparison of the EVIDEX pipeline against a baseline RAG setup. These figures are fixed; project-measured results appear in History once runs complete.
           </p>
         </div>
 
@@ -834,7 +834,7 @@ export function EvidexPerformanceGraph({
               <div className="p-2.5 rounded-lg border border-border/40 bg-background/50 space-y-1">
                 <span className="text-[11px] text-muted-foreground font-medium">Sample & Timing</span>
                 <p className="text-foreground text-[11px] leading-relaxed">
-                  {totalCases} golden benchmark cases · {evaluationDate}
+                  Fixed reference figures bundled with the app (not computed from your evaluation runs). Your latest run: {evaluationDate}.
                 </p>
               </div>
             </div>

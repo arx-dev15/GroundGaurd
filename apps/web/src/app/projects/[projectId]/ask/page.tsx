@@ -18,6 +18,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  ArrowDown,
 } from 'lucide-react';
 import { useShell } from '@/components/layout/shell-context';
 import { useAuth } from '@/lib/auth-context';
@@ -30,6 +31,7 @@ import { AskInspector } from '@/components/ask/ask-inspector';
 import { mergeClaimUpdate } from '@/lib/claim-events';
 import { EvidenceAnalysisPanel, applyAskEvent, initialAskProgress, type AskProgress } from '@/components/ask/evidence-analysis-panel';
 import { ConversationSidebar } from '@/components/ask/conversation-sidebar';
+import { useStickToBottom } from '@/lib/use-stick-to-bottom';
 import { useProjectDocuments } from '@/lib/documents-query';
 import {
   useProjectConversations,
@@ -507,28 +509,26 @@ export default function AskPage() {
     greetingSub = `${docNames.join(' and ')} ${docNames.length === 1 ? 'is' : 'are'} ready.`;
   }
 
-  // Auto-scroll messages container to bottom on update with intelligent near-bottom tracking
-  const messagesEndRef = React.useRef<HTMLDivElement>(null);
-  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
-  const isNearBottomRef = React.useRef<boolean>(true);
+  // Transcript scrolling: follow new output only while the reader is at the bottom (see lib/scroll-follow.ts).
+  const {
+    containerRef: scrollContainerRef,
+    contentRef: transcriptContentRef,
+    onScroll: handleScroll,
+    scrollToBottom,
+    showJumpButton,
+    hasUnseenBelow,
+  } = useStickToBottom<HTMLDivElement, HTMLDivElement>();
 
-  const handleScroll = React.useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    isNearBottomRef.current = distanceToBottom <= 120;
-  }, []);
-
+  // Opening a conversation lands on its latest message.
   React.useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    isNearBottomRef.current = true;
-  }, [cleanMessages.length, isSubmitting, generationError]);
+    const id = requestAnimationFrame(() => scrollToBottom('auto'));
+    return () => cancelAnimationFrame(id);
+  }, [activeConversationId, scrollToBottom]);
 
+  // Submitting a question is an explicit request to see the newest output.
   React.useEffect(() => {
-    if (streamingText && isNearBottomRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-    }
-  }, [streamingText]);
+    if (isSubmitting) scrollToBottom('smooth');
+  }, [isSubmitting, scrollToBottom]);
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-background">
@@ -675,29 +675,28 @@ export default function AskPage() {
             </div>
 
             {/* Transcript Messages Scroll Area: Centered Reading Column */}
+            <div className="relative flex-1 min-h-0 flex flex-col">
             <div
               ref={scrollContainerRef}
               onScroll={handleScroll}
               data-lenis-prevent
-              className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin"
+              className="flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-8 scrollbar-thin"
             >
-              <div className="max-w-[760px] mx-auto w-full space-y-6">
+              <div ref={transcriptContentRef} className="max-w-[760px] mx-auto w-full space-y-7">
 
                 {cleanMessages.map((msg, index) => {
                   const isUser = msg.role === 'user';
                   const assistantClaims = msg.generationId ? generationClaimsMap[msg.generationId] || [] : [];
+                  // Long chats: let the browser skip layout/paint of messages far above the viewport.
+                  const offscreenHint =
+                    index < cleanMessages.length - 6 ? { contentVisibility: 'auto' as const, containIntrinsicSize: 'auto 360px' } : undefined;
 
                   if (isUser) {
                     return (
-                      <div
-                        key={msg.id || index}
-                        className="space-y-1.5 pt-3 pb-2 border-b border-border/20"
-                      >
-                        <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground">
-                          YOU
-                        </div>
-                        <div className="text-sm sm:text-base text-foreground font-normal leading-relaxed">
-                          {msg.content}
+                      <div key={msg.id || index} className="flex justify-end" style={offscreenHint}>
+                        <div className="max-w-[85%] sm:max-w-[80%] rounded-2xl rounded-br-md bg-muted/70 border border-border/50 px-4 py-2.5">
+                          <span className="sr-only">You asked:</span>
+                          <p className="text-sm sm:text-[15px] text-foreground leading-relaxed whitespace-pre-wrap break-words">{msg.content}</p>
                         </div>
                       </div>
                     );
@@ -705,9 +704,9 @@ export default function AskPage() {
 
                   // Assistant Response Area
                   return (
-                    <div key={msg.id || index} className="space-y-2 pb-6">
-                      <div className="text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                        <Shield className="h-3.5 w-3.5 text-primary" />
+                    <div key={msg.id || index} className="space-y-2.5" style={offscreenHint}>
+                      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <Shield className="h-3.5 w-3.5 text-foreground/70" />
                         <span>EvideX AI</span>
                       </div>
 
@@ -845,8 +844,30 @@ export default function AskPage() {
                   </div>
                 )}
 
-                <div ref={messagesEndRef} />
               </div>
+            </div>
+
+            {/* Jump to latest — appears only when the reader is well above the newest output */}
+            <AnimatePresence>
+              {showJumpButton && (
+                <motion.button
+                  key="jump-to-latest"
+                  type="button"
+                  onClick={() => scrollToBottom('smooth')}
+                  initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.96 }}
+                  transition={{ duration: 0.16, ease: 'easeOut' }}
+                  aria-label={hasUnseenBelow ? 'New output below. Scroll to latest message' : 'Scroll to latest message'}
+                  className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 h-9 w-9 rounded-full border border-border/70 bg-background/95 text-foreground shadow-md flex items-center justify-center hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  <ArrowDown className="h-4 w-4" />
+                  {hasUnseenBelow && (
+                    <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-sky-500 ring-2 ring-background" aria-hidden="true" />
+                  )}
+                </motion.button>
+              )}
+            </AnimatePresence>
             </div>
 
             {/* Persistent Compact Bottom Composer */}

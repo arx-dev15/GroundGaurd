@@ -402,8 +402,18 @@ function KnowledgePageContent() {
                 {filteredDocuments.map((doc) => (
                   <div
                     key={doc.id}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open ${doc.filename}`}
                     onClick={() => router.push(`/projects/${projectId}/knowledge/${doc.id}`)}
-                    className="group flex flex-col md:grid md:grid-cols-12 gap-2 md:gap-3 px-4 py-3 md:items-center hover:bg-muted/40 transition-colors cursor-pointer"
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        router.push(`/projects/${projectId}/knowledge/${doc.id}`);
+                      }
+                    }}
+                    className="group flex flex-col md:grid md:grid-cols-12 gap-2 md:gap-3 px-4 py-3 md:items-center hover:bg-muted/40 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-muted/40 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
                   >
                     {/* Document Name */}
                     <div className="col-span-5 flex items-center gap-2.5 min-w-0">
@@ -411,7 +421,7 @@ function KnowledgePageContent() {
                         <FileText className="h-3.5 w-3.5" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium text-foreground truncate group-hover:text-primary transition-colors">
+                        <p className="font-medium text-foreground truncate group-hover:text-primary transition-colors" title={doc.filename}>
                           {doc.filename}
                         </p>
                         <p className="text-[10px] text-muted-foreground font-mono md:hidden">

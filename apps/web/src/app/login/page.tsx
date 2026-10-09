@@ -4,25 +4,30 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Shield, Eye, EyeOff, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/lib/auth-context';
+import { LoginSuccessOverlay, LOGIN_SUCCESS_MS, LOGIN_SUCCESS_REDUCED_MS } from '@/components/auth/login-success';
 
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const from = searchParams.get('from') || '/projects';
-  const { login, isAuthenticated, isLoading, error, clearError } = useAuth();
+  const { login, isAuthenticated, isLoading, error, clearError, user } = useAuth();
 
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [showPassword, setShowPassword] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [localError, setLocalError] = React.useState<string | null>(null);
+  // Shown only after THIS submit's login() resolved (never on refresh of an existing session).
+  const [showSuccess, setShowSuccess] = React.useState(false);
+  const successInProgressRef = React.useRef(false);
 
-  // If already authenticated, redirect to destination
+  // If already authenticated (e.g. returning with a stored session), redirect without any success animation.
   React.useEffect(() => {
-    if (!isLoading && isAuthenticated) {
+    if (!isLoading && isAuthenticated && !successInProgressRef.current) {
       router.replace(from);
     }
   }, [isLoading, isAuthenticated, router, from]);
@@ -43,14 +48,20 @@ export default function LoginPage() {
     }
 
     setIsSubmitting(true);
+    successInProgressRef.current = true;
     try {
-      await login({ email, password });
-      router.push(from);
+      await login({ email, password }); // session is fully established here
     } catch (err: unknown) {
-      // Error handled by AuthContext
-    } finally {
+      // Error handled by AuthContext; no success state for failed logins.
+      successInProgressRef.current = false;
       setIsSubmitting(false);
+      return;
     }
+    router.prefetch(from);
+    setShowSuccess(true);
+    const reduce = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    // Navigation is timer-driven (independent of the animation), so it always happens.
+    window.setTimeout(() => router.replace(from), reduce ? LOGIN_SUCCESS_REDUCED_MS : LOGIN_SUCCESS_MS);
   };
 
   const displayError = localError || error;
@@ -191,6 +202,8 @@ export default function LoginPage() {
           </Link>
         </div>
       </div>
+
+      <AnimatePresence>{showSuccess && <LoginSuccessOverlay name={user?.name?.split(' ')[0]} />}</AnimatePresence>
     </div>
   );
 }

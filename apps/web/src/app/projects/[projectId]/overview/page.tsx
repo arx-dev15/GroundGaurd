@@ -1,18 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
   FileText,
   MessageSquareCode,
   UploadCloud,
-  CheckCircle2,
   AlertCircle,
-  Clock,
   ArrowRight,
   ShieldCheck,
-  Sparkles,
   HelpCircle,
   RefreshCw,
 } from 'lucide-react';
@@ -21,10 +17,10 @@ import type {
   Document as GroundDocument,
   Conversation,
   ProjectMetricsResponse,
+  ProjectClaimItem,
 } from '@groundguard/types';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
@@ -33,27 +29,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-
-// Pure Deterministic Overview Helpers
+import { buildSourceFingerprints, computeProjectReadiness, getSuggestedNextSteps } from '@/lib/overview-helpers';
 import {
-  computeProjectReadiness,
-  getHeroSummaryText,
-  getSuggestedNextSteps,
-  formatBytes,
-  formatRelativeTime,
-} from '@/lib/overview-helpers';
+  buildActivityFeed,
+  claimBreakdown,
+  documentCounts,
+  documentsByRecency,
+  overviewSummary,
+} from '@/lib/overview-activity';
 import { getProjectClaimsPaginated } from '@/lib/conversations-api';
-
-// Editorial Overview Components
-import { ProjectPulseHero } from '@/components/overview/project-pulse-hero';
-import { ProjectBrief } from '@/components/overview/project-brief';
-import { SourceFingerprint } from '@/components/overview/source-fingerprint';
-import { ContinueWorking } from '@/components/overview/continue-working';
-import { KnowledgeOrigin } from '@/components/overview/knowledge-origin';
 import { WhatMattersNext } from '@/components/overview/what-matters-next';
 import { QuietTrustFooter } from '@/components/overview/quiet-trust-footer';
-import { buildSourceFingerprints } from '@/lib/overview-helpers';
-import type { ProjectClaimItem } from '@groundguard/types';
+import {
+  EmphasizedNumbers,
+  EvidenceLandscape,
+  EvidenceStatusPanel,
+  ProjectFacts,
+  ReadinessPill,
+  ResearchTimeline,
+  Reveal,
+  SourceList,
+} from '@/components/overview/workspace-sections';
+
+const PAGE = 'mx-auto w-full max-w-[1240px]';
 
 export default function RealProjectOverviewPage() {
   const params = useParams();
@@ -101,403 +99,309 @@ export default function RealProjectOverviewPage() {
     fetchData();
   }, [fetchData]);
 
-  // Derived Real Counts (Zero Synthetic Telemetry)
-  const readyDocs = React.useMemo(() => documents.filter((d) => d.status === 'ready'), [documents]);
-  const processingDocs = React.useMemo(
-    () => documents.filter((d) => d.status === 'processing' || d.status === 'uploaded'),
-    [documents]
-  );
-  const failedDocs = React.useMemo(() => documents.filter((d) => d.status === 'failed'), [documents]);
-  const totalChunks = React.useMemo(
-    () => documents.reduce((sum, d) => sum + (d.chunksCount || 0), 0),
-    [documents]
-  );
+  // Derived real counts (no synthetic values)
+  const docs = React.useMemo(() => documentCounts(documents), [documents]);
+  const totalChunks = React.useMemo(() => documents.reduce((sum, d) => sum + (d.chunksCount || 0), 0), [documents]);
+  const claimsSummary = React.useMemo(() => claimBreakdown(metrics), [metrics]);
 
-  // Live Claim Counts
+  // Same metric fields as before (0 when metrics are unavailable) for the existing helpers/visuals.
   const totalClaims = metrics?.totalClaims ?? 0;
   const verifiedClaims = metrics?.verifiedClaims ?? 0;
   const recoveredClaims = metrics?.recoveredClaims ?? 0;
   const flaggedClaims = metrics?.flaggedClaims ?? 0;
 
-  // Deterministic Project Readiness & Copy
-  const readinessParams = React.useMemo(
-    () => ({
-      totalDocs: documents.length,
-      readyDocsCount: readyDocs.length,
-      processingDocsCount: processingDocs.length,
-      failedDocsCount: failedDocs.length,
-      flaggedClaimsCount: flaggedClaims,
-      totalChunks,
-      totalClaims,
-    }),
-    [documents.length, readyDocs.length, processingDocs.length, failedDocs.length, flaggedClaims, totalChunks, totalClaims]
-  );
-
   const readinessState = React.useMemo(
-    () => computeProjectReadiness(readinessParams),
-    [readinessParams]
-  );
-
-  const heroSummaryText = React.useMemo(
-    () => getHeroSummaryText(readinessState, readinessParams),
-    [readinessState, readinessParams]
+    () =>
+      computeProjectReadiness({
+        totalDocs: docs.total,
+        readyDocsCount: docs.ready,
+        processingDocsCount: docs.processing,
+        failedDocsCount: docs.failed,
+        flaggedClaimsCount: flaggedClaims,
+        totalChunks,
+        totalClaims,
+      }),
+    [docs, flaggedClaims, totalChunks, totalClaims]
   );
 
   const recommendedSteps = React.useMemo(
     () =>
       getSuggestedNextSteps({
-        totalDocs: documents.length,
-        readyDocsCount: readyDocs.length,
-        processingDocsCount: processingDocs.length,
-        failedDocsCount: failedDocs.length,
+        totalDocs: docs.total,
+        readyDocsCount: docs.ready,
+        processingDocsCount: docs.processing,
+        failedDocsCount: docs.failed,
         flaggedClaimsCount: flaggedClaims,
         conversationsCount: conversations.length,
         projectId,
       }),
-    [documents.length, readyDocs.length, processingDocs.length, failedDocs.length, flaggedClaims, conversations.length, projectId]
+    [docs, flaggedClaims, conversations.length, projectId]
   );
 
-  // Source Fingerprints (Deterministic Real Evidence Attribution)
-  const fingerprints = React.useMemo(() => {
-    return buildSourceFingerprints({
-      documents,
-      claims,
-      metrics,
-    });
-  }, [documents, claims, metrics]);
+  const activity = React.useMemo(
+    () => buildActivityFeed({ projectId, conversations, documents, claims, limit: 10 }),
+    [projectId, conversations, documents, claims]
+  );
+  const recentDocuments = React.useMemo(() => documentsByRecency(documents).slice(0, 6), [documents]);
+  // Same inputs the previous Source Fingerprint used; the calculation itself is unchanged.
+  const fingerprints = React.useMemo(
+    () => buildSourceFingerprints({ documents, claims, metrics: { totalClaims, verifiedClaims, recoveredClaims, flaggedClaims } }),
+    [documents, claims, totalClaims, verifiedClaims, recoveredClaims, flaggedClaims]
+  );
 
-  // Primary Hotspot derived from real claim concentration
-  const primaryHotspot = React.useMemo(() => {
-    let topRegion = null;
-    let maxReview = 0;
-    for (const fp of fingerprints) {
-      if (fp.hotspotRegion && fp.hotspotRegion.needsReviewCount > maxReview) {
-        maxReview = fp.hotspotRegion.needsReviewCount;
-        topRegion = fp.hotspotRegion;
-      }
-    }
-    return topRegion;
-  }, [fingerprints]);
-
-  // Loading Skeleton State (Smooth, zero layout shift)
+  // ------------------------------------------------------------------------------------------------------------
+  // Loading
+  // ------------------------------------------------------------------------------------------------------------
   if (isLoading) {
     return (
-      <div className="space-y-12 max-w-[1400px] w-full mx-auto py-2" aria-busy="true" aria-label="Loading project overview">
-        {/* Hero Canvas Skeleton */}
-        <div className="space-y-6 pt-1 pb-6">
-          <div className="space-y-3">
-            <Skeleton className="h-12 w-80" />
-            <Skeleton className="h-6 w-full max-w-2xl" />
+      <div className={`${PAGE} space-y-14 py-2`} aria-busy="true" aria-label="Loading project overview">
+        <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-14">
+          <div className="space-y-6 lg:col-span-7 lg:pt-2">
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-10 w-4/5" />
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full max-w-[34rem]" />
+              <Skeleton className="h-4 w-2/3 max-w-[24rem]" />
+            </div>
+            <Skeleton className="h-[74px] w-full rounded-none" />
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-32 rounded-md" />
+              <Skeleton className="h-9 w-36 rounded-md" />
+            </div>
           </div>
-          <div className="flex gap-4 pt-1">
-            <Skeleton className="h-11 w-36 rounded-lg" />
-            <Skeleton className="h-11 w-32 rounded-lg" />
-          </div>
-          <div className="pt-6">
-            <Skeleton className="h-44 w-full rounded-2xl" />
-          </div>
+          <Skeleton className="h-[340px] w-full rounded-2xl lg:col-span-5" />
         </div>
-
-        {/* Attention Narrative Skeleton */}
-        <Skeleton className="h-16 w-full rounded-lg" />
-
-        {/* Dual Grid Skeleton */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 pt-2">
-          <div className="lg:col-span-7 space-y-3">
-            <Skeleton className="h-6 w-48" />
-            <Skeleton className="h-14 w-full rounded-lg" />
-            <Skeleton className="h-14 w-full rounded-lg" />
-          </div>
-          <div className="lg:col-span-5 space-y-3">
-            <Skeleton className="h-6 w-44" />
-            <Skeleton className="h-14 w-full rounded-lg" />
-            <Skeleton className="h-14 w-full rounded-lg" />
-          </div>
-        </div>
-
-        {/* Recommendations Skeleton */}
-        <div className="space-y-3 pt-2">
-          <Skeleton className="h-6 w-52" />
-          <Skeleton className="h-16 w-full rounded-lg" />
-          <Skeleton className="h-16 w-full rounded-lg" />
+        <div className="space-y-3">
+          <Skeleton className="h-5 w-44" />
+          <Skeleton className="h-28 w-full rounded-lg" />
         </div>
       </div>
     );
   }
 
-  // Error State
+  // ------------------------------------------------------------------------------------------------------------
+  // Error
+  // ------------------------------------------------------------------------------------------------------------
   if (error || !project) {
     return (
-      <div className="p-8 rounded-xl border border-destructive/40 bg-card/60 text-center space-y-4 max-w-lg mx-auto my-12">
-        <div className="h-10 w-10 mx-auto rounded-full bg-destructive/10 text-destructive flex items-center justify-center">
-          <AlertCircle className="h-5 w-5" />
+      <div className="mx-auto my-16 max-w-md rounded-xl border border-border/70 bg-card/50 p-6 text-center" role="alert">
+        <div className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+          <AlertCircle className="h-4 w-4" />
         </div>
-        <div className="space-y-1">
-          <h2 className="text-base font-semibold text-foreground">Unable to load project</h2>
-          <p className="text-xs text-muted-foreground">{error || 'Project not found or access denied.'}</p>
-        </div>
-        <div className="flex justify-center gap-2 pt-2">
+        <h2 className="text-sm font-semibold text-foreground">Unable to load this project</h2>
+        <p className="mt-1 text-xs text-muted-foreground break-words">{error || 'Project not found or access denied.'}</p>
+        <div className="mt-5 flex justify-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchData} className="gap-1.5 text-xs">
             <RefreshCw className="h-3.5 w-3.5" />
-            <span>Retry</span>
+            Retry
           </Button>
           <Button size="sm" onClick={() => router.push('/projects')} className="text-xs">
-            Switch Project
+            Switch project
           </Button>
         </div>
       </div>
     );
   }
 
-  // =========================================================================
-  // STATE A: NO KNOWLEDGE (0 documents exist) — PRESERVED ONBOARDING EXPERIENCE
-  // =========================================================================
+  const hasDocs = documents.length > 0;
+  const identity = (
+    <div className="min-w-0 space-y-5">
+      <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+        <span>Project overview</span>
+        <span className="h-1 w-1 rounded-full bg-border" aria-hidden="true" />
+        {hasDocs ? (
+          <ReadinessPill state={readinessState} />
+        ) : (
+          <span className="rounded-full border border-border/80 px-2 py-0.5 text-[12px] text-foreground/85">New project</span>
+        )}
+      </div>
+      <h1
+        className="line-clamp-2 text-[30px] font-semibold leading-[1.06] tracking-[-0.035em] text-foreground [overflow-wrap:anywhere] sm:text-[38px] lg:text-[42px]"
+        title={project.name}
+      >
+        {project.name}
+      </h1>
+      <p className="max-w-[60ch] text-[15px] leading-relaxed text-muted-foreground sm:text-base">
+        {hasDocs ? (
+          <EmphasizedNumbers text={overviewSummary(docs, claimsSummary)} />
+        ) : (
+          project.description || 'A project keeps its documents, conversations and evidence isolated.'
+        )}
+      </p>
+      {hasDocs && project.description && (
+        <p className="max-w-[60ch] text-[13px] leading-relaxed text-muted-foreground/85 line-clamp-2">{project.description}</p>
+      )}
+    </div>
+  );
+
+  const actions = hasDocs ? (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button size="sm" onClick={() => router.push(`/projects/${projectId}/ask`)} className="h-9 gap-1.5 px-3.5 text-[13px]">
+        <MessageSquareCode className="h-4 w-4" />
+        Ask EVIDEX
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => router.push(`/projects/${projectId}/knowledge?upload=1`)}
+        className="h-9 gap-1.5 px-3 text-[13px]"
+      >
+        <UploadCloud className="h-4 w-4" />
+        Add documents
+      </Button>
+      {claimsSummary && claimsSummary.needsReview > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => router.push(`/projects/${projectId}/reliability`)}
+          className="h-9 gap-1.5 px-3 text-[13px] text-[hsl(var(--status-needs-review))] hover:text-[hsl(var(--status-needs-review))]"
+        >
+          Review {claimsSummary.needsReview.toLocaleString()} {claimsSummary.needsReview === 1 ? 'claim' : 'claims'}
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </div>
+  ) : (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="ghost" size="sm" onClick={() => setLearnModalOpen(true)} className="h-9 gap-1.5 text-[13px] text-muted-foreground">
+        <HelpCircle className="h-4 w-4" />
+        How EvideX AI works
+      </Button>
+    </div>
+  );
+
+  // ------------------------------------------------------------------------------------------------------------
+  // Empty project (no documents): onboarding
+  // ------------------------------------------------------------------------------------------------------------
   if (documents.length === 0) {
+    const steps = [
+      {
+        icon: FileText,
+        title: 'Add your knowledge',
+        body: 'Upload PDFs such as manuals, filings or policies. Passages are indexed for project-scoped retrieval.',
+        current: true,
+      },
+      {
+        icon: MessageSquareCode,
+        title: 'Ask a grounded question',
+        body: 'Ask in natural language. Each claim in the answer is checked against the retrieved passages.',
+        current: false,
+      },
+      {
+        icon: ShieldCheck,
+        title: 'Inspect the evidence',
+        body: 'Open cited passages, see each claim’s verification result, and review anything left unresolved.',
+        current: false,
+      },
+    ];
     return (
-      <div className="space-y-8 max-w-4xl mx-auto py-2">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-border/60">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                {project.name}
-              </h1>
-              <Badge variant="outline" className="text-[10px] font-mono py-0.5 px-2 text-primary border-primary/30">
-                New Project
-              </Badge>
-            </div>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              {project.description || 'A project keeps its documents, conversations and evidence isolated.'}
-            </p>
-          </div>
+      <div className={`${PAGE} space-y-8 py-1`}>
+        <Reveal className="space-y-4">
+          {identity}
+          {actions}
+        </Reveal>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setLearnModalOpen(true)}
-            className="text-xs gap-1.5 self-start sm:self-center shrink-0"
-          >
-            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
-            <span>How EvideX AI works</span>
-          </Button>
-        </div>
-
-        {/* Onboarding Guide Card */}
-        <div className="rounded-xl border border-border/80 bg-card/40 p-6 sm:p-8 space-y-8 shadow-xs">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium">
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>Project created successfully</span>
-            </div>
-            <h2 className="text-lg font-semibold text-foreground tracking-tight">
-              Ready to establish your verified knowledge base
-            </h2>
-            <p className="text-xs sm:text-sm text-muted-foreground max-w-xl leading-relaxed">
-              EvideX AI isolates this workspace so evidence, citations, and conversation history
-              never bleed across projects. Follow three steps to get started.
-            </p>
-          </div>
-
-          {/* 3 Step Progression */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Step 1 */}
-            <div className="p-4 rounded-lg border border-border/80 bg-background/60 space-y-2.5 relative">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary">
-                  Step 1
-                </span>
-                <FileText className="h-4 w-4 text-primary" />
+        <Reveal delay={0.05}>
+          <section aria-label="Get started" className="rounded-xl border border-border/70 bg-card/40">
+            <ol className="grid grid-cols-1 gap-px overflow-hidden rounded-xl bg-border/60 md:grid-cols-3">
+              {steps.map((s, i) => (
+                <li key={s.title} className="bg-card p-5">
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={
+                        s.current
+                          ? 'font-mono text-[11px] uppercase tracking-wider text-foreground'
+                          : 'font-mono text-[11px] uppercase tracking-wider text-muted-foreground'
+                      }
+                    >
+                      Step {i + 1}
+                    </span>
+                    <s.icon className={s.current ? 'h-4 w-4 text-foreground' : 'h-4 w-4 text-muted-foreground/70'} />
+                  </div>
+                  <h3 className={s.current ? 'mt-3 text-sm font-medium text-foreground' : 'mt-3 text-sm text-foreground/80'}>{s.title}</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.body}</p>
+                </li>
+              ))}
+            </ol>
+            <div className="flex flex-col gap-3 border-t border-border/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">Begin with your source documents</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Documents, activity and verification results appear here once uploaded.</p>
               </div>
-              <h3 className="text-xs font-semibold text-foreground">Add your knowledge</h3>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Upload domain PDFs, SEC filings, or policy manuals. Passages are indexed for project-scoped retrieval.
-              </p>
+              <Button onClick={() => router.push(`/projects/${projectId}/knowledge`)} className="h-9 shrink-0 gap-2 text-xs">
+                <UploadCloud className="h-3.5 w-3.5" />
+                Go to Knowledge Base
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Button>
             </div>
+          </section>
+        </Reveal>
 
-            {/* Step 2 */}
-            <div className="p-4 rounded-lg border border-border/60 bg-background/30 space-y-2.5 opacity-85">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                  Step 2
-                </span>
-                <MessageSquareCode className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <h3 className="text-xs font-semibold text-foreground">Ask a grounded question</h3>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Query in natural language. Every assertion generated is bound to retrieved passages with strict cross-encoder NLI verification.
-              </p>
-            </div>
-
-            {/* Step 3 */}
-            <div className="p-4 rounded-lg border border-border/60 bg-background/30 space-y-2.5 opacity-85">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                  Step 3
-                </span>
-                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <h3 className="text-xs font-semibold text-foreground">Inspect & audit evidence</h3>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Review cited chunks, inspect claim entailment labels, and see contradictions intercepted before delivery.
-              </p>
-            </div>
-          </div>
-
-          {/* Primary Action Banner */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-lg bg-accent/40 border border-border/70">
-            <div className="space-y-0.5">
-              <span className="text-xs font-semibold text-foreground block">
-                Begin with your source documents
-              </span>
-              <span className="text-[11px] text-muted-foreground block">
-                Knowledge documents will appear in this overview once uploaded.
-              </span>
-            </div>
-            <Button
-              onClick={() => router.push(`/projects/${projectId}/knowledge`)}
-              className="gap-2 text-xs h-9 px-4 shrink-0"
-            >
-              <UploadCloud className="h-3.5 w-3.5" />
-              <span>Go to Knowledge Base</span>
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Learn How It Works Dialog */}
         <Dialog open={learnModalOpen} onOpenChange={setLearnModalOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-base font-semibold">How EvideX AI Works</DialogTitle>
+              <DialogTitle className="text-base font-semibold">How EvideX AI works</DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
-                Strict factual grounding architecture with autonomous recovery.
+                Answers are grounded in your project’s documents and checked claim by claim.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3.5 py-3 text-xs text-muted-foreground leading-relaxed">
-              <div className="p-3 rounded-md border border-border/60 bg-accent/30 space-y-1">
-                <span className="font-semibold text-foreground block">1. Project-Scoped Access Boundary</span>
-                <p>
-                  Documents and embeddings are partitioned by your project ID, preventing cross-project data leakage.
-                </p>
-              </div>
-              <div className="p-3 rounded-md border border-border/60 bg-accent/30 space-y-1">
-                <span className="font-semibold text-foreground block">2. DeBERTa-v3 Cross-Encoder Rail</span>
-                <p>
-                  Every individual sentence in an answer is parsed into a factual claim and verified against retrieved
-                  evidence using Natural Language Inference.
-                </p>
-              </div>
-              <div className="p-3 rounded-md border border-border/60 bg-accent/30 space-y-1">
-                <span className="font-semibold text-foreground block">3. Autonomous Recovery Rail</span>
-                <p>
-                  If a generated assertion is contradicted or neutral, EvideX AI re-queries the passage index to repair
-                  the claim before presenting it to you.
-                </p>
-              </div>
-            </div>
+            <ol className="divide-y divide-border/60 rounded-lg border border-border/60 text-xs leading-relaxed text-muted-foreground">
+              <li className="p-3">
+                <span className="block font-medium text-foreground">1. Project-scoped evidence</span>
+                Documents and embeddings are partitioned by project, so evidence never crosses projects.
+              </li>
+              <li className="p-3">
+                <span className="block font-medium text-foreground">2. Claim-level verification</span>
+                Each answer is split into factual claims, and every claim is checked against its retrieved evidence with
+                a natural-language-inference model.
+              </li>
+              <li className="p-3">
+                <span className="block font-medium text-foreground">3. Bounded recovery</span>
+                Claims that are contradicted or unsupported are re-checked against additional evidence. Claims that
+                still can’t be supported stay marked for review.
+              </li>
+            </ol>
           </DialogContent>
         </Dialog>
       </div>
     );
   }
 
-  // =========================================================================
-  // STATE B: POPULATED PROJECT — THE LIVING KNOWLEDGE PORTRAIT
-  // Narrative Sequence:
-  // 1. This is your project (ProjectPulseHero with Evidence Lineage)
-  // 2. Here is what EVIDEX understands about it (WhatEvidexSees Constellation)
-  // 3. Here is how trustworthy that knowledge is (TrustLandscape Terrain Strip)
-  // 4. Here is what stands out (EvidenceSignals Observations)
-  // 5. Here is where you left off & Knowledge origin (60 / 40 Intentional Asymmetry)
-  // 6. Here is what matters next (WhatMattersNext Decisions)
-  // 7. Quiet Trust Footer
-  // =========================================================================
-  // =========================================================================
-  // STATE B: POPULATED PROJECT — THE EVIDENCE OBSERVATORY
-  // Narrative Story:
-  // 1. PROJECT IDENTITY & HERO
-  // 2. EVIDENCE LINEAGE (Transformation: How knowledge became trust)
-  // 3. PROJECT BRIEF (Deterministic factual editorial summary)
-  // 4. SOURCE FINGERPRINT (Localization: Where trust lives inside source material)
-  // 5. CONTINUE WHERE YOU LEFT OFF & RECENT KNOWLEDGE (Working threads & navigation)
-  // 6. WHAT MATTERS NEXT (Max 3 state-aware next actions)
-  // 7. QUIET TRUST FOOTER
-  // =========================================================================
+  // ------------------------------------------------------------------------------------------------------------
+  // Populated project
+  // ------------------------------------------------------------------------------------------------------------
   return (
-    <div className="space-y-8 max-w-[1400px] w-full mx-auto py-2">
-      {/* 1. Project Hero + 2. Evidence Lineage (Top Signature Visual) */}
-      <ProjectPulseHero
-        projectId={projectId}
-        projectName={project.name}
-        readinessState={readinessState}
-        summaryText={heroSummaryText}
-        totalDocs={documents.length}
-        readyDocsCount={readyDocs.length}
-        processingDocsCount={processingDocs.length}
-        failedDocsCount={failedDocs.length}
-        totalChunks={totalChunks}
-        totalClaims={totalClaims}
-        verifiedClaims={verifiedClaims}
-        recoveredClaims={recoveredClaims}
-        flaggedClaims={flaggedClaims}
-      />
-
-      {/* Subtle Visual Connector: Lineage (Transformation) -> Fingerprint (Localization) */}
-      <div className="flex items-center justify-between px-2 text-[10px] font-mono text-muted-foreground/40 tracking-widest uppercase select-none">
-        <div className="flex items-center gap-2">
-          <span className="h-1 w-1 rounded-full bg-border" />
-          <span>EVIDENCE TRANSFORMATION: HOW KNOWLEDGE BECAME TRUST</span>
+    <div className={`${PAGE} space-y-14 py-2`}>
+      <Reveal className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12 lg:gap-14">
+        <div className="min-w-0 space-y-7 lg:col-span-7 lg:pt-2">
+          {identity}
+          <ProjectFacts totalChunks={totalChunks} metrics={metrics} conversationsCount={conversations.length} />
+          {actions}
         </div>
-        <div className="flex items-center gap-2">
-          <span>SOURCE LOCALIZATION: WHERE TRUST LIVES</span>
-          <span className="h-1 w-1 rounded-full bg-border" />
+        <div className="min-w-0 lg:col-span-5">
+          <EvidenceStatusPanel projectId={projectId} docs={docs} claims={claimsSummary} onRetry={fetchData} />
         </div>
-      </div>
+      </Reveal>
 
-      {/* 3. Project Brief (Deterministic Factual Editorial Summary - 0 LLM Calls) */}
-      <ProjectBrief
-        totalDocs={documents.length}
-        readyDocsCount={readyDocs.length}
-        totalChunks={totalChunks}
-        totalClaims={totalClaims}
-        verifiedClaims={verifiedClaims}
-        recoveredClaims={recoveredClaims}
-        flaggedClaims={flaggedClaims}
-        hotspotLabel={primaryHotspot?.label || null}
-      />
+      <Reveal delay={0.06}>
+        <EvidenceLandscape
+          fingerprints={fingerprints}
+          projectId={projectId}
+          loadedClaims={claims.length}
+          totalClaims={claimsSummary ? claimsSummary.total : null}
+        />
+      </Reveal>
 
-      {/* 4. Source Fingerprint (Second Signature Visual Surface) */}
-      <SourceFingerprint
-        projectId={projectId}
-        documents={documents}
-        claims={claims}
-        totalClaims={totalClaims}
-        verifiedClaims={verifiedClaims}
-        recoveredClaims={recoveredClaims}
-        flaggedClaims={flaggedClaims}
-      />
-
-      {/* 5. Continue Where You Left Off + Recent Knowledge */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start pt-1">
-        <div className="lg:col-span-7">
-          <ContinueWorking
-            projectId={projectId}
-            conversations={conversations}
-          />
+      <Reveal delay={0.1} className="grid grid-cols-1 items-start gap-12 lg:grid-cols-12 lg:gap-14">
+        <div className="min-w-0 lg:col-span-7">
+          <ResearchTimeline items={activity} projectId={projectId} />
         </div>
-        <div className="lg:col-span-5">
-          <KnowledgeOrigin
-            projectId={projectId}
-            documents={documents}
-            totalChunks={totalChunks}
-          />
+        <div className="min-w-0 space-y-12 lg:col-span-5">
+          <SourceList documents={recentDocuments} projectId={projectId} docs={docs} />
+          <WhatMattersNext steps={recommendedSteps} />
         </div>
-      </div>
+      </Reveal>
 
-      {/* 6. What Matters Next (Max 3 state-aware decisions) */}
-      <WhatMattersNext steps={recommendedSteps} />
-
-      {/* 7. Quiet Trust Footer */}
       <QuietTrustFooter projectId={projectId} />
     </div>
   );
